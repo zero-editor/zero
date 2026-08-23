@@ -338,33 +338,51 @@ body.dragging-tab .editor-tab * {
   color: var(--text);
 }
 
-/* first in the cluster, so it appears to the left of the ＋ and the gear and
-   pushes neither: the whole row is anchored by its right edge */
+/* First in the cluster, so it sits to the left of the ＋ and the gear and
+   pushes neither: the whole row is anchored by its right edge.
+
+   Drawn as one of them rather than as a notice. The ＋, the gear and the lock
+   are all a faint mark that comes up to full text under the pointer, over a
+   background that only appears on hover — this is that, with a word beside
+   the mark. An update that is already downloaded is not an alert, and a pill
+   in a permanent colour two buttons from the ＋ reads as one. */
 .titlebar-update {
-  padding: 3px 9px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
   border-radius: 5px;
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-faint);
-  background: var(--bg-hover, rgb(255 255 255 / 6%));
   white-space: nowrap;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+.titlebar-update svg {
+  display: block;
 }
 
 .titlebar-update:hover {
   color: var(--text);
+  background: var(--bg-hover);
 }
 
 /* a check running, from the menu item — the same pill saying what it is doing
    rather than offering anything, so it doesn't take the hover the version
    does */
-.titlebar-update.waiting {
+.titlebar-update.waiting,
+.titlebar-update.waiting:hover {
   color: var(--text-faint);
+  background: none;
   cursor: default;
 }
 
-/* armed: the next click restarts, so it stops looking like the rest of the
-   bar. Amber rather than red — this is a choice being confirmed, not damage
-   being reported */
-.titlebar-update.armed {
-  color: #1c1c1c;
-  background: #e2b341;
+/* the click itself — the pill takes the accent for the instant between the
+   press and the window going, so the click is seen to have landed */
+.titlebar-update:active {
+  color: var(--bg);
+  background: var(--accent);
 }

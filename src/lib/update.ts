@@ -10,10 +10,10 @@ import { message } from "@tauri-apps/plugin-dialog";
  *
  * The fetch is automatic and silent: by the time anything appears in the
  * titlebar the new version is already on disk, so the button is a restart and
- * not a download. The restart is never automatic, because restarting zero
- * closes every terminal in it and a terminal here may be holding a Claude
- * session mid-task. That is a thing to be asked about, not told about, which
- * is why nothing in this file calls relaunch() on its own.
+ * not a download. The restart is never automatic — the shells survive it now
+ * that the daemon holds them, but the window someone is working in is still
+ * theirs to interrupt — which is why nothing in this file calls relaunch() on
+ * its own.
  *
  * A failed check is not worth a word to anyone. Offline is the usual reason,
  * and the app's own version is not news the user is waiting on.

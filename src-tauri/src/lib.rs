@@ -10,6 +10,7 @@ mod ptyd;
 mod recents;
 mod search;
 mod traffic_lights;
+mod window_state;
 
 use pty::PtyManager;
 
@@ -143,6 +144,20 @@ pub fn run() {
                             Err(e) => println!("[fps] still clamped to 60: {e}"),
                         }
                     });
+
+                    // A relaunched copy is spawned by the copy that is
+                    // exiting, which is not a launch macOS gives the front of
+                    // the stack to: without this the new zero comes up behind
+                    // every other app, which is exactly the moment — right
+                    // after you asked it to restart — when it is being looked
+                    // for. Done before the window is put back, since entering
+                    // fullscreen wants an active window.
+                    let _ = window.set_focus();
+                    // and put back where the last one was left, fullscreen
+                    // included. See window_state.rs for why this isn't saved
+                    // at exit.
+                    window_state::restore(&window);
+                    window_state::watch(&window);
 
                     // The traffic lights go on the bar's axis before the
                     // window is on screen, at the height the bar has at zoom

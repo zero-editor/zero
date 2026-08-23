@@ -96,15 +96,6 @@ export function Titlebar({
   }, [zoom]);
 
   const { ready, busy, restart } = useUpdate();
-  const [armed, setArmed] = useState(false);
-  // every claude the restart would take with it, working or waiting — the
-  // status poll already knows, so this costs nothing extra
-  const live = Object.values(claude).reduce((n, c) => n + c.working + c.done, 0);
-  useEffect(() => {
-    if (!armed) return;
-    const t = window.setTimeout(() => setArmed(false), 5000);
-    return () => window.clearTimeout(t);
-  }, [armed]);
 
   return (
     <div className="titlebar" ref={barRef} data-tauri-drag-region>
@@ -223,13 +214,16 @@ export function Titlebar({
           other, so they sit in a row and the ＋ can't land on the update pill
           the way two separately pinned buttons could. */}
       <div className="titlebar-right">
-        {/* Once there's a version here it says restart and not update — the
-          wait is over by the time you see it. Clicking arms rather than
-          fires: restarting closes every terminal in the window, and a
-          terminal here can be holding a Claude session mid-task, so the
-          second click is the one that agrees to that and the count is what it
-          costs. It disarms itself, because a button that stays armed is one
-          an unrelated click lands on later.
+        {/* Once there's a version here the wait is already over — the pill
+          is a restart and not a download. It looks like the buttons beside
+          it and not like an alert, because that is what it is: the update is
+          on disk either way, and the only thing being asked is when.
+
+          One click, and it restarts. It used to arm and want a second, back
+          when a restart closed every terminal in the window; the daemon holds
+          those now, so the click costs a relaunch and nothing else, and a
+          button that has to be pressed twice to do one thing is a button that
+          reads as broken the first time.
 
           Before that it is only ever here for a check someone asked for from
           zero → Check for Updates…, where it is the running commentary a menu
@@ -237,24 +231,28 @@ export function Titlebar({
           nothing here at all. */}
         {(ready || busy) && (
           <button
-            className={`titlebar-update ${armed ? "armed" : ""} ${ready ? "" : "waiting"}`}
+            className={`titlebar-update ${ready ? "" : "waiting"}`}
             disabled={!ready}
-            title={
-              ready
-                ? `zero ${ready} is downloaded — restart to run it`
-                : "checking for a newer zero"
-            }
-            onClick={() => (armed ? void restart() : setArmed(true))}
+            title={ready ? `restart into zero ${ready}` : "checking for a newer zero"}
+            onClick={() => void restart()}
           >
-            {!ready
-              ? busy === "downloading"
-                ? "downloading…"
-                : "checking…"
-              : !armed
-                ? `update ${ready}`
-                : live === 0
-                  ? "restart now"
-                  : `restart — ${live} claude ${live === 1 ? "session" : "sessions"} will close`}
+            {ready && (
+              /* an arrow into a tray: the same drawn-not-glyph mark as the
+                 tab ✕, at the weight the lock and the ＋ are drawn in */
+              <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M6 1.5 L6 7.5 M3.4 5.1 L6 7.7 L8.6 5.1 M2 9.6 L10 9.6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+            <span>
+              {!ready ? (busy === "downloading" ? "downloading…" : "checking…") : ready}
+            </span>
           </button>
         )}
         {/* The layout lock. On, the furniture is fixed: grab pills never arm
