@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * In-app updates, in two halves that are deliberately far apart in time.
@@ -24,12 +25,24 @@ import { message } from "@tauri-apps/plugin-dialog";
  * that leave nothing on screen are worth a dialog: finding one puts the pill
  * in the titlebar, and a modal saying the same thing would be one more click
  * for no news. The states in between are the pill's job too (`busy`), and only
- * while someone is waiting on them — the six-hourly check flashing "checking…"
+ * while someone is waiting on them — the background check flashing "checking…"
  * at nobody is exactly the noise the silent half exists to avoid.
  */
 
-/** how often to look, once the first check has been and gone */
-const EVERY_MS = 6 * 60 * 60 * 1000;
+/**
+ * How often to look, once the first check has been and gone.
+ *
+ * A look is one small GET of `latest.json` off GitHub's CDN, unauthenticated,
+ * so what this number buys is how long a release sits unnoticed rather than
+ * anything it costs. It was six hours, which is most of a working day for a
+ * change already built and waiting.
+ */
+const EVERY_MS = 30 * 60 * 1000;
+
+/** The floor under a look prompted by coming back to the window. Focus flips
+ *  every time you leave for a browser and return, and the answer does not
+ *  change on that scale; this is what keeps a timer out of a rhythm. */
+const FOCUS_MIN_MS = 5 * 60 * 1000;
 
 /** what a look ended in, for the caller who asked for it */
 type Outcome =
@@ -72,9 +85,12 @@ export function useUpdate(): UpdateState {
   const staged = useRef<Update | null>(null);
   const inflight = useRef<Promise<Outcome> | null>(null);
   const live = useRef(true);
+  /** when a look last reached the network, so returning to the window can ask
+   *  whether one is worth making */
+  const looked = useRef(0);
 
   /**
-   * One look, shared. Two callers overlapping — the six-hourly poll and the
+   * One look, shared. Two callers overlapping — the background poll and the
    * menu item, on the same second — get the same promise and the same answer
    * rather than two checks racing to stage two bundles over each other.
    *
@@ -111,6 +127,7 @@ export function useUpdate(): UpdateState {
           }
         }
       };
+      looked.current = Date.now();
       inflight.current = run();
     }
     return inflight.current;
@@ -120,9 +137,22 @@ export function useUpdate(): UpdateState {
     live.current = true;
     void look(false);
     const iv = window.setInterval(() => void look(false), EVERY_MS);
+
+    // Coming back to the window is when a stale answer is most visible and the
+    // cheapest to correct: the release went out while zero was behind a
+    // browser, and the timer's next tick may be half an hour off. Tauri's event
+    // rather than the DOM's `focus`, which is also every field in the app
+    // taking the caret.
+    const stop = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (!focused) return;
+      if (Date.now() - looked.current < FOCUS_MIN_MS) return;
+      void look(false);
+    });
+
     return () => {
       live.current = false;
       window.clearInterval(iv);
+      stop.then((off) => off()).catch(() => {});
     };
   }, [look]);
 

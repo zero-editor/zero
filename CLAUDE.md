@@ -91,10 +91,18 @@ gets missed is assuming it still is.
 ## Updating in place — the release has a second audience
 
 An installed copy checks
-`/releases/latest/download/latest.json` on launch and every six hours, and if
-there's a newer version it downloads and stages it silently. What appears in
-the titlebar is a restart, not a download — the waiting is already over by the
-time anyone sees it. `src/lib/update.ts` is the whole of the frontend half.
+`/releases/latest/download/latest.json` on launch, every half hour, and on
+coming back to the window after five minutes away — and if there's a newer
+version it downloads and stages it silently. What appears in the titlebar is a
+restart, not a download — the waiting is already over by the time anyone sees
+it. `src/lib/update.ts` is the whole of the frontend half.
+
+Those intervals are about *lag*, not cost: a check is one unauthenticated GET
+of a few hundred bytes off GitHub's CDN, so shortening them is free and the
+only thing they buy is how long a release sits unseen. There is nothing to push
+with — everything zero ships is a static file on GitHub — so a server would
+have to exist before "notify on publish" could, and the poll would stay as its
+fallback anyway.
 
 The restart is never automatic, and that is the point rather than an
 omission. Restarting zero closes every terminal in it, and a terminal here may
