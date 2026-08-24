@@ -522,14 +522,99 @@ fn reaper(sessions: Arc<Sessions>, detached: Arc<Detached>, socket: std::path::P
 
 // ── starting a shell, or handing back the one already running ────────────────
 
-/// How much history the headless screen keeps behind the visible rows.
+/// How much history the headless screen keeps behind the visible rows, and so
+/// how far back a reattached pane can scroll.
 ///
-/// Zero, deliberately: `state_formatted` reproduces the *visible* screen, so
-/// scrollback would be memory paid for on every session and replayed to
-/// nobody. Handing back history too means walking `set_scrollback` and
-/// emitting those rows ahead of the screen, and that is a change to this
-/// constant and the replay below — not to anything around them.
-const SCROLLBACK: usize = 0;
+/// It was zero until people restarted with Claude open and found the
+/// conversation gone: `state_formatted` reproduces the *visible* screen, and
+/// with nothing held behind it the pane came back as one screenful with an
+/// empty buffer above — nothing broken about scrolling, nothing to scroll to.
+///
+/// The cost is a row of `vt100::Cell` per line, 32 bytes a cell, allocated
+/// only as lines actually scroll off: about 7 MB for a session that fills
+/// this at 120 columns, and nothing at all for a shell sitting at a prompt.
+/// The frontend keeps 10000 rows per pane in xterm already, which is the
+/// larger of the two and the reason this one doesn't need to match it.
+const SCROLLBACK: usize = 2000;
+
+/// The bytes that put a reattaching pane back the way it was, history first.
+///
+/// Three pieces, in this order and each for a reason:
+///
+/// - **The scrollback, printed as ordinary lines.** Not restored as history —
+///   there is no escape sequence for "here is what scrolled off" — but printed
+///   the way the shell first printed it, so the receiving terminal scrolls it
+///   off into its own buffer itself. Only row 0 of each position is taken:
+///   within one row the formatter's moves are relative (a column advance, an
+///   erase to end of line), so a row is safe to print as a line, while a
+///   screenful at once would carry absolute cursor positions that mean
+///   nothing in a stream.
+/// - **`rows - 1` newlines.** The lines just printed that are still on the
+///   visible screen are about to be painted over by the screen state, not
+///   scrolled — so they have to be pushed up first, or the newest screenful of
+///   history is the one part lost. One too few loses a line; one too many puts
+///   a blank row in the history.
+/// - **The screen itself**, exactly as before.
+///
+/// On the alternate screen there is no history to hand back — vt100 gives that
+/// grid no scrollback — so a TUI session skips to the third piece and gets
+/// what it always got.
+fn replay(parser: &mut vt100::Parser, cols: u16, rows: u16) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    // `set_scrollback` clamps to what is actually held and `scrollback` reads
+    // the offset back, so asking for more than could exist is how you find out
+    // how much there is.
+    parser.screen_mut().set_scrollback(usize::MAX);
+    let held = parser.screen().scrollback();
+
+    if held > 0 {
+        // A no-op on the freshly mounted pane this is written for, and here so
+        // that what follows is true of any screen rather than only that one.
+        out.extend_from_slice(b"\x1b[H\x1b[J");
+
+        // At offset k the top visible row is the k-th from the end of the
+        // history, so counting k down walks it oldest to newest.
+        for k in (1..=held).rev() {
+            parser.screen_mut().set_scrollback(k);
+            if let Some(row) = parser.screen().rows_formatted(0, cols).next() {
+                out.extend_from_slice(&row);
+            }
+            // Each row is formatted as a diff from *default* attributes, so
+            // the row before it has to leave them that way — otherwise one
+            // line ending mid-colour tints everything under it. It also keeps
+            // the colour out of the blank line the scroll inserts.
+            out.extend_from_slice(b"\x1b[m\r\n");
+        }
+
+        for _ in 1..rows {
+            out.extend_from_slice(b"\r\n");
+        }
+    }
+
+    // Back to the live screen before reading it: `state_formatted` renders
+    // whatever the offset above is pointing at.
+    parser.screen_mut().set_scrollback(0);
+
+    // `state_formatted` restores the cursor keys, the keypad, bracketed
+    // paste and the mouse protocol — but not the alternate screen, which
+    // vt100 tracks and simply never emits. Without this prefix a TUI's
+    // last frame is painted onto the *normal* screen of the terminal
+    // reattaching: it looks right, and then the TUI exits, `?1049l`
+    // restores a normal screen that was never saved, and the frame it
+    // drew is left behind in the scrollback instead of disappearing.
+    //
+    // Claude Code lives on the alternate screen, so this line is the
+    // difference between reattaching to a Claude session and reattaching
+    // to a picture of one. The receiving terminal is always freshly
+    // mounted and therefore on the normal screen, so there is no matching
+    // `?1049l` to emit for the other case.
+    if parser.screen().alternate_screen() {
+        out.extend_from_slice(b"\x1b[?1049h");
+    }
+    out.extend_from_slice(&parser.screen().state_formatted());
+    out
+}
 
 /// Phase 2 in one function.
 ///
@@ -597,26 +682,8 @@ fn spawn_or_attach(
         // as live output, never both. Safe to hold because `send` only queues.
         let mut parser = lock(&parser);
         parser.screen_mut().set_size(rows, cols);
-
-        // `state_formatted` restores the cursor keys, the keypad, bracketed
-        // paste and the mouse protocol — but not the alternate screen, which
-        // vt100 tracks and simply never emits. Without this prefix a TUI's
-        // last frame is painted onto the *normal* screen of the terminal
-        // reattaching: it looks right, and then the TUI exits, `?1049l`
-        // restores a normal screen that was never saved, and the frame it
-        // drew is left behind in the scrollback instead of disappearing.
-        //
-        // Claude Code lives on the alternate screen, so this line is the
-        // difference between reattaching to a Claude session and reattaching
-        // to a picture of one. The receiving terminal is always freshly
-        // mounted and therefore on the normal screen, so there is no matching
-        // `?1049l` to emit for the other case.
-        let mut replay = Vec::new();
-        if parser.screen().alternate_screen() {
-            replay.extend_from_slice(b"\x1b[?1049h");
-        }
-        replay.extend_from_slice(&parser.screen().state_formatted());
-        out.send(proto::D_OUTPUT, &proto::encode_bytes(&id, &replay));
+        let bytes = replay(&mut parser, cols, rows);
+        out.send(proto::D_OUTPUT, &proto::encode_bytes(&id, &bytes));
         return Ok(true);
     }
 
@@ -1049,6 +1116,99 @@ mod tests {
 
     fn feed(scanner: &mut TitleScanner, s: &str) -> Option<u8> {
         scanner.feed(s.as_bytes())
+    }
+
+    // ── the replay a reattaching pane is handed ──────────────────────────────
+
+    const ROWS: u16 = 5;
+    const COLS: u16 = 20;
+
+    /// The visible screen, and the history behind it, as plain text — the two
+    /// things a reattach has to reproduce.
+    fn screen_and_history(parser: &mut vt100::Parser) -> (Vec<String>, Vec<String>) {
+        let visible = parser.screen().rows(0, COLS).collect();
+        parser.screen_mut().set_scrollback(usize::MAX);
+        let held = parser.screen().scrollback();
+        let mut history = Vec::new();
+        for k in (1..=held).rev() {
+            parser.screen_mut().set_scrollback(k);
+            history.push(parser.screen().rows(0, COLS).next().unwrap());
+        }
+        parser.screen_mut().set_scrollback(0);
+        (visible, history)
+    }
+
+    /// What the pane on the other end makes of the bytes: a terminal of the
+    /// same shape, with a scrollback of its own to catch what scrolls off.
+    fn reattach(bytes: &[u8]) -> vt100::Parser {
+        let mut parser = vt100::Parser::new(ROWS, COLS, SCROLLBACK);
+        parser.process(bytes);
+        parser
+    }
+
+    #[test]
+    fn reattach_carries_the_scrollback() {
+        let mut source = vt100::Parser::new(ROWS, COLS, SCROLLBACK);
+        for i in 1..=12 {
+            source.process(format!("line {i}\r\n").as_bytes());
+        }
+        source.process(b"prompt$ ");
+
+        let bytes = replay(&mut source, COLS, ROWS);
+        let mut reattached = reattach(&bytes);
+
+        assert_eq!(
+            screen_and_history(&mut reattached),
+            screen_and_history(&mut source)
+        );
+        let (visible, history) = screen_and_history(&mut reattached);
+        // the boundary the newline padding exists for: the newest line that
+        // scrolled off is history, not something the screen state painted over
+        assert_eq!(history.last().unwrap(), "line 8");
+        assert_eq!(visible[4], "prompt$ ");
+    }
+
+    #[test]
+    fn history_shorter_than_the_screen_is_not_padded_with_blanks() {
+        let mut source = vt100::Parser::new(ROWS, COLS, SCROLLBACK);
+        for i in 1..=6 {
+            source.process(format!("line {i}\r\n").as_bytes());
+        }
+        let bytes = replay(&mut source, COLS, ROWS);
+        let (_, history) = screen_and_history(&mut reattach(&bytes));
+        assert_eq!(history, vec!["line 1", "line 2"]);
+    }
+
+    #[test]
+    fn colour_does_not_bleed_down_the_history() {
+        let mut source = vt100::Parser::new(ROWS, COLS, SCROLLBACK);
+        source.process(b"\x1b[31mred\x1b[m\r\n");
+        for i in 1..=8 {
+            source.process(format!("line {i}\r\n").as_bytes());
+        }
+        let bytes = replay(&mut source, COLS, ROWS);
+        let mut reattached = reattach(&bytes);
+
+        reattached.screen_mut().set_scrollback(usize::MAX);
+        let top = reattached.screen();
+        assert_eq!(top.rows(0, COLS).next().unwrap(), "red");
+        assert_eq!(top.cell(0, 0).unwrap().fgcolor(), vt100::Color::Idx(1));
+        assert_eq!(top.cell(1, 0).unwrap().fgcolor(), vt100::Color::Default);
+    }
+
+    #[test]
+    fn an_alternate_screen_session_replays_only_its_screen() {
+        let mut source = vt100::Parser::new(ROWS, COLS, SCROLLBACK);
+        for i in 1..=8 {
+            source.process(format!("line {i}\r\n").as_bytes());
+        }
+        source.process(b"\x1b[?1049hTUI");
+
+        let bytes = replay(&mut source, COLS, ROWS);
+        assert!(bytes.starts_with(b"\x1b[?1049h"));
+        let (visible, history) = screen_and_history(&mut reattach(&bytes));
+        assert_eq!(visible[0], "TUI");
+        assert!(history.is_empty());
     }
 
     #[test]

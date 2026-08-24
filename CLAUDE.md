@@ -280,9 +280,18 @@ process table ended that, and the way it announced itself was six live
 terminals in the installed app dying during a test run. To exercise a kill
 path, signal a fixture daemon by pid.
 
+**Reattaching replays history too, and it is printed rather than restored.**
+There is no escape sequence for "here is what scrolled off", so `replay` prints
+the daemon's scrollback as ordinary lines and lets the receiving terminal
+scroll them off into its own buffer — then `rows - 1` newlines, because
+whatever those lines left on the visible screen is about to be painted over by
+the screen state rather than scrolled, and without them the newest screenful of
+history is the one part lost. `SCROLLBACK` is what bounds it: 2000 rows, about
+7 MB for a session that fills it at 120 columns and a 160 KB replay, allocated
+only as lines actually scroll off.
+
 **What is not built yet:** a cross-project sessions overlay and live-session
-dots on the Launcher — the visibility half. And scrollback above the visible
-screen is not preserved across a restart (`SCROLLBACK = 0`).
+dots on the Launcher — the visibility half.
 
 ## Building and installing locally
 
