@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { View } from "./Workspace";
 import { DiffView } from "./DiffView";
+import { ImageDiffView } from "./ImageDiffView";
 import { FileView } from "./FileView";
 import { ImageView } from "./ImageView";
 import { MemoThread } from "./MemoThread";
@@ -334,13 +335,25 @@ export function EditorPane({
               style={{ display: i === activeView ? "block" : "none" }}
             >
               {v.kind === "diff" ? (
-                <DiffView
-                  worktree={v.worktree}
-                  relPath={v.relPath}
-                  staged={v.staged}
-                  from={v.from}
-                  visible={i === activeView}
-                />
+                // a picture's diff is two pictures; the merge view would show
+                // you its bytes as characters
+                isImage(v.relPath) ? (
+                  <ImageDiffView
+                    worktree={v.worktree}
+                    relPath={v.relPath}
+                    staged={v.staged}
+                    from={v.from}
+                    visible={i === activeView}
+                  />
+                ) : (
+                  <DiffView
+                    worktree={v.worktree}
+                    relPath={v.relPath}
+                    staged={v.staged}
+                    from={v.from}
+                    visible={i === activeView}
+                  />
+                )
               ) : v.kind === "memo" ? (
                 <MemoThread
                   root={root}

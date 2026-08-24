@@ -128,6 +128,25 @@ fn run_git_trusted(cwd: &str, args: &[&str]) -> Result<String, String> {
     finish(out)
 }
 
+/// [`run_git`] with the bytes left alone.
+///
+/// `finish` decodes stdout as UTF-8 and replaces whatever isn't, which is right
+/// for everything git prints and fatal for a blob that is a picture: every byte
+/// a PNG has that UTF-8 doesn't would come back as U+FFFD, and the image would
+/// be re-encoded garbage rather than the file that was committed.
+fn run_git_bytes(cwd: &str, args: &[&str]) -> Result<Vec<u8>, String> {
+    let overrides = exec_key_overrides(cwd);
+    let out = git_base(cwd)
+        .args(overrides.iter())
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(out.stdout)
+}
+
 /// A blocking body, run where blocking is free: tokio's blocking pool, which
 /// grows into the hundreds of threads rather than stopping at the core count.
 /// See the note at the top of this file for why `async fn` isn't enough.
@@ -513,6 +532,38 @@ pub async fn git_head_file(worktree: String, path: String) -> String {
 pub async fn git_index_file(worktree: String, path: String) -> String {
     blocking(move || {
         run_git(&worktree, &["show", &format!(":{}", path)]).unwrap_or_default()
+    })
+    .await
+}
+
+/// The two sides of an image diff, as bytes.
+///
+/// [`git_head_file`] and [`git_index_file`] answer the same question for text
+/// and cannot answer it for a picture — see [`run_git_bytes`]. `rev` is the
+/// prefix git names a side by: `HEAD` for the commit, empty for the index,
+/// which is the same pair the text commands hard-code one each of.
+///
+/// Empty bytes for a side that doesn't have the path — a new file's HEAD, a
+/// deleted file's index — which is the "one side of this is nothing" the text
+/// pair says with an empty string, and what the view draws as an addition or a
+/// deletion rather than as an error.
+#[tauri::command]
+pub async fn git_show_binary(
+    worktree: String,
+    rev: String,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    blocking(move || {
+        // `HEAD` and the index are the only two this is ever asked for, and
+        // spelling them out here is what keeps a rev off the IPC boundary
+        let spec = match rev.as_str() {
+            "HEAD" => format!("HEAD:{path}"),
+            "" => format!(":{path}"),
+            other => return Err(format!("not a side of a diff: {other}")),
+        };
+        Ok(tauri::ipc::Response::new(
+            run_git_bytes(&worktree, &["show", &spec]).unwrap_or_default(),
+        ))
     })
     .await
 }

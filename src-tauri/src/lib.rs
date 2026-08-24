@@ -206,6 +206,7 @@ pub fn run() {
             git::git_branch_info,
             git::git_head_file,
             git::git_index_file,
+            git::git_show_binary,
             git::git_baseline,
             git::list_dir,
             git::list_project_files,

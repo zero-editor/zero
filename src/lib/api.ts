@@ -188,6 +188,10 @@ export const api = {
   headFile: (worktree: string, path: string) => invoke<string>("git_head_file", { worktree, path }),
   /** the staged copy — the base a working-tree diff is measured against */
   indexFile: (worktree: string, path: string) => invoke<string>("git_index_file", { worktree, path }),
+  /** either side of a diff as raw bytes, for the files the two above would
+   *  hand back as replacement characters — `rev` is "HEAD" or "" for the index */
+  showBinary: (worktree: string, rev: "HEAD" | "", path: string) =>
+    invoke<ArrayBuffer>("git_show_binary", { worktree, rev, path }),
   gitBaseline: (path: string) => invoke<Baseline>("git_baseline", { path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   /** the folder picker the dev build has to use — see `pick_directory` */

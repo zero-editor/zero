@@ -73,3 +73,68 @@
   text-align: center;
   line-height: 1.5;
 }
+
+/* ===== image diff ===== */
+
+/* Two stages side by side, sharing the checkerboard and the fit-or-1:1 click
+   the single view already has — a diff of pictures is the same view twice,
+   and it should behave the same way twice. */
+.imgdiff {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.imgdiff-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.imgdiff-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the seam, and only the seam: an outer border would box each picture in and
+   the checkerboard is already telling you where the stage ends */
+.imgdiff-pane.after {
+  border-left: 1px solid var(--border);
+}
+
+.imgdiff-label {
+  flex: none;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+/* red for the side being left behind, green for the one arriving — the colours
+   the changes panel already uses for the same two facts */
+.imgdiff-pane.before .imgdiff-label {
+  color: var(--red);
+}
+
+.imgdiff-pane.after .imgdiff-label {
+  color: var(--green);
+}
+
+.imgdiff-absent {
+  max-width: 240px;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* both stages zoom together, so the two are always at the same scale — a
+   before and an after at different sizes is a comparison of nothing */
+.imgdiff .image-stage {
+  padding: 16px;
+}
