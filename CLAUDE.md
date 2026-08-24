@@ -280,6 +280,15 @@ process table ended that, and the way it announced itself was six live
 terminals in the installed app dying during a test run. To exercise a kill
 path, signal a fixture daemon by pid.
 
+**A change to how sessions are held does not reach anyone until the daemon is
+replaced, and shipping the app does not replace it.** The update swaps the
+binary; the new app then finds the old daemon still listening on a socket named
+the same and joins it, so the change goes on not happening for as long as that
+process lives — with a dozen shells open, indefinitely. 0.23.1 shipped the
+scrollback replay and changed nothing for anyone for exactly this reason.
+Bumping `proto::VERSION` is the only lever that moves the sessions to a new
+daemon, and it costs them once, so it is the release note's job to say so.
+
 **Reattaching replays history too, and it is printed rather than restored.**
 There is no escape sequence for "here is what scrolled off", so `replay` prints
 the daemon's scrollback as ordinary lines and lets the receiving terminal

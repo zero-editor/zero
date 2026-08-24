@@ -25,7 +25,17 @@ use std::io::{self, Read, Write};
 /// The cost is that sessions do not survive the one update that bumps this.
 /// That is worth being deliberate about: bump it only for a change that would
 /// actually confuse an old daemon, not for every new tag.
-pub const VERSION: u32 = 2;
+///
+/// There is a second reason to bump it, learned from the release that added
+/// scrollback to the replay: **a change inside the daemon does not ship with
+/// the app.** The daemon is a process, not a library — an update replaces the
+/// binary, the new app finds the old daemon still listening on a socket named
+/// the same, and joins it. Everything the update changed about how sessions
+/// are held goes on not happening, for as long as that daemon lives, which
+/// with a dozen shells open is forever. Whether the two ends can still talk is
+/// not the question; whether the old one is still the right one to be holding
+/// the shells is. When it isn't, this is the only lever that moves them.
+pub const VERSION: u32 = 3;
 
 // ── app → daemon ─────────────────────────────────────────────────────────────
 
