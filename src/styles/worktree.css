@@ -168,7 +168,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  padding: 5px 10px 2px 14px;
+  padding: 7px 10px 6px 14px;
   font-size: 10px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -179,19 +179,16 @@
    header's icons sit in one column with the rows' below them */
 .wt-section button {
   position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 0 4px;
-  font-size: 13px;
-  /* the header's uppercase tracking must not leak into the icons, and a
-     pinned line-height keeps their boxes — and so their centring — the same
-     as the file rows' */
-  letter-spacing: normal;
-  line-height: 1;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
   color: var(--text-dim);
   opacity: 0;
-  transition: opacity 0.12s;
+  border-radius: 4px;
 }
 
 .wt-section button:nth-last-of-type(2) {
@@ -204,6 +201,15 @@
 
 .wt-section button:hover {
   color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* an inline svg sits on the text baseline and reserves descender space under
+   itself; as a block it is exactly the box the rail centres */
+.wt-section button svg,
+.wt-file-act svg,
+.wt-file-open svg {
+  display: block;
 }
 
 /* The row's buttons, reading left to right in the order you'd use them:
@@ -211,16 +217,17 @@
    slot and ↗ the outermost. */
 .wt-file-act {
   position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 0 4px;
-  font-size: 13px;
-  line-height: 1;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
   color: var(--text-dim);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s;
+  border-radius: 4px;
 }
 
 .wt-file:hover .wt-file-act {
@@ -230,6 +237,7 @@
 
 .wt-file-act:hover {
   color: var(--text);
+  background: var(--bg-hover);
 }
 
 /* discard takes the middle slot, in the same fade-in choreography */
@@ -289,19 +297,12 @@
   align-items: center;
   padding: 0 10px 0 14px;
   border-radius: 0;
-  transition: padding-right 0.12s ease;
 }
 
-/* row eases open to make room for its buttons instead of overlaying the
-   path — far enough that none of them sits on text: two on a staged row,
-   three on an unstaged one */
+/* The controls overlay the expendable directory tail instead of changing the
+   row's geometry. Nothing in the row moves when the pointer arrives. */
 .wt-file:hover {
   background: var(--bg-raised);
-  padding-right: 46px;
-}
-
-.wt-file-unstaged:hover {
-  padding-right: 66px;
 }
 
 /* the row whose diff or file is the view on screen */
@@ -326,7 +327,9 @@
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  /* the name rides close to its file-type icon; the path keeps the wider gap
+     of its own, so tightening one does not tighten the other */
+  gap: 4px;
   padding: 3px 0;
   text-align: left;
   overflow: hidden;
@@ -367,6 +370,7 @@
 }
 
 .wt-file-dir {
+  margin-left: 3px;
   /* the huge shrink factor means squeezing the row eats the directory first,
      down to nothing, before the file name gives up a pixel */
   flex: 1 1000 auto;
@@ -389,6 +393,11 @@
   opacity: 0.75;
 }
 
+/* Hand the fixed action rail the trailing edge without sliding the filename. */
+.wt-file:hover .wt-file-letter {
+  opacity: 0;
+}
+
 .wt-file-letter.mod,
 .wt-file-letter.mov {
   color: var(--yellow);
@@ -402,24 +411,22 @@
   color: var(--red);
 }
 
-/* ↗ leads the row: outermost-left of the buttons, so it comes first when
-   reading — one slot in on staged rows, which have no discard */
+/* Open always owns the left column of the action rail. Staged rows leave the
+   middle (discard) column empty instead of pulling Open sideways; moving the
+   pointer between staged and unstaged files must never make the rail jump. */
 .wt-file-open {
   position: absolute;
-  right: 24px;
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 0 4px;
-  font-size: 13px;
-  line-height: 1;
+  right: 44px;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
   color: var(--text-dim);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s;
-}
-
-.wt-file-unstaged .wt-file-open {
-  right: 44px;
+  border-radius: 4px;
 }
 
 .wt-file:hover .wt-file-open {
@@ -429,6 +436,7 @@
 
 .wt-file-open:hover {
   color: var(--text);
+  background: var(--bg-hover);
 }
 
 .wt-clean {

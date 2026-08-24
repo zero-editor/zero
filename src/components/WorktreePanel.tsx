@@ -10,6 +10,43 @@ import type { View } from "./Workspace";
 
 type WtState = WorktreeChanges;
 
+/* Small, SF Symbols-inspired action marks. They share the same 14pt optical
+   box and rounded hairline stroke, but not the same forced silhouette: undo is
+   allowed its broad, calm curve and Open File is a document rather than the
+   ambiguous "launch elsewhere" arrow it used to be. */
+type ActionIcon = "plus" | "minus" | "revert" | "open";
+
+function Icon({ name }: { name: ActionIcon }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.15"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {name === "plus" && <path d="M7 2v10M2 7h10" />}
+      {name === "minus" && <path d="M2 7h10" />}
+      {name === "revert" && (
+        <g transform="translate(0 -0.45)">
+          <path d="M3.15 5.25h4.2a3.6 3.6 0 1 1-3.1 5.42" />
+          <path d="m5.65 2.75-2.5 2.5 2.5 2.5" />
+        </g>
+      )}
+      {name === "open" && (
+        <>
+          <path d="M3.2 2h4.6l3 3v7H3.2z" />
+          <path d="M7.8 2v3h3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 const STATUS_CLASS: Record<string, string> = {
   M: "mod",
   A: "add",
@@ -265,7 +302,7 @@ export function WorktreePanel({
           title={c.status === "U" ? "discard (deletes the untracked file)" : "discard changes"}
           onClick={() => discard(wt, [c])}
         >
-          ↺
+          <Icon name="revert" />
         </button>
       )}
       <button
@@ -273,7 +310,7 @@ export function WorktreePanel({
         title={staged ? "unstage" : "stage"}
         onClick={() => (staged ? unstage(wt, [c.path]) : stage(wt, [c.path]))}
       >
-        {staged ? "−" : "+"}
+        <Icon name={staged ? "minus" : "plus"} />
       </button>
       <button
         className="wt-file-open"
@@ -286,7 +323,7 @@ export function WorktreePanel({
           })
         }
       >
-        ↗
+        <Icon name="open" />
       </button>
     </div>
     );
@@ -380,7 +417,7 @@ export function WorktreePanel({
                     title={`unstage all ${staged.length}`}
                     onClick={() => unstage(wt, staged.map((c) => c.path))}
                   >
-                    −
+                    <Icon name="minus" />
                   </button>
                 </div>
                 {staged.map((c) => fileRow(wt, c, true))}
@@ -398,14 +435,14 @@ export function WorktreePanel({
                     title={`discard all ${unstaged.length}`}
                     onClick={() => discard(wt, unstaged)}
                   >
-                    ↺
+                    <Icon name="revert" />
                   </button>
                   <button
                     className="wt-section-all"
                     title={`stage all ${unstaged.length}`}
                     onClick={() => stage(wt, unstaged.map((c) => c.path))}
                   >
-                    +
+                    <Icon name="plus" />
                   </button>
                 </div>
                 {unstaged.map((c) => fileRow(wt, c, false))}
