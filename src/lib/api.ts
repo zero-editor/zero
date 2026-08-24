@@ -158,6 +158,12 @@ export const api = {
   addRecent: (path: string) => invoke<void>("add_recent", { path }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   existingDirs: (paths: string[]) => invoke<string[]>("existing_dirs", { paths }),
+  /* The window's layout, held as a file by the Rust side rather than in
+     localStorage — see src-tauri/src/session.rs for why that matters at ⌘Q.
+     The blob is JSON this side wrote and this side parses; nothing over there
+     looks inside it. */
+  sessionLoad: () => invoke<string | null>("session_load"),
+  sessionSave: (json: string) => invoke<void>("session_save", { json }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   resolvePaths: (cwd: string, paths: string[]) =>
