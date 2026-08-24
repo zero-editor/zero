@@ -7,21 +7,31 @@ import type { View } from "../components/Workspace";
 /**
  * What the window looked like last time, so reopening zero puts it back.
  *
- * Layout only. The shells themselves are children of this process and die with
- * it — there is nothing to reattach to — so a restored pane is a *new* shell in
- * the same directory. Panes always run at the project root, so that part comes
- * back for free.
+ * Layout only — but since the shells moved into the daemon it is load-bearing
+ * twice over. A restored pane asks for its old id and is handed back the shell
+ * that id already had, and the ids no restored layout mentions are the ones
+ * the daemon is told to end (see `claimedPaneIds` and the boot note in App).
+ * So a layout that comes back wrong doesn't just cost you the arrangement any
+ * more; a pane it forgets is a Claude session reaped.
  *
- * localStorage rather than a file next to recents.json for one reason that
- * matters: it reads synchronously, so a restored project can be in the very
- * first render instead of arriving a frame later behind a flash of the
- * launcher.
+ * This used to be localStorage, and the reason it isn't any more is the way
+ * zero ends. Quitting finishes in `std::process::exit` on the Rust side, which
+ * never unloads the page: `beforeunload` doesn't fire, so a debounced write
+ * never happens, and WebKit's own in-memory store never syncs out to
+ * localstorage.sqlite3. Both losses are silent — you simply get an older
+ * window back, with no way to tell which changes didn't make it. So the blob
+ * now goes to the Rust side, which writes it at once and writes it again on
+ * the way out (src-tauri/src/session.rs).
+ *
+ * What that costs is the synchronous read localStorage gave us. Nothing, as it
+ * turns out: App already waits on this before its first render, because the
+ * projects have to be checked for existence anyway.
  */
 
-const KEY = "zero-session";
-
-/** how long changes settle before hitting disk — dragging a divider fires per mousemove */
-const WRITE_DELAY_MS = 150;
+/** the localStorage key this lived under before it became a file — read once,
+ *  to carry a session across the upgrade, and dropped as soon as the file has
+ *  it instead */
+const LEGACY_KEY = "zero-session";
 
 /** one document pane's open tabs and which of them is up */
 export interface DocPane {
@@ -78,21 +88,37 @@ function validTree(n: unknown, seen: Set<string>): LayoutNode | null {
   if (node.dir !== "row" && node.dir !== "col") return null;
   if (!Array.isArray(node.children)) return null;
 
-  const children = node.children
-    .map((c) => validTree(c, seen))
-    .filter((c): c is LayoutNode => c !== null);
+  // each child's own share travels with it, so a child that doesn't survive
+  // costs its share and nothing else. Dropping the whole array instead — which
+  // is what "sizes must describe these children exactly" used to mean — turned
+  // one bad leaf into an even split of every pane beside it, which reads as
+  // the layout not being restored at all.
+  const stored = Array.isArray(node.sizes) ? node.sizes : [];
+  const children: LayoutNode[] = [];
+  const shares: (number | undefined)[] = [];
+  node.children.forEach((c, i) => {
+    const next = validTree(c, seen);
+    if (next === null) return;
+    children.push(next);
+    const s = stored[i];
+    shares.push(typeof s === "number" && Number.isFinite(s) && s > 0 ? s : undefined);
+  });
   if (children.length === 0) return null;
   // a split that lost all but one child is just that child
   if (children.length === 1) return children[0];
 
-  // sizes only survive if they still describe these children exactly; a
-  // mismatch falls back to an even split rather than a guess
-  const sizes =
-    Array.isArray(node.sizes) &&
-    node.sizes.length === children.length &&
-    node.sizes.every((s) => typeof s === "number" && Number.isFinite(s) && s > 0)
-      ? node.sizes
-      : undefined;
+  // an even split is the fallback for a split nothing usable was stored for,
+  // not for one where a single number went bad: there, the shares that are
+  // still good are kept and renormalised, and the rest are dealt the average
+  // of them so no pane can come back with no room at all
+  const known = shares.filter((s): s is number => s !== undefined);
+  let sizes: number[] | undefined;
+  if (known.length) {
+    const mean = known.reduce((a, b) => a + b, 0) / known.length;
+    const filled = shares.map((s) => s ?? mean);
+    const total = filled.reduce((a, b) => a + b, 0);
+    sizes = filled.map((s) => s / total);
+  }
   return { type: "split", dir: node.dir, children, sizes };
 }
 
@@ -163,9 +189,12 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     sidebarVisible: typeof p.sidebarVisible === "boolean" ? p.sidebarVisible : undefined,
     terminalVisible: typeof p.terminalVisible === "boolean" ? p.terminalVisible : undefined,
     views,
-    // dropped untitled tabs can leave the index past the end
+    // dropped untitled tabs can leave the index past the end — and can empty
+    // the list altogether, where the clamp's own ceiling would be -1
     activeView:
-      typeof p.activeView === "number" ? Math.min(Math.max(p.activeView, 0), views.length - 1) : 0,
+      typeof p.activeView === "number"
+        ? Math.min(Math.max(p.activeView, 0), Math.max(views.length - 1, 0))
+        : 0,
     docPanes: validDocPanes(p.docPanes),
     activePane: typeof p.activePane === "string" ? p.activePane : undefined,
   };
@@ -177,6 +206,8 @@ function parse(raw: string | null): Session {
   try {
     blob = JSON.parse(raw) as Partial<Session>;
   } catch {
+    // a blob we can't read is not a session that claims nothing — see `legible`
+    legible = false;
     return empty();
   }
 
@@ -209,35 +240,76 @@ function parse(raw: string | null): Session {
 // One in-memory object that App and every Workspace patch independently, so
 // their writes merge instead of racing through a read-modify-write each.
 let current: Session = empty();
-let timer: number | undefined;
+/** whether the session we are holding came out of the retired localStorage
+ *  key, so it can be cleared once the file has it instead */
+let adopted = false;
+/**
+ * Whether the stored session could be read at all.
+ *
+ * "Nothing is stored" and "I could not find out what is stored" used to be the
+ * same answer, and with localStorage they were nearly the same event. A file
+ * can fail in ways a synchronous read of an in-process map cannot — an
+ * unreadable config directory, a truncated blob — and since the reap ends
+ * every session no restored layout claims, answering one of those with an
+ * empty list would end every shell on the machine. So the two are told apart,
+ * and only the first of them gets to speak for what is running.
+ */
+let legible = true;
+let queued = false;
 
-function flush() {
-  if (timer !== undefined) {
-    window.clearTimeout(timer);
-    timer = undefined;
-  }
-  try {
-    localStorage.setItem(KEY, JSON.stringify(current));
-  } catch {
-    // a full or disabled store costs you the layout, nothing else
-  }
-}
-
+/**
+ * Hand the whole session over, once per commit.
+ *
+ * There is no debounce here and no timer to lose: the microtask lands after
+ * React has run every effect in the commit, so a change that touches several
+ * workspaces at once is still one write, and a change is never sitting in a
+ * queue waiting for a deadline that ⌘Q won't let arrive. The Rust side takes
+ * it from there — it writes immediately, skips a snapshot it already holds,
+ * and writes once more as the app exits.
+ */
 function schedule() {
-  if (timer !== undefined) window.clearTimeout(timer);
-  timer = window.setTimeout(flush, WRITE_DELAY_MS);
+  if (queued) return;
+  queued = true;
+  queueMicrotask(() => {
+    queued = false;
+    api
+      .sessionSave(JSON.stringify(current))
+      .then(() => {
+        if (!adopted) return;
+        adopted = false;
+        try {
+          localStorage.removeItem(LEGACY_KEY);
+        } catch {
+          // it staying behind costs nothing: the file is what gets read now
+        }
+      })
+      .catch(() => {
+        // an unwritable config dir costs you the layout, nothing else
+      });
+  });
 }
-
-// closing the window shouldn't cost you the last 150 ms of changes
-window.addEventListener("beforeunload", flush);
 
 /**
  * Read the stored session and drop any project that has since moved or been
- * deleted. Async only because of that existence check — everything the first
- * render needs is already parsed by the time it resolves.
+ * deleted. Everything the first render needs is parsed by the time this
+ * resolves, and App holds the launcher back until it does.
  */
 export async function restoreSession(): Promise<{ projects: Project[]; activeIdx: number }> {
-  current = parse(localStorage.getItem(KEY));
+  let raw: string | null = null;
+  try {
+    raw = await api.sessionLoad();
+  } catch {
+    raw = null;
+    legible = false;
+  }
+  if (raw === null) {
+    // first launch after the upgrade: take what localStorage still holds, and
+    // let the first save move it to the file
+    raw = localStorage.getItem(LEGACY_KEY);
+    adopted = raw !== null;
+  }
+  current = parse(raw);
+  if (adopted) schedule();
   if (current.projects.length === 0) return { projects: [], activeIdx: 0 };
 
   const roots = current.projects.map((p) => p.root);
@@ -274,8 +346,14 @@ export async function restoreSession(): Promise<{ projects: Project[]; activeIdx
  * Document panes are in here too. Their ids can never collide with a
  * terminal's (see the note on SIDEBAR/EDITOR in layout.ts), so claiming them
  * costs nothing and telling them apart would cost a second kind of walk.
+ *
+ * Null when the stored session couldn't be read — a different answer from a
+ * session that claims nothing, and the only one this can give that isn't safe
+ * to act on. An empty list is an instruction to end every shell there is; a
+ * failed read has no idea what is running and must not be allowed to say so.
  */
-export function claimedPaneIds(): string[] {
+export function claimedPaneIds(): string[] | null {
+  if (!legible) return null;
   const ids: string[] = [];
   const walk = (n: LayoutNode | null | undefined) => {
     if (!n) return;
@@ -308,6 +386,17 @@ export function saveProjects(projects: Project[], activeIdx: number) {
 }
 
 export function saveProject(root: string, state: Partial<ProjectSession>) {
-  current.byProject[root] = { ...current.byProject[root], ...state };
+  const next: Partial<ProjectSession> = { ...current.byProject[root], ...state };
+  // A field the migration has read is a field nobody will read again — but
+  // merging kept re-serialising it forever, so every session still carried a
+  // duplicate of its tab list and a terminal tree from two layouts ago. They
+  // go the moment the thing that replaced them arrives, which is the only
+  // moment we can be sure the migration is behind us.
+  if (state.docPanes) {
+    delete next.views;
+    delete next.activeView;
+  }
+  if (state.layout) delete next.term;
+  current.byProject[root] = next;
   schedule();
 }

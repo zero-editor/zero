@@ -95,6 +95,29 @@ fn client(state: &tauri::State<'_, PtyManager>) -> Result<Arc<Client>, String> {
 
 // ── bringing the daemon up ───────────────────────────────────────────────────
 
+/// Which copy of zero this is, as a number that can go in a filename.
+///
+/// Names *a copy*, never a run of it: a run-scoped name could never be found
+/// again, which was fine while the daemon died with the app and is the whole
+/// problem now. Hashing the executable path keeps the installed app and a
+/// `tauri dev` build apart — the two-zeros hazard the project has already been
+/// bitten by — while an update, which replaces the binary at the same path,
+/// correctly finds what the previous version left behind.
+///
+/// FNV-1a rather than DefaultHasher: the names this ends up in have to mean
+/// the same thing to a build made months apart, and the standard hasher makes
+/// no such promise across toolchains. A rustc upgrade must not orphan a daemon
+/// — nor, now, hide a session file.
+pub fn exe_key() -> u64 {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in exe.to_string_lossy().bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 /// Where the daemon's socket lives.
 ///
 /// Under `TMPDIR`, which on macOS is a private per-user directory cleared on
@@ -102,27 +125,14 @@ fn client(state: &tauri::State<'_, PtyManager>) -> Result<Arc<Client>, String> {
 /// survive quitting and updating zero; they do not survive a restart of the
 /// machine, and a socket that disappears with the reboot is the honest way to
 /// say so.
-///
-/// The name is keyed to *which copy of zero this is*, not to a run of it. A
-/// run-scoped name could never be found again, which was fine while the daemon
-/// died with the app and is the whole problem now. Hashing the executable path
-/// keeps the installed app and a `tauri dev` build on separate daemons — the
-/// two-zeros hazard the project has already been bitten by — while an update,
-/// which replaces the binary at the same path, correctly finds the daemon
-/// holding its shells.
 fn socket_path() -> std::path::PathBuf {
-    // FNV-1a rather than DefaultHasher: this name has to mean the same thing
-    // to a build made months apart, and the standard hasher makes no such
-    // promise across toolchains. A rustc upgrade must not orphan a daemon.
-    let exe = std::env::current_exe().unwrap_or_default();
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in exe.to_string_lossy().bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
     // the protocol version is in the name too — see `proto::VERSION` for why
     // that beats negotiating it once the connection is open
-    std::env::temp_dir().join(format!("zero-ptyd-{hash:016x}-v{}.sock", proto::VERSION))
+    std::env::temp_dir().join(format!(
+        "zero-ptyd-{:016x}-v{}.sock",
+        exe_key(),
+        proto::VERSION
+    ))
 }
 
 /// Attach to the daemon, starting one if there isn't already one running.

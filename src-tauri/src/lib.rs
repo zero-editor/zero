@@ -9,6 +9,7 @@ mod pty;
 mod ptyd;
 mod recents;
 mod search;
+mod session;
 mod traffic_lights;
 mod window_state;
 
@@ -57,6 +58,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(PtyManager::default())
         .manage(memos::MemoManager::default())
+        .manage(session::SessionStore::default())
         .setup(|_app| {
             // zero → Preferences… and zero → Check for Updates…, the mouse
             // paths to the settings overlay and the updater. The menu is the
@@ -193,6 +195,8 @@ pub fn run() {
             recents::add_recent,
             recents::remove_recent,
             recents::existing_dirs,
+            session::session_load,
+            session::session_save,
             cli::pick_directory,
             git::git_worktrees,
             git::git_worktree_remove,
@@ -232,6 +236,21 @@ pub fn run() {
             memos::memo_delete,
             memos::memo_vocabulary_path,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        // The last word on the window's layout.
+        //
+        // Quitting ends in `std::process::exit`, which never unloads the page
+        // — so the webview gets no chance to save on the way out, and this is
+        // the only place left that can. `commit` writes whatever the frontend
+        // handed over last and skips a snapshot already on disk, so the usual
+        // case (nothing changed since the last save) costs a string compare.
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                let _ = session::commit(app);
+            }
+        });
 }

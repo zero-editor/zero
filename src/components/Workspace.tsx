@@ -171,6 +171,27 @@ export const Workspace = memo(function Workspace({
     }
     return out;
   });
+  /**
+   * The panes the restore handed back with nothing in them.
+   *
+   * A pane can arrive empty even though it was full at quit: untitled buffers
+   * deliberately don't survive a relaunch (see validViews), so a pane holding
+   * only those comes back as a pane with no tabs. It is still a pane you
+   * built, and the reaper below — which exists to let a pane follow its *last
+   * tab* out — would otherwise take it and its place in the layout with it,
+   * one pane per launch, with nothing to say it had happened.
+   *
+   * So these are spared until something opens in them, at which point they
+   * become ordinary panes with an ordinary last tab to lose.
+   */
+  const [bornEmpty] = useState(
+    () =>
+      new Set(
+        leafIds(tree.root)
+          .filter(isEditorPane)
+          .filter((id) => !docPanes[id]?.views.length)
+      )
+  );
   /** the pane opens land in — held as a preference rather than reconciled:
    *  if the pane it names has gone, `currentPane` below answers with the
    *  first one the tree still holds */
@@ -517,8 +538,15 @@ export const Workspace = memo(function Workspace({
   // empty editor is the app's opening state, not a bug. One removal per
   // pass; the effect re-runs on the state it just changed.
   useEffect(() => {
+    // a spared pane stops being spared the moment it holds something: from
+    // here on it has a last tab, and losing it means the same as anywhere else
+    for (const pid of bornEmpty) {
+      if (docPanes[pid]?.views.length) bornEmpty.delete(pid);
+    }
     if (paneIds.length < 2) return;
-    const empty = paneIds.find((pid) => (docPanes[pid]?.views.length ?? 0) === 0);
+    const empty = paneIds.find(
+      (pid) => (docPanes[pid]?.views.length ?? 0) === 0 && !bornEmpty.has(pid)
+    );
     if (!empty) return;
     tree.removeEditorPane(empty);
     setDocPanes(({ [empty]: _gone, ...rest }) => rest);
@@ -1194,7 +1222,12 @@ export const Workspace = memo(function Workspace({
     const move = (ev: MouseEvent) => {
       const travelled = (d.dir === "row" ? ev.clientX : ev.clientY) - start;
       const delta = (travelled / span) * d.visSum;
-      const room = { back: base[d.li] - min, fwd: base[d.ri] - min };
+      // floored at zero, because a pane already narrower than the minimum
+      // makes its side's room negative — and a negative floor inverts the
+      // clamp, forcing a step the other pane can't pay for. That wrote a share
+      // of zero or less, which the next launch reads as a size it can't trust
+      // (see validTree) and answers by resizing the panes around it too.
+      const room = { back: Math.max(base[d.li] - min, 0), fwd: Math.max(base[d.ri] - min, 0) };
       const step = Math.max(-room.back, Math.min(room.fwd, delta));
       const next = [...base];
       next[d.li] = base[d.li] + step;

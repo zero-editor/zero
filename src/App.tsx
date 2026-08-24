@@ -99,7 +99,16 @@ export default function App() {
         //
         // The list is the pruned one: a project whose directory has since
         // gone does not get to keep its shells.
-        api.ptyReap(claimedPaneIds()).catch(() => {});
+        //
+        // Skipped entirely when the session couldn't be read, which is not the
+        // same as one that claims nothing: the layout lives in a file now, and
+        // a file has ways to be unreadable that don't mean "there is nothing
+        // here". Reaping on that answer would end every live Claude session
+        // over a transient read — the one mistake here that can't be undone by
+        // relaunching. A skipped reap leaves orphans, and the next clean boot
+        // collects them.
+        const claims = claimedPaneIds();
+        if (claims) api.ptyReap(claims).catch(() => {});
         return s;
       })
       .then((s) => {
