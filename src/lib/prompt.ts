@@ -9,9 +9,12 @@ import { useEffect, useState } from "react";
  * So this is the app's own prompt, held here rather than in a component because
  * the thing that asks is a menu action — a callback with no place in the tree.
  *
- * VS Code puts the field in the file tree row instead, which is lovely and is
- * also only available in the file tree; every other surface that names a file
- * would need its own version of it. One overlay answers for all of them.
+ * The file tree renames in the row itself, the way Finder and VS Code do —
+ * that is worth having, and it is worth having *there*, where a row is already
+ * the name at the right indent. Nowhere else has one to reuse: a changes row, a
+ * tab, a memo would each need their own. So the field in the tree, and this
+ * overlay for the rest, including every "new file" — there is no row yet to
+ * type a name into when the thing doesn't exist.
  */
 
 export interface Ask {

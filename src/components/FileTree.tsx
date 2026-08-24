@@ -1,6 +1,14 @@
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  KeyboardEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api, DirEntry } from "../lib/api";
-import { contextMenu, fileEntries } from "../lib/contextMenu";
+import { contextMenu, fileEntries, renameTo, selectStem } from "../lib/contextMenu";
 import { onFilesChanged } from "../lib/fileEvents";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
@@ -34,11 +42,20 @@ export function FileTree({
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [kids, setKids] = useState<Record<string, DirEntry[]>>({});
   const [selected, setSelected] = useState<string | null>(null);
+  /** the row whose name is a field right now — Finder renames in place, and a
+   *  tree is the one surface where "in place" is a row that already exists */
+  const [editing, setEditing] = useState<string | null>(null);
 
   const kidsRef = useRef<Record<string, DirEntry[]>>({});
   const pending = useRef(new Map<string, Promise<DirEntry[]>>());
   const selRef = useRef<HTMLButtonElement | null>(null);
   const wantScroll = useRef(false);
+  /** a row to hand the keyboard back to once it exists under its new name —
+   *  renaming replaces the element, and a second Return has to find something */
+  const wantFocus = useRef<string | null>(null);
+  /** ⎋ was pressed, so the blur that follows is a cancellation rather than the
+   *  commit every other way out of the field is */
+  const abandoned = useRef(false);
 
   const git = useGitStatus(root, active);
   const marks = useMemo(() => {
@@ -159,6 +176,101 @@ export function FileTree({
       return next;
     });
 
+  /**
+   * Every row's element, wanted for two unrelated reasons: ⌘E scrolls to the
+   * one it selected, and a row renamed from the keyboard comes back as a new
+   * element that has to take the focus its predecessor had.
+   */
+  const rowRef = (full: string, isSel: boolean) => (el: HTMLButtonElement | null) => {
+    if (isSel) selRef.current = el;
+    if (el && wantFocus.current === full) {
+      wantFocus.current = null;
+      el.focus();
+    }
+  };
+
+  /**
+   * Return renames, which is what that key does in Finder.
+   *
+   * A row is a `<button>`, so without the preventDefault the browser turns the
+   * key into a click and Return means "open this again" — the reason nothing
+   * appeared to happen. The keyboard is on the row because clicking it puts it
+   * there: WebKit doesn't focus a button on click the way other engines do.
+   */
+  const onRowKey = (e: KeyboardEvent<HTMLButtonElement>, full: string) => {
+    if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setEditing(full);
+  };
+
+  /**
+   * Leaving the field is what commits — Return blurs it, and so does clicking
+   * away, which is the pair Finder commits on. ⎋ leaves through `abandoned`
+   * instead, and an unchanged or empty name is `renameTo`'s no-op.
+   *
+   * Either way the keyboard comes back to the row: it was on the row before
+   * the field replaced it, and after a rename it is a different element with
+   * the same place in the tree.
+   */
+  const commit = async (full: string, isDir: boolean, typed: string) => {
+    // the old name first, and before the field goes: the row that replaces it
+    // is drawn on this render, while the write below is still an IPC away, and
+    // a rename that fails or changes nothing has to leave the keyboard where
+    // it was rather than on the body
+    wantFocus.current = full;
+    setEditing(null);
+    if (abandoned.current) {
+      abandoned.current = false;
+      return;
+    }
+    const abs = await renameTo(full, typed);
+    if (!abs) return;
+    // a folder's highlight isn't ours to set — only files are ever selected
+    if (!isDir && selected === full) setSelected(abs);
+    wantFocus.current = abs;
+  };
+
+  /** the row, while its name is being typed. Same class list, so it sits at
+   *  the same indent with the same icon and nothing shifts under the caret. */
+  const editRow = (full: string, entry: DirEntry, pad: object) => (
+    <div key={full} className={`tree-item ${entry.is_dir ? "dir" : "file"} editing`} style={pad}>
+      {entry.is_dir ? (
+        <Chevron open={open.has(full)} className="tree-arrow" />
+      ) : (
+        <FileIconSpan name={entry.name} />
+      )}
+      <input
+        className="tree-rename"
+        defaultValue={entry.name}
+        spellCheck={false}
+        // on the element rather than in an effect: the field is mounted and
+        // gone inside one row's lifetime, and the guard is what keeps a
+        // re-render from re-selecting the stem out from under your typing
+        ref={(el) => {
+          if (el && document.activeElement !== el) {
+            el.focus();
+            selectStem(el, entry.name, !entry.is_dir);
+          }
+        }}
+        // every key in here is this field's, the way the overlay's is —
+        // otherwise ⌘W closes the tab behind the name you are typing
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            abandoned.current = true;
+            setEditing(null);
+          }
+        }}
+        onBlur={(e) => void commit(full, entry.is_dir, e.currentTarget.value)}
+      />
+    </div>
+  );
+
   /** what a click on a file row does, and what the menu's "Open" does too */
   const openFile = (full: string, name = full.slice(full.lastIndexOf("/") + 1)) => {
     setSelected(full);
@@ -177,24 +289,41 @@ export function FileTree({
       const isSel = selected === full;
       const pad = { paddingLeft: depth * 14 + 8 };
 
+      // the field stands in for the row, and an open folder keeps its children
+      // underneath — renaming a folder shouldn't collapse what's inside it
+      if (editing === full) {
+        return [
+          editRow(full, entry, pad),
+          ...(entry.is_dir && open.has(full) ? rows(full, depth + 1) : []),
+        ];
+      }
+
       if (!entry.is_dir) {
         const mark = marks.files.get(full);
         return [
           <button
             key={full}
-            ref={isSel ? selRef : undefined}
+            ref={rowRef(full, isSel)}
             className={`tree-item file ${entry.ignored ? "ignored" : ""} ${
               isSel ? "selected" : ""
             } ${mark ? `git-${mark.mark}` : ""}`}
             style={pad}
-            onClick={() => openFile(full, entry.name)}
+            onClick={(e) => {
+              e.currentTarget.focus();
+              openFile(full, entry.name);
+            }}
+            onKeyDown={(e) => onRowKey(e, full)}
             // the row the menu is about lights up while it's open, the way a
             // right-click in Finder selects what it landed on
             onContextMenu={(e) => {
               setSelected(full);
               contextMenu(e, [
                 { text: "Open", run: () => openFile(full, entry.name) },
-                ...fileEntries(full, { root, after: (made) => openFile(made) }),
+                ...fileEntries(full, {
+                  root,
+                  after: (made) => openFile(made),
+                  onRename: () => setEditing(full),
+                }),
               ]);
             }}
           >
@@ -214,11 +343,16 @@ export function FileTree({
       return [
         <button
           key={full}
+          ref={rowRef(full, false)}
           className={`tree-item dir ${entry.ignored ? "ignored" : ""} ${
             dirMark ? `git-${dirMark}` : ""
           }`}
           style={pad}
-          onClick={() => toggle(full)}
+          onClick={(e) => {
+            e.currentTarget.focus();
+            toggle(full);
+          }}
+          onKeyDown={(e) => onRowKey(e, full)}
           onContextMenu={(e) =>
             contextMenu(e, [
               // a new file lands in the folder you asked from, so open it —
@@ -226,6 +360,7 @@ export function FileTree({
               ...fileEntries(full, {
                 root,
                 isDir: true,
+                onRename: () => setEditing(full),
                 after: (made) => {
                   // the same pair `toggle` does: opening a folder and reading
                   // it are two things, and a folder nobody had opened yet has

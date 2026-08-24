@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { usePrompt } from "../lib/prompt";
+import { selectStem } from "../lib/contextMenu";
 
 /**
  * The overlay half of `lib/prompt` — mounted once, empty until something asks.
@@ -20,10 +21,7 @@ export function Prompt() {
     const el = inputRef.current;
     if (!el || !pending) return;
     el.focus();
-    const dot = pending.stem ? pending.value.lastIndexOf(".") : -1;
-    // a leading dot is the name, not an extension — `.gitignore` selects whole
-    if (dot > 0) el.setSelectionRange(0, dot);
-    else el.select();
+    selectStem(el, pending.value, pending.stem);
     // on the question's id rather than the object, which is rebuilt on every
     // render of the host
     // eslint-disable-next-line react-hooks/exhaustive-deps

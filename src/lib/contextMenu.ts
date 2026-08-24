@@ -137,6 +137,10 @@ export interface FileOptions {
   isDir?: boolean;
   /** what was made, once it exists — the caller usually opens it */
   after?: (path: string) => void;
+  /** rename this row your own way rather than through the overlay — the file
+   *  tree has a field in the row itself, and the menu item should reach the
+   *  same place the key does */
+  onRename?: () => void;
   /**
    * Which of the writing verbs this row gets.
    *
@@ -148,6 +152,40 @@ export interface FileOptions {
    *   document) or whose life something else owns (a worktree's checkout)
    */
   writes?: "all" | "inside" | "none";
+}
+
+/**
+ * The rename itself: the write, and everyone who has to hear about it.
+ *
+ * Where the new name was typed is the caller's business — the overlay below,
+ * or a field the file tree puts in the row, which is where macOS types it. A
+ * name that didn't change, or that is nothing at all, is not a rename and is
+ * the ordinary way out of both. Failures are shown here rather than thrown,
+ * because half the callers are keystrokes with nobody to catch them.
+ */
+export async function renameTo(path: string, to: string): Promise<string | null> {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const want = to.trim();
+  if (!want || want === name) return null;
+  try {
+    const abs = await api.renameEntry(path, want);
+    changed(parentOf(path));
+    pokeMoved(path, abs);
+    return abs;
+  } catch (err) {
+    await message(String(err), { title: "Rename", kind: "error" }).catch(() => {});
+    return null;
+  }
+}
+
+/** What is selected when a name is offered for editing: everything up to the
+ *  extension, the way macOS does it, since the dot and what follows is rarely
+ *  what changes. A leading dot is the name — `.gitignore` selects whole — and
+ *  so is a folder's, which is what `stem: false` is for. */
+export function selectStem(el: HTMLInputElement, name: string, stem = true) {
+  const dot = stem ? name.lastIndexOf(".") : -1;
+  if (dot > 0) el.setSelectionRange(0, dot);
+  else el.select();
 }
 
 /**
@@ -203,6 +241,7 @@ export function fileEntries(path: string, o: FileOptions = {}): Entry[] {
     writes === "all" && {
       text: "Rename…",
       run: async () => {
+        if (o.onRename) return o.onRename();
         const to = await ask({
           title: `rename ${name}`,
           value: name,
@@ -210,10 +249,7 @@ export function fileEntries(path: string, o: FileOptions = {}): Entry[] {
           // a folder's dot isn't an extension, so select the lot
           stem: !o.isDir,
         });
-        if (!to) return;
-        const abs = await api.renameEntry(path, to);
-        changed(up);
-        pokeMoved(path, abs);
+        if (to) await renameTo(path, to);
       },
     },
     "sep",

@@ -496,6 +496,34 @@
   background: #0a4a75;
 }
 
+/* Renaming happens in the row, where Finder does it: the name you are typing
+   sits at the indent, and behind the icon, the old one sat at. The row keeps
+   its own padding, so only the field's border adds height — 2px, taken back
+   off the row so nothing below it shifts down while you type. */
+.tree-item.editing {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.tree-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: -2px 0;
+  padding: 0 3px;
+  background: var(--bg-field);
+  /* the field is focused for its whole life — there is no unfocused state to
+     draw, so it wears the colour the search field wears while it has the
+     keyboard */
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* git status, same colours the changes panel uses on the same file names —
    two views of one fact shouldn't need translating between them */
 .tree-item.git-modified,
