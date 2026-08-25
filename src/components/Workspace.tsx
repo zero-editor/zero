@@ -714,16 +714,21 @@ export const Workspace = memo(function Workspace({
         }
         const pid = currentPaneRef.current;
         closeView(pid, docPanesRef.current[pid]?.activeView ?? 0);
-      } else if (meta && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
+      } else if (
+        (meta && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) ||
+        (ctrl && !meta && !e.altKey && e.code === "Tab" &&
+          !(e.target instanceof Element && e.target.closest("[data-term-id]")))
+      ) {
         // walk the active pane's tabs, wrapping at either end. By code, not
         // key: with shift held the character is { or }, and on plenty of
         // layouts not even that — the same reason Backquote and Backslash
-        // below are matched this way.
+        // below are matched this way. ⌃Tab and ⌃⇧Tab do the same walk — but
+        // only outside a terminal, whose keystrokes belong to the shell.
         e.preventDefault();
         const pid = currentPaneRef.current;
         const dp = docPanesRef.current[pid];
         if (dp && dp.views.length > 1) {
-          const dir = e.code === "BracketRight" ? 1 : -1;
+          const dir = e.code === "Tab" ? (e.shiftKey ? -1 : 1) : e.code === "BracketRight" ? 1 : -1;
           const at = (dp.activeView + dir + dp.views.length) % dp.views.length;
           setDocPanes((prev) =>
             prev[pid] ? { ...prev, [pid]: { ...prev[pid], activeView: at } } : prev
