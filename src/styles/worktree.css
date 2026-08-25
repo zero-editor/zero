@@ -411,9 +411,9 @@
   color: var(--red);
 }
 
-/* Open always owns the left column of the action rail. Staged rows leave the
-   middle (discard) column empty instead of pulling Open sideways; moving the
-   pointer between staged and unstaged files must never make the rail jump. */
+/* Open sits just left of whatever the row actually shows: three buttons on an
+   unstaged row, two on a staged one — a staged row has no discard, and holding
+   its column open reads as a hole in the rail, not as alignment. */
 .wt-file-open {
   position: absolute;
   right: 44px;
@@ -427,6 +427,11 @@
   opacity: 0;
   pointer-events: none;
   border-radius: 4px;
+}
+
+/* staged rows: no discard between open and unstage, so close the rail up */
+.wt-file:not(.wt-file-unstaged) .wt-file-open {
+  right: 24px;
 }
 
 .wt-file:hover .wt-file-open {
