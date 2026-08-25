@@ -789,6 +789,14 @@ function TerminalPane({
         if (ev.key === "Backspace") return send("\x15");
         if (ev.key === "ArrowLeft") return send("\x01");
         if (ev.key === "ArrowRight") return send("\x05");
+        // ⌘K the way Terminal.app means it: this display clears, the shell is
+        // not consulted — so it works mid-program, not just at a prompt. The
+        // daemon's copy of the scrollback is untouched; a reattach after a
+        // restart brings the history back, which is the lesser surprise.
+        if (!ev.shiftKey && ev.key.toLowerCase() === "k") {
+          term.clear();
+          return false;
+        }
       }
       if (ev.altKey && !ev.metaKey && !ev.ctrlKey) {
         if (ev.key === "Backspace") return send("\x1b\x7f");
