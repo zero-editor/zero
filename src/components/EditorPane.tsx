@@ -225,6 +225,26 @@ export function EditorPane({
               this is. A self-updated copy is a different number by the time
               anyone looks again, and this is where they'd look. */}
           <div className="editor-empty-version">{__APP_VERSION__}</div>
+          {/* the keys a first session reaches for, said where Cursor says
+              them — on the screen you see before you know any of them */}
+          <div className="editor-empty-keys">
+            {[
+              { what: "go to file", keys: ["⌘", "P"] },
+              { what: "new terminal", keys: ["⌘", "T"] },
+              { what: "toggle terminal", keys: ["⌘", "J"] },
+              { what: "find in files", keys: ["⇧", "⌘", "F"] },
+              { what: "file tree", keys: ["⌘", "E"] },
+            ].map(({ what, keys }) => (
+              <div className="editor-empty-key" key={what}>
+                <span className="editor-empty-what">{what}</span>
+                <span className="editor-empty-chord">
+                  {keys.map((k) => (
+                    <kbd key={k}>{k}</kbd>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
