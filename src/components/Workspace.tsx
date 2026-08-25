@@ -136,7 +136,9 @@ export const Workspace = memo(function Workspace({
   // last session's layout for this project. Read once: the component is keyed
   // by root, so a mount is always a project arriving, never one changing.
   const [saved] = useState(() => projectSession(project.root));
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(saved.sidebarTab ?? "scm");
+  // files, not scm: a first open lands on the project's contents, the way
+  // every other editor arrives — a clean repo's git tab reads as "empty"
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(saved.sidebarTab ?? "files");
   const [sidebarVisible, setSidebarVisible] = useState(saved.sidebarVisible ?? true);
   const [terminalVisible, setTerminalVisible] = useState(saved.terminalVisible ?? true);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -702,6 +704,14 @@ export const Workspace = memo(function Workspace({
         setTerminalVisible((v) => !v);
       } else if (meta && !e.shiftKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
+        // ⌘W closes what the keyboard is in: a terminal when one has focus —
+        // the undo for one ⌘T too many — and the active tab otherwise
+        const termEl = e.target instanceof Element ? e.target.closest("[data-term-id]") : null;
+        const termId = termEl?.getAttribute("data-term-id");
+        if (termId) {
+          tree.removePane(termId);
+          return;
+        }
         const pid = currentPaneRef.current;
         closeView(pid, docPanesRef.current[pid]?.activeView ?? 0);
       } else if (meta && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
@@ -784,6 +794,7 @@ export const Workspace = memo(function Workspace({
     search.focus,
     tree.newTerminal,
     tree.splitFocused,
+    tree.removePane,
   ]);
 
   // ref-like holders so the key handler and the open/move callbacks don't
