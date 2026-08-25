@@ -1,5 +1,5 @@
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
-import { Extension } from "@codemirror/state";
+import { Extension, Text } from "@codemirror/state";
 import { getChunks } from "@codemirror/merge";
 
 /**
@@ -162,31 +162,68 @@ export function scrollRuler(
  * The file view measures against HEAD itself (see changeGutter.ts); here the
  * other pane *is* the baseline, so there's nothing to compute — the chunks the
  * merge view already tints the lines with are the ticks.
+ *
+ * `other` fetches the opposite pane's document, the same late binding charDiff
+ * uses and for the same reason: the MergeView doesn't exist yet while its
+ * editors are being built. It sizes the red half of a modified chunk — see
+ * [`chunkTicks`].
  */
-export function diffRuler(): Extension {
-  return scrollRuler(chunkTicks, (u) => getChunks(u.state)?.chunks !== getChunks(u.startState)?.chunks);
+export function diffRuler(other: () => Text | null): Extension {
+  return scrollRuler(
+    (view) => chunkTicks(view, other),
+    (u) => getChunks(u.state)?.chunks !== getChunks(u.startState)?.chunks
+  );
 }
 
-function chunkTicks(view: EditorView): Tick[] {
+function chunkTicks(view: EditorView, other: () => Text | null): Tick[] {
   const info = getChunks(view.state);
   const total = view.contentHeight;
   if (!info || !total) return [];
-  const len = view.state.doc.length;
+  const doc = view.state.doc;
+  const len = doc.length;
+  const otherDoc = other();
+  const isA = info.side === "a";
   const out: Tick[] = [];
   for (const chunk of info.chunks) {
-    const own = info.side === "a"
-      ? { from: chunk.fromA, to: chunk.toA, end: chunk.endA, otherEmpty: chunk.fromB >= chunk.toB }
-      : { from: chunk.fromB, to: chunk.toB, end: chunk.endB, otherEmpty: chunk.fromA >= chunk.toA };
-    // nothing on this side: lines were removed and none put back, so the mark
-    // goes on the seam they closed over rather than down a line that isn't there
-    const kind: TickKind = own.from >= own.to ? "del" : own.otherEmpty ? "add" : "mod";
+    const own = isA
+      ? { from: chunk.fromA, to: chunk.toA, end: chunk.endA }
+      : { from: chunk.fromB, to: chunk.toB, end: chunk.endB };
+    const across = isA
+      ? { from: chunk.fromB, to: chunk.toB, end: chunk.endB }
+      : { from: chunk.fromA, to: chunk.toA, end: chunk.endA };
     const start = view.lineBlockAt(Math.min(own.from, len));
     const last = view.lineBlockAt(Math.min(Math.max(own.end, own.from), len));
-    out.push({
-      kind,
-      top: start.top / total,
-      bottom: (last.top + last.height) / total,
-    });
+    const top = start.top / total;
+    const bottom = (last.top + last.height) / total;
+    if (own.from >= own.to) {
+      // nothing on this side: lines were removed and none put back, so the mark
+      // goes on the seam they closed over rather than down a line that isn't there
+      out.push({ kind: "del", top, bottom });
+    } else if (across.from >= across.to) {
+      out.push({ kind: "add", top, bottom });
+    } else {
+      // A modified chunk is two claims, and they need not be the same size:
+      // green for every line standing on this side, red for what the other
+      // side lost. One line rewritten into twenty is one line of red beside
+      // twenty of green — a red half as tall as the green would say twenty
+      // lines died here, and they didn't.
+      out.push({ kind: "add", top, bottom });
+      let delBottom = bottom;
+      if (otherDoc) {
+        const oLen = otherDoc.length;
+        const lost =
+          otherDoc.lineAt(Math.min(Math.max(across.end, across.from), oLen)).number -
+          otherDoc.lineAt(Math.min(across.from, oLen)).number +
+          1;
+        const first = doc.lineAt(Math.min(own.from, len)).number;
+        const kept = doc.lineAt(Math.min(Math.max(own.end, own.from), len)).number - first + 1;
+        if (lost < kept) {
+          const block = view.lineBlockAt(doc.line(first + lost - 1).from);
+          delBottom = (block.top + block.height) / total;
+        }
+      }
+      out.push({ kind: "del", top, bottom: delBottom });
+    }
   }
   return out;
 }

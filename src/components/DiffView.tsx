@@ -114,7 +114,7 @@ export function DiffView({
             basicSetup,
             EditorView.lineWrapping,
             editorTheme(),
-            diffRuler(),
+            diffRuler(() => mergeRef.current?.a.state.doc ?? null),
             charDiff(() => mergeRef.current?.a.state.doc ?? null),
             langB.of(langFor(relPath)),
             ...(staged
