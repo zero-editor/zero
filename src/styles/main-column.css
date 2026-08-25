@@ -345,6 +345,22 @@
   font-family: var(--font-mono) !important;
 }
 
+/* Scrolling has to live on the compositor. Under glass every surface here is
+   translucent over a live-blurred window, and when WKWebView can't layerize a
+   scroller it repaints the pane on the main thread every frame — which on a
+   long file looks exactly like the text drawing itself in as it arrives. An
+   explicit layer gives the scroller a backing store the GPU moves instead. */
+.cm-host .cm-scroller,
+.cm-host .cm-mergeView {
+  transform: translateZ(0);
+}
+
+/* in a diff the wrapper scrolls, not the panes — a pane is document-tall, and
+   a layer that tall is texture memory bought for nothing */
+.cm-host .cm-mergeView .cm-scroller {
+  transform: none;
+}
+
 /* click-to-expand band standing in for skipped unchanged lines */
 .cm-host .cm-collapsedLines {
   color: var(--text-faint) !important;

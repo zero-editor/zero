@@ -76,4 +76,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* its own compositor layer, same reason as .cm-scroller (main-column.css):
+     hundreds of translucent rows over glass otherwise repaint per frame */
+  transform: translateZ(0);
 }

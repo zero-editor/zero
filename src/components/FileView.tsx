@@ -10,6 +10,7 @@ import { onSettingsChange } from "../lib/settings";
 import { modClick } from "../lib/modClick";
 import { changeGutter, setBaseline } from "../lib/changeGutter";
 import { pokeGit } from "../lib/gitStatus";
+import { minimalChange } from "../lib/minimalChange";
 
 export function FileView({
   absPath,
@@ -43,12 +44,19 @@ export function FileView({
 
     // what the change bars are measured against. Re-read on a timer as well as
     // at open, because HEAD moves under us: a commit in the terminal should
-    // clear the bars for what it just committed.
+    // clear the bars for what it just committed. But HEAD mostly *hasn't*
+    // moved, and dispatching the same baseline again re-diffs the whole file
+    // and redraws the bars for nothing — a hitch every five seconds, felt as
+    // a stutter when it lands mid-scroll — so an unchanged answer stays quiet.
+    let lastBaseline: string | null | undefined;
     const readBaseline = async () => {
       const b = await api.gitBaseline(absPath).catch(() => null);
       if (disposed || !viewRef.current) return;
+      const next = b?.tracked ? b.content : null;
+      if (next === lastBaseline) return;
+      lastBaseline = next;
       viewRef.current.dispatch({
-        effects: setBaseline.of(b?.tracked ? Text.of(b.content.split("\n")) : null),
+        effects: setBaseline.of(next === null ? null : Text.of(next.split("\n"))),
       });
     };
 
@@ -111,11 +119,14 @@ export function FileView({
       const content = await api.readFile(absPath).catch(() => null);
       if (disposed || content === null || !viewRef.current) return;
       if (content !== lastLoadedRef.current) {
+        const old = lastLoadedRef.current;
         lastLoadedRef.current = content;
+        // the smallest edit, not the whole file — a full replace drops the
+        // syntax tree and the scroll mapping every time an agent saves
+        viewRef.current.dispatch({ changes: minimalChange(old, content) });
+        // after the dispatch: the doc-changed listener above just marked the
+        // refresh itself as an unsaved edit, which would wedge every later one
         dirtyRef.current = false;
-        viewRef.current.dispatch({
-          changes: { from: 0, to: viewRef.current.state.doc.length, insert: content },
-        });
       }
     }, 2000);
 

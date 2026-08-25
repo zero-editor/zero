@@ -37,6 +37,25 @@ function emit(root: string) {
   listeners.get(root)?.forEach((fn) => fn());
 }
 
+/** The same answer as last time, field for field. Publishing it again would
+    only make every subscriber — the changes panel, the file tree, Workspace's
+    tab tints — re-render a few hundred rows to draw what is already drawn,
+    which is where sidebar scrolling went to die on repos with many changes. */
+function unchanged(a: WorktreeChanges[], b: WorktreeChanges[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (x.path !== y.path || x.branch !== y.branch || x.is_main !== y.is_main) return false;
+    if (x.changes.length !== y.changes.length) return false;
+    for (let j = 0; j < x.changes.length; j++) {
+      const c = x.changes[j], d = y.changes[j];
+      if (c.path !== d.path || c.status !== d.status || c.staged !== d.staged || c.moved !== d.moved)
+        return false;
+    }
+  }
+  return true;
+}
+
 async function sweep(root: string) {
   // A sweep already in flight is a sweep already about to deliver; a second
   // one would only queue more git processes behind the first. But its answer
@@ -49,6 +68,7 @@ async function sweep(root: string) {
   }
   running.add(root);
   const started = performance.now();
+  let publish = true;
   try {
     const wts = await api.worktrees(root);
     const withChanges = await Promise.all(
@@ -62,14 +82,22 @@ async function sweep(root: string) {
       (a, b) => Number(b.is_main) - Number(a.is_main) || a.branch.localeCompare(b.branch)
     );
     const prev = snapshots.get(root) ?? EMPTY;
-    snapshots.set(root, { worktrees: withChanges, error: null, epoch: prev.epoch + 1 });
+    if (prev.epoch > 0 && !prev.error && unchanged(prev.worktrees, withChanges)) {
+      publish = false;
+    } else {
+      snapshots.set(root, { worktrees: withChanges, error: null, epoch: prev.epoch + 1 });
+    }
   } catch (e) {
     const prev = snapshots.get(root) ?? EMPTY;
-    snapshots.set(root, { ...prev, error: String(e), epoch: prev.epoch + 1 });
+    if (prev.epoch > 0 && prev.error === String(e)) {
+      publish = false;
+    } else {
+      snapshots.set(root, { ...prev, error: String(e), epoch: prev.epoch + 1 });
+    }
   } finally {
     running.delete(root);
   }
-  emit(root);
+  if (publish) emit(root);
   if (!listeners.get(root)?.size) return;
   if (stale.delete(root)) {
     void sweep(root);

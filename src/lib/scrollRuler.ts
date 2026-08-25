@@ -42,6 +42,10 @@ export function scrollRuler(
       isDiff = false;
       dragging = false;
       destroyed = false;
+      /** the document height the ticks were last computed against */
+      lastHeight = -1;
+      /** what the strip currently shows; null until the first draw */
+      lastKey: string | null = null;
 
       constructor(readonly view: EditorView) {
         this.dom = document.createElement("div");
@@ -78,21 +82,40 @@ export function scrollRuler(
       }
 
       update(u: ViewUpdate) {
-        if (u.docChanged || u.geometryChanged || dirty?.(u)) this.draw();
+        // geometryChanged fires on every scroll frame of a long wrapped file —
+        // CodeMirror measures lines as they come into view and corrects its
+        // estimates — and redrawing the strip inside those frames is exactly
+        // the work that makes the scroll stutter. The ticks only move when the
+        // document's height does, so that is the signal to redraw on.
+        if (
+          u.docChanged ||
+          dirty?.(u) ||
+          (u.geometryChanged && this.view.contentHeight !== this.lastHeight)
+        )
+          this.draw();
       }
 
       draw() {
-        const next = document.createDocumentFragment();
-        for (const t of ticks(this.view)) {
-          const el = document.createElement("div");
-          el.className = `cm-changeTick cm-change-${t.kind}`;
-          el.style.top = `${t.top * 100}%`;
-          el.style.height = `${(t.bottom - t.top) * 100}%`;
-          next.appendChild(el);
+        this.lastHeight = this.view.contentHeight;
+        const ts = ticks(this.view);
+        // same marks in the same places: leave the DOM alone. Height
+        // corrections land here constantly while a long file is first
+        // scrolled, and almost none of them move a tick a visible amount.
+        const key = ts.map((t) => `${t.kind} ${t.top.toFixed(4)} ${t.bottom.toFixed(4)}`).join("\n");
+        if (key !== this.lastKey) {
+          this.lastKey = key;
+          const next = document.createDocumentFragment();
+          for (const t of ts) {
+            const el = document.createElement("div");
+            el.className = `cm-changeTick cm-change-${t.kind}`;
+            el.style.top = `${t.top * 100}%`;
+            el.style.height = `${(t.bottom - t.top) * 100}%`;
+            next.appendChild(el);
+          }
+          // last, so it paints over the marks it locates you among
+          if (this.isDiff) next.appendChild(this.thumb);
+          this.dom.replaceChildren(next);
         }
-        // last, so it paints over the marks it locates you among
-        if (this.isDiff) next.appendChild(this.thumb);
-        this.dom.replaceChildren(next);
         this.placeThumb();
       }
 
