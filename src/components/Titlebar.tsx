@@ -42,12 +42,20 @@ export function Titlebar({
   const activeRoot = projects[activeIdx]?.root;
 
   // "finished" is an unread badge: being in the project reads it, and only a
-  // session starting work again makes it unread once more
+  // session starting work again makes it unread once more. A project the strip
+  // is meeting for the first time starts read — after a restart the daemon
+  // hands back sessions that finished long ago, and a badge for those would
+  // announce news that isn't; only a finish this instance watched happen is.
   const [seen, setSeen] = useState<Set<string>>(new Set());
+  const known = useRef<Set<string>>(new Set());
   useEffect(() => {
     setSeen((prev) => {
       const next = new Set(prev);
       for (const p of projects) {
+        if (!known.current.has(p.root)) {
+          known.current.add(p.root);
+          next.add(p.root);
+        }
         if (p.root === activeRoot) next.add(p.root);
         else if ((claude[p.root]?.working ?? 0) > 0) next.delete(p.root);
       }
