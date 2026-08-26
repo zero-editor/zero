@@ -143,9 +143,16 @@ tree and the changes panel read one sweep between them.
 transcription is the one built into macOS, so it happens on this Mac, and then
 a single `claude -p` pass turns it into the concise version you would
 otherwise have pasted into a chat and asked for by hand. A memo that came back
-takes follow-ups: the ＋ on its row records on top of it, and the new words are
-merged into the same document, the follow-up winning wherever the two
-disagree.
+takes follow-ups: the button at the foot of its thread records on top of it,
+and the new words are merged into the same document, the follow-up winning
+wherever the two disagree.
+
+The mic is not the only way in. A recording made somewhere else — a phone
+memo, a call, anything Core Audio reads — imports from a file picker as a memo
+of its own, or as a follow-up onto one, and from there it is a recording like
+any other: same transcription, same distillation, same merge. It is converted
+to the format a recording ends in on the way, so nothing downstream knows the
+difference, and the file you picked is only ever read.
 
 Clicking a memo opens it as its thread — what you said, what came back, take
 by take, oldest at the top, with the button that records the next take at the
@@ -449,12 +456,13 @@ discovered:
   `TERM_SESSION_ID` it inherited from whatever launched it — otherwise macOS's
   shell-session integration greets every new terminal with "Restored session:"
   and saves history into `~/.zsh_sessions` on behalf of someone else's window.
-- **It writes `<project>/.zero/`** the first time you record a voice memo in
-  that project — the audio and both transcripts — **and a `<project>/ZERO.md`**
-  beside it, the vocabulary that project is transcribed against, which is meant
-  to be committed the way a CLAUDE.md is. They are the first things zero has
-  ever put inside a project of its own accord, and they appear only if you
-  press record or open that file from the panel.
+- **It writes `<project>/.zero/`** the first time you record or import a voice
+  memo in that project — the audio and both transcripts — **and a
+  `<project>/ZERO.md`** beside it, the vocabulary that project is transcribed
+  against, which is meant to be committed the way a CLAUDE.md is. They are the
+  first things zero has ever put inside a project of its own accord, and they
+  appear only if you press record, import a recording, or open that file from
+  the panel.
 - **It appends `.zero/memos/` to that project's `.gitignore`** at the same
   moment, once, under a comment saying which program added it. The recordings
   stay on your machine; `ZERO.md` is outside that line, so the project's words
