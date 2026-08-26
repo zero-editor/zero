@@ -170,9 +170,16 @@ pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
         let mut result = Vec::new();
         let mut path = String::new();
         let mut branch = String::new();
+        let mut initializing = false;
         for line in out.lines().chain(std::iter::once("")) {
             if line.is_empty() {
-                if !path.is_empty() {
+                // `git worktree add` registers the worktree before the checkout
+                // that fills it, and marks it `locked initializing` for the
+                // duration. A status of that half-checkout reports every not-
+                // yet-written file as deleted — thousands of rows that flash
+                // through the panel and vanish — so the worktree joins the list
+                // only once git unlocks it.
+                if !path.is_empty() && !initializing {
                     let is_main = Path::new(&path).join(".git").is_dir();
                     result.push(Worktree {
                         path: path.clone(),
@@ -182,12 +189,15 @@ pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
                 }
                 path.clear();
                 branch.clear();
+                initializing = false;
             } else if let Some(p) = line.strip_prefix("worktree ") {
                 path = p.to_string();
             } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
                 branch = b.to_string();
             } else if line == "detached" {
                 branch = "(detached)".to_string();
+            } else if line.strip_prefix("locked").is_some_and(|r| r.trim() == "initializing") {
+                initializing = true;
             }
         }
         Ok(result)
@@ -198,14 +208,66 @@ pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
 #[tauri::command]
 pub async fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
     blocking(move || {
-        let mut args = vec!["worktree", "remove"];
-        if force {
-            args.push("--force");
+        // `git worktree remove` unlinks the checkout one file at a time —
+        // seconds on a real worktree, with every status sweep watching the
+        // files half-gone. Renaming the directory into `.git` instead is one
+        // syscall: the worktree vanishes from the panel and the disk walk
+        // happens after the answer, where nobody is watching. `.git` because
+        // status never looks inside it, and because it is on the worktree's
+        // own volume more often than any tmpdir is — a rename only works
+        // within one.
+        let dot_git = Path::new(&path).join(".git");
+        if dot_git.is_dir() {
+            return Err("refusing to remove the main worktree".into());
         }
+        if !force {
+            // the same refusal `git worktree remove` gives, priced at one
+            // status instead of git's own scan plus ours
+            let status = run_git(&path, &["status", "--porcelain=v1"])?;
+            if !status.is_empty() {
+                return Err(format!(
+                    "'{path}' contains modified or untracked files, use --force to delete it"
+                ));
+            }
+        }
+        // a locked worktree survives `worktree prune`, so the rename would
+        // orphan its registration forever; git refuses these too
+        let admin = std::fs::read_to_string(&dot_git)
+            .ok()
+            .and_then(|s| s.trim().strip_prefix("gitdir: ").map(str::to_string));
+        if let Some(admin) = &admin {
+            if Path::new(admin).join("locked").exists() {
+                return Err(format!("'{path}' is locked; unlock it first (git worktree unlock)"));
+            }
+        }
+        let common = run_git(&root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+        let trash_dir = Path::new(common.trim()).join("zero-trash");
+        let name = format!(
+            "wt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        );
+        let trash = trash_dir.join(name);
+        let renamed = std::fs::create_dir_all(&trash_dir).is_ok()
+            && std::fs::rename(&path, &trash).is_ok();
+        if renamed {
+            // unregister before returning, so the next sweep never lists a
+            // worktree whose directory is gone
+            run_git(&root, &["worktree", "prune"])?;
+            std::thread::spawn(move || {
+                // the whole trash dir, so a deletion a crash left behind
+                // goes with this one
+                let _ = std::fs::remove_dir_all(&trash_dir);
+            });
+            return Ok(());
+        }
+        // rename failed — worktree on another volume, most likely — so pay for
+        // git's own removal. The check above already ran, hence --force.
         // `--` so a worktree whose path begins with a dash isn't read as an option
-        args.push("--");
-        args.push(&path);
-        run_git_trusted(&root, &args)?;
+        run_git_trusted(&root, &["worktree", "remove", "--force", "--", &path])?;
         Ok(())
     })
     .await
