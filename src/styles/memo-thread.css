@@ -334,6 +334,16 @@
   min-width: 34px;
 }
 
+/* The bar's third verb: a follow-up arriving as a file instead of through the
+   mic. A chip like its neighbours — this bar is real bordered buttons, and a
+   bare icon square among them reads as a satellite — at the width the copy
+   chip shrinks to, because it too holds exactly one glyph. */
+.memo-thread-btn.import {
+  flex: 0 0 34px;
+  min-width: 34px;
+  padding: 7px 0;
+}
+
 .memo-thread-btn:hover:not(:disabled) {
   color: var(--text);
   background: var(--bg-raised);

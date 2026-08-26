@@ -221,6 +221,13 @@ export const api = {
   memoRecordStart: (root: string, into?: string) =>
     invoke<string>("memo_record_start", { root, into: into ?? null }),
   memoRecordStop: () => invoke<void>("memo_record_stop"),
+  /** Copies an audio file recorded somewhere else into the pipeline — as a new
+   *  memo, or with `into` as a follow-up onto a finished one — and resolves
+   *  with the memo's id, exactly as `memoRecordStart` does. Converted to m4a on
+   *  the way in; a file that isn't audio fails here with the converter's
+   *  reason. The source file is never touched. */
+  memoImport: (root: string, path: string, into?: string) =>
+    invoke<string>("memo_import", { root, path, into: into ?? null }),
   /* The mic is one resource, so the three below take no arguments: there is one
      recording to act on and the backend already knows which it is. Same shape
      as `memoRecordStop`, for the same reason. */

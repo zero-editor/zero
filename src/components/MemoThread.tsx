@@ -18,7 +18,7 @@ import {
 } from "../lib/memos";
 import { miniMarkdown } from "../lib/miniMarkdown";
 import { useSettings } from "../lib/settings";
-import { CopyGlyph, MemoControls, MicGlyph, PauseGlyph, PlayGlyph } from "./MemoPanel";
+import { CopyGlyph, ImportGlyph, MemoControls, MicGlyph, PauseGlyph, PlayGlyph } from "./MemoPanel";
 
 /**
  * A memo as the exchange it actually is: what you said, what came back, take by
@@ -704,15 +704,30 @@ export function MemoThread({
             (mine ? (
               <MemoControls root={root} memos={memos} elapsed={elapsed} />
             ) : (
-              <button
-                className="memo-thread-btn"
-                title={blocked ?? "record a follow-up — it revises this memo"}
-                disabled={memos.busy || blocked !== null}
-                onClick={() => memos.startTake(id)}
-              >
-                <MicGlyph />
-                <span className="memo-btn-label">{followLabel}</span>
-              </button>
+              <>
+                <button
+                  className="memo-thread-btn"
+                  title={blocked ?? "record a follow-up — it revises this memo"}
+                  disabled={memos.busy || blocked !== null}
+                  onClick={() => memos.startTake(id)}
+                >
+                  <MicGlyph />
+                  <span className="memo-btn-label">{followLabel}</span>
+                </button>
+                {/* A follow-up said somewhere else, arriving as a file. Gated
+                    only on the memo being finished, not on the mic: another
+                    project mid-ramble greys the button beside this one for a
+                    reason that doesn't apply here. */}
+                <button
+                  className="memo-thread-btn import"
+                  title="import an audio file as a follow-up — it revises this memo"
+                  aria-label="import an audio file as a follow-up"
+                  disabled={memos.busy || memo.status !== "ready"}
+                  onClick={() => memos.importMemo(id)}
+                >
+                  <ImportGlyph />
+                </button>
+              </>
             ))}
         </div>
       </div>

@@ -228,6 +228,7 @@ pub fn run() {
             memos::memo_probe,
             memos::memo_list,
             memos::memo_record_start,
+            memos::memo_import,
             memos::memo_record_stop,
             memos::memo_record_pause,
             memos::memo_record_resume,

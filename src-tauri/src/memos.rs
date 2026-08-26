@@ -561,12 +561,14 @@ fn stem_is_ours(stem: &str) -> bool {
         })
 }
 
-/// A stem no file in `dir` is using yet.
+/// A stem no file in `dir` is using yet. The caf is a recording's first file
+/// and the m4a an import's only one, so those two and the json are the names
+/// that can already be claiming a stem.
 fn new_stem(dir: &Path) -> String {
     let front = stamp(now_secs() + local_offset());
     for _ in 0..64 {
         let stem = format!("{front}-{}", hex4());
-        if !dir.join(format!("{stem}.json")).exists() && !dir.join(format!("{stem}.caf")).exists() {
+        if ["json", "caf", "m4a"].iter().all(|ext| !dir.join(format!("{stem}.{ext}")).exists()) {
             return stem;
         }
     }
@@ -2919,6 +2921,179 @@ fn unwind_start(dir: &Path, id: &str, take: bool) {
     let _ = save_memo(dir, &memo);
 }
 
+// ── importing a file ─────────────────────────────────────────────────────────
+
+/// The system's audio converter and its info tool. Absolute for the reason
+/// `/bin/date` is above: a GUI app's PATH is not a promise, and both ship with
+/// every macOS.
+const AFCONVERT: &str = "/usr/bin/afconvert";
+const AFINFO: &str = "/usr/bin/afinfo";
+
+/// Bring an audio file recorded somewhere else into the memos directory as
+/// `<stem>.m4a` — which is the whole trick of importing: once the file wears
+/// the name and container a recording ends in, every contract downstream
+/// (the scan, the sweep, the transcribe job, the thread's playback path) holds
+/// without knowing the mic was never involved.
+///
+/// An m4a is copied as it is; everything else goes through `afconvert`, which
+/// reads what Core Audio reads — wav, mp3, aiff, caf, flac — and is also the
+/// gate: a file that isn't audio fails here, at the press, with the converter's
+/// reason, rather than three stages later as a transcription mystery. Either
+/// way the bytes land under the `.part` scratch name and are renamed only once
+/// whole — the helper's own kill-safe encode, and the same dust `remove_all`
+/// already sweeps. The source file is read and never touched.
+fn import_audio(src: &Path, m4a: &Path) -> Result<(), String> {
+    let name = m4a.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let part = m4a.with_file_name(format!("{name}.part"));
+    let keep = src.extension().is_some_and(|e| e.eq_ignore_ascii_case("m4a"));
+    if keep {
+        std::fs::copy(src, &part).map_err(|e| format!("could not copy the file: {e}"))?;
+    } else {
+        // the helper's own encode settings: AAC, 64 kbps — speech, not mastering
+        let converted = Command::new(AFCONVERT)
+            .args(["-f", "m4af", "-d", "aac", "-b", "64000"])
+            .arg(src)
+            .arg(&part)
+            .output()
+            .map_err(|e| format!("could not run the audio converter: {e}"))?;
+        if !converted.status.success() {
+            let _ = std::fs::remove_file(&part);
+            // afconvert says why on stderr, prefixed "Error:", which the
+            // sentence below already says; a converter that said nothing
+            // still owes the person one
+            let said = String::from_utf8_lossy(&converted.stderr);
+            let why = first_lines(&said, 1).trim_start_matches("Error:").trim().to_string();
+            return Err(if why.is_empty() {
+                "the file could not be read as audio".to_string()
+            } else {
+                format!("the file could not be read as audio — {why}")
+            });
+        }
+    }
+    std::fs::rename(&part, m4a).map_err(|e| {
+        let _ = std::fs::remove_file(&part);
+        e.to_string()
+    })
+}
+
+/// How long an audio file plays for, in seconds, by asking `afinfo`. Zero when
+/// it won't say — the length a memo wears until its recording ends, and the
+/// panel already omits a zero rather than drawing it.
+fn audio_duration(path: &Path) -> f64 {
+    let Ok(out) = Command::new(AFINFO).arg(path).output() else { return 0.0 };
+    parse_afinfo_duration(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// `estimated duration: 2.320000 sec` → 2.32, out of everything else afinfo
+/// prints. Its own function so the test can hold the parse to the real output.
+fn parse_afinfo_duration(text: &str) -> f64 {
+    text.lines()
+        .find_map(|l| l.trim().strip_prefix("estimated duration:"))
+        .and_then(|rest| rest.trim().strip_suffix("sec"))
+        .and_then(|n| n.trim().parse::<f64>().ok())
+        .filter(|d| d.is_finite() && *d >= 0.0)
+        .unwrap_or(0.0)
+}
+
+/// Bring a recording made somewhere else into the pipeline — as a memo of its
+/// own, or as a follow-up onto the finished memo `into` names.
+///
+/// The file is converted into place, written down as `recorded`, and from that
+/// checkpoint on it is a recording like any other: the same transcribe, the
+/// same cleanup or merge, the same retries from the same checkpoints. The mic
+/// is never involved, so nothing here asks whether it is free — a memo can be
+/// imported while another project is mid-ramble.
+///
+/// Resolves with the memo's id, exactly as `memo_record_start` does, so the
+/// frontend's follow machinery lights the row and opens the thread when it
+/// comes back without learning a second shape.
+#[tauri::command]
+pub async fn memo_import(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MemoManager>,
+    root: String,
+    path: String,
+    into: Option<String>,
+) -> Result<String, String> {
+    // same gate as pressing record: an import ends in the same transcriber
+    let probe = probe();
+    if !probe.supported {
+        return Err(probe.message.unwrap_or_else(|| NEEDS_MACOS_26.to_string()));
+    }
+    let src = PathBuf::from(&path);
+    if !src.is_absolute() || !src.is_file() {
+        return Err("that isn't a file".into());
+    }
+    if std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0) == 0 {
+        return Err("that file is empty — there is nothing to transcribe".into());
+    }
+    let shared = state.0.clone();
+
+    match into {
+        // a memo of its own: the same first write pressing record makes — the
+        // directory, the ignore line, the vocabulary — with the file where the
+        // recording would have ended up
+        None => {
+            let dir = create_memos_dir(&app, &root)?;
+            let _ = ensure_zero_md(&app, &root);
+            let id = new_stem(&dir);
+            let audio = format!("{id}.m4a");
+            import_audio(&src, &dir.join(&audio))?;
+            let memo = MemoFile {
+                id: id.clone(),
+                title: None,
+                created: iso(now_secs()),
+                duration_s: audio_duration(&dir.join(&audio)),
+                status: RECORDED.to_string(),
+                audio: Some(audio),
+                interrupted: false,
+                takes: Vec::new(),
+                attempts: Attempts::default(),
+                error: None,
+            };
+            publish(&app, &shared, &root, &dir, &memo);
+            auto_advance(&shared, &app, &root, &memo);
+            Ok(id)
+        }
+        // a follow-up: `begin_take`'s rules — only a finished memo takes one,
+        // and the attempts reset because this is a new run — with the take
+        // appended after its audio is safely in place rather than before,
+        // since there is no helper filling the file whose start needs
+        // announcing, and a conversion that fails must leave the memo exactly
+        // the finished thing it was.
+        Some(id) => {
+            if !valid_id(&id) {
+                return Err("not a memo id".into());
+            }
+            let dir = memos_dir(&root);
+            let mut memo = load_memo(&dir, &id).ok_or("no such memo")?;
+            if memo.status != READY {
+                return Err(format!(
+                    "can only add to a finished memo — this one is {}",
+                    memo.status
+                ));
+            }
+            let _ = ensure_zero_md(&app, &root);
+            let n = take_no(memo.takes.len());
+            let audio = format!("{}.m4a", take_stem(&id, n));
+            import_audio(&src, &dir.join(&audio))?;
+            let duration_s = audio_duration(&dir.join(&audio));
+            memo.takes.push(Take {
+                audio,
+                raw: take_raw_name(&id, n),
+                created: iso(now_secs()),
+                duration_s,
+            });
+            memo.attempts = Attempts::default();
+            memo.status = RECORDED.to_string();
+            memo.error = None;
+            publish(&app, &shared, &root, &dir, &memo);
+            auto_advance(&shared, &app, &root, &memo);
+            Ok(id)
+        }
+    }
+}
+
 /// Start recording — a memo of its own, or a follow-up onto `into`.
 ///
 /// `into` names the finished memo this recording revises, when it revises one;
@@ -3566,6 +3741,19 @@ mod tests {
             assert!(!valid_id(bad), "{bad} should never reach a path");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The one line of afinfo an import reads, held to afinfo's real output —
+    /// and to the silences and nonsense a system tool is allowed to produce,
+    /// all of which are a zero, which the panel draws as nothing.
+    #[test]
+    fn afinfo_duration_parses_the_real_output_and_nothing_else() {
+        let real = "Data format:     1 ch,  22050 Hz, aac\nestimated duration: 2.320000 sec\nformat list:\n";
+        assert_eq!(parse_afinfo_duration(real), 2.32);
+        assert_eq!(parse_afinfo_duration("estimated duration: 901.5 sec"), 901.5);
+        for silent in ["", "no duration here", "estimated duration: sec", "estimated duration: -3 sec", "estimated duration: inf sec"] {
+            assert_eq!(parse_afinfo_duration(silent), 0.0, "{silent:?} is not a length");
+        }
     }
 
     /// The file is edited by hand, in a text editor, by someone mid-thought.

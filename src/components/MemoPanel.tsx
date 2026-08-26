@@ -142,7 +142,21 @@ const BookGlyph = () => (
   </Glyph>
 );
 
-export { PlayGlyph, PauseGlyph, CopyGlyph, MicGlyph };
+/** A file arriving: an arrow settling into a tray. The tray is the bottom half
+ *  of the copy glyph's geometry and the arrow the size everything else here is,
+ *  so it reads as one more member of the set rather than a visitor from a
+ *  toolbar. It means "bring a recording in from outside" in both places it
+ *  appears — beside the mic on the panel's floor, and beside the follow-up
+ *  button at the foot of a thread. */
+const ImportGlyph = () => (
+  <Glyph>
+    <path d="M8 2.4v6.8" />
+    <path d="M5.3 6.5 8 9.2l2.7-2.7" />
+    <path d="M2.9 10.6v1.7a1.3 1.3 0 0 0 1.3 1.3h7.6a1.3 1.3 0 0 0 1.3-1.3v-1.7" />
+  </Glyph>
+);
+
+export { PlayGlyph, PauseGlyph, CopyGlyph, MicGlyph, ImportGlyph };
 
 /**
  * The dot, and nothing but the dot: a mic is on.
@@ -494,6 +508,21 @@ export function MemoPanel({
               <span className="memo-record-label">{recordLabel}</span>
             </button>
           )}
+
+          {/* The other way a recording arrives: made somewhere else, picked as
+              a file. It rides beside the mic in both states — the mic is never
+              involved, so a live recording elsewhere is no reason to grey it —
+              and the memo it makes walks the same pipeline from the same
+              `recorded` checkpoint on. */}
+          <button
+            className="memo-icon-btn"
+            title="import an audio file — it becomes a memo like any recording"
+            aria-label="import an audio file"
+            disabled={memos.busy}
+            onClick={() => memos.importMemo()}
+          >
+            <ImportGlyph />
+          </button>
 
           <button
             className="memo-icon-btn"

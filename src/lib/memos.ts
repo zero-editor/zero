@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api, Memo, MemoProbe } from "./api";
 
 /**
@@ -458,7 +459,12 @@ const probeOnce = () =>
  * may be pressed twice while the mic is being told something — but the word is
  * now the one that was actually asked for.
  */
-export type MemoAction = "start" | "stop" | "pause" | "resume" | "cancel";
+export type MemoAction = "start" | "stop" | "pause" | "resume" | "cancel" | "import";
+
+/** What the import picker offers: the formats Core Audio reads, because that
+ *  is what the backend converts through. Anything else fails at the press with
+ *  the converter's reason rather than dying later in the pipeline. */
+const AUDIO_EXTENSIONS = ["m4a", "mp3", "wav", "aiff", "aif", "caf", "flac", "aac", "mp4"];
 
 export interface Memos {
   /** newest first, the order `memo_list` returns */
@@ -500,6 +506,10 @@ export interface Memos {
   /** record a follow-up onto a finished memo: the same mic, the same stop
    *  button, and a merge at the end instead of a cleanup */
   startTake: (id: string) => void;
+  /** Pick an audio file recorded somewhere else and put it through the same
+   *  pipeline — as a new memo, or with `into` as a follow-up onto a finished
+   *  one. The mic is never involved, so this works while it's busy. */
+  importMemo: (into?: string) => void;
   stop: () => void;
   /** hold the recording open with the mic switched off; `resume` picks it up
    *  where it stopped, with no silence recorded in between */
@@ -714,6 +724,26 @@ export function useMemos(
     [run, root, follow]
   );
 
+  // The same follow as the two above, minus the mic: a memo made of somebody
+  // else's recording is still the memo being waited on, from the press to
+  // ready. A dismissed picker is a decision, not an error, so it runs the
+  // action to its quiet end rather than throwing something for the notice.
+  const importMemo = useCallback(
+    (into?: string) => {
+      void run("import", async () => {
+        const path = await open({
+          multiple: false,
+          directory: false,
+          filters: [{ name: "audio", extensions: AUDIO_EXTENSIONS }],
+          title: into ? "import a follow-up recording" : "import a voice recording",
+        });
+        if (typeof path !== "string") return;
+        follow(await api.memoImport(root, path, into));
+      });
+    },
+    [run, root, follow]
+  );
+
   const stop = useCallback(() => void run("stop", () => api.memoRecordStop()), [run]);
 
   // The level is zeroed here as well as on the update that comes back, and for
@@ -804,6 +834,7 @@ export function useMemos(
     frozen,
     start,
     startTake,
+    importMemo,
     stop,
     pause,
     resume,
