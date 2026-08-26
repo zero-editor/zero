@@ -716,15 +716,27 @@ export const Workspace = memo(function Workspace({
         closeView(pid, docPanesRef.current[pid]?.activeView ?? 0);
       } else if (
         (meta && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) ||
-        (ctrl && !meta && !e.altKey && e.code === "Tab" &&
-          !(e.target instanceof Element && e.target.closest("[data-term-id]")))
+        (ctrl && !meta && !e.altKey && e.code === "Tab")
       ) {
         // walk the active pane's tabs, wrapping at either end. By code, not
         // key: with shift held the character is { or }, and on plenty of
         // layouts not even that — the same reason Backquote and Backslash
-        // below are matched this way. ⌃Tab and ⌃⇧Tab do the same walk — but
-        // only outside a terminal, whose keystrokes belong to the shell.
+        // below are matched this way. ⌃Tab and ⌃⇧Tab do the same walk — and
+        // inside a terminal they walk the terminal panes instead, the same
+        // gesture pointed at the thing the keyboard is already in.
         e.preventDefault();
+        const termEl = e.target instanceof Element ? e.target.closest("[data-term-id]") : null;
+        if (termEl && e.code === "Tab") {
+          const cur = termEl.getAttribute("data-term-id") ?? "";
+          const terms = leafIds(treeRef.current.root).filter(isTerm);
+          if (terms.length > 1) {
+            const dir = e.shiftKey ? -1 : 1;
+            treeRef.current.setFocused(
+              terms[(terms.indexOf(cur) + dir + terms.length) % terms.length]
+            );
+          }
+          return;
+        }
         const pid = currentPaneRef.current;
         const dp = docPanesRef.current[pid];
         if (dp && dp.views.length > 1) {
@@ -806,6 +818,7 @@ export const Workspace = memo(function Workspace({
   // rebind on every keystroke's worth of state
   const docPanesRef = useStateRef(docPanes);
   const paneIdsRef = useStateRef(paneIds);
+  const treeRef = useStateRef(tree);
   const currentPaneRef = useStateRef(currentPane);
   const lastClosedProjectRef = useStateRef(lastClosedProject);
   // and one for the memos, for a stronger version of the same reason: this

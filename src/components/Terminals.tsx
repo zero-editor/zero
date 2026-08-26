@@ -781,6 +781,9 @@ function TerminalPane({
     // ⌥←/→ word-jump, ⌘←/→ line start/end — translated to readline codes
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== "keydown") return true;
+      // ⌃Tab / ⌃⇧Tab walk the terminal panes — handled by the window key
+      // handler in Workspace, so only keep xterm from typing a tab first
+      if (ev.ctrlKey && !ev.metaKey && !ev.altKey && ev.code === "Tab") return false;
       const send = (s: string) => {
         api.ptyWrite(id, s).catch(() => {});
         return false;
