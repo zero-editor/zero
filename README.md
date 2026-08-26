@@ -14,14 +14,15 @@ Never capitalised. It's `zero`, not Zero.
 29,465 lines of source   (25,281 code, 4,184 CSS)
     19 MB app bundle            Cursor: 845 MB
   0.4 s to a window from cold   Cursor: 8.2 s
-   243 MB with 4 projects open  Cursor: 1,803 MB
+   594 MB with 4 projects open  Cursor: 1,709 MB
 ```
 
 ## Benchmarks
 
 Same machine, same project, both editors, three launches each, median
-reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.17.19 for the disk rows,
-3.15.6 for the rest.
+reported. M3 Max · 36 GB · macOS 26.5.1 · zero 0.25.0 · Cursor 3.17.19
+(the cold-launch row is the original 0.1.0-vs-3.15.6 run — it needs a fresh
+boot to reproduce).
 
 | | zero | Cursor | |
 |---|---:|---:|---|
@@ -31,21 +32,19 @@ reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.17.19 for the disk rows,
 | Bundled runtime | 0, system WebKit | 257 MB of Electron | |
 | Bundled extensions | 0 | 116 | |
 | Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
-| Warm: window / ready to use | **0.40 s** / 2.39 s | 1.14 s / 6.59 s | |
-| Memory, one project | **354 MB** | 687 MB | 1.9× |
-| Idle CPU | **1.10%** of a core | 2.66% | |
+| Warm: window / ready to use | **0.53 s** / 2.23 s | 1.08 s / 9.52 s | |
+| Memory, one project | **409 MB** | 872 MB | 2.1× |
+| Idle CPU, one project | **4.69%** of a core | 5.99% | |
+| Rendering 4 terminals × 25 lines/s | **+35.8%** of a core | +54.9% | |
 
-The disk rows are the 0.24.3 build — the 189 KB compiled Swift helper
-included, and two of the seven files are the code signature a notarized app
-carries. Launch, memory and idle CPU are still 0.1.0's and say so rather than
-being adjusted on paper; the helper is spawned per recording, not at startup,
-so it isn't in the path either measures. 0.20.0 also moved the terminals into
-a daemon — one more process, measured on its own at 2.1 MB empty and 3.7 MB
-holding six shells, and not yet folded into the memory row above.
+The last row is the workload this editor exists for — agents talking in every
+project — measured with a synthetic stream because real Claude output isn't
+reproducible. The 189 KB compiled Swift helper is in the bundle numbers; two
+of the seven files are the code signature a notarized app carries.
 
 Memory is `phys_footprint` — what Activity Monitor shows. Summed RSS would
-have said 256 MB against 2,057 MB, but it counts a shared framework page once
-per process and so punishes Cursor for having twelve of them. The 2× is the
+have said 278 MB against 2,136 MB, but it counts a shared framework page once
+per process and so punishes Cursor for having eleven of them. The 2× is the
 honest number.
 
 ### It gets wider the more projects you open
@@ -56,19 +55,18 @@ the same page.
 
 | Projects open | zero | procs | Cursor | procs |
 |---|---:|---:|---:|---:|
-| 1 | 143 MB | 5 | 807 MB | 8 |
-| 2 | 176 MB | 5 | 1,050 MB | 11 |
-| 3 | 420 MB | 5 | 1,453 MB | 14 |
-| **4, steady** | **243 MB** | **5** | **1,803 MB** | **17** |
+| 1 | 410 MB | 5 | 866 MB | 8 |
+| 2 | 470 MB | 5 | 1,520 MB | 11 |
+| 3 | 538 MB | 5 | 1,393 MB | 14 |
+| **4, steady** | **594 MB** | **5** | **1,709 MB** | **17** |
 
-Cursor costs about **360 MB and three processes per extra project**, linearly.
-zero's process count never moves off five, and its per-project cost is small
-enough to vanish into noise — note the 3-project reading coming in *higher*
-than the 4-project one. That's real: nearly all of zero's memory is WebKit's
-GPU process, which grows and is reclaimed on its own schedule (five samples at
-four projects: 243, 243, 243, 243, 506 MB). So the claim isn't "zero costs X
-per project", it's that at this scale the per-project cost is below zero's own
-noise floor.
+Cursor costs about **330 MB and three processes per extra project**, linearly.
+zero costs about **60 MB and no processes at all** — the price of keeping a
+terminal with 2,000 rows of scrollback and a painted layer tree per project.
+Earlier versions claimed the per-project cost was below zero's own noise
+floor; the persistence features since have made it real and the noise has
+gone (five steady samples: 605, 594, 595, 588, 588 MB), so the claim now is
+the smaller, truer one: 2.1× lighter at one project, 2.9× at four.
 
 **~2× at one project, ~7× at four.**
 

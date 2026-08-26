@@ -12,12 +12,14 @@ showing up as a cost, not Cursor being badly built.
 
 ```
 Machine   Apple M3 Max · 36 GB · macOS 26.5.1
-Cursor    3.17.19 for disk and code; 3.15.6 for launch, memory and CPU,
-          with the extensions I actually have installed
-zero      0.24.3 for disk and code; 0.1.0 for launch, memory and CPU
-Project   the zero repo itself — 5.0k lines when the launch numbers were
-          run, a git worktree, node_modules present (29.5k now; see Code)
-Method    3 launches each, median reported, apps quit between runs
+Cursor    3.17.19, with the extensions I actually have installed
+          (3.15.6 for the cold-launch row only)
+zero      0.25.0 (0.1.0 for the cold-launch row only)
+Project   the zero repo itself — 29.5k lines, a git worktree, node_modules
+          present
+Method    3 launches each, median reported, apps quit between runs;
+          measured 2026-08-26 on an idle machine, from a clean session so
+          zero opens exactly the projects the benchmark names
 ```
 
 ## Disk
@@ -85,14 +87,16 @@ Electron puts an empty window up early and fills it afterwards; measuring only
 
 | | zero | Cursor |
 |---|---:|---:|
-| Window on screen | **0.40 s** | 1.14 s |
-| Ready to use | **2.39 s** | 6.59 s |
+| Window on screen | **0.53 s** | 1.08 s |
+| Ready to use | **2.23 s** | 9.52 s |
 | First launch of the session (cold) | **0.38 s** | 8.16 s |
 
-The cold number is the honest one for how it feels in practice: the first time
-you open an editor after booting, Cursor took **8.2 seconds** and zero took
-**0.4**. zero has essentially no cold penalty because there is almost nothing
-to page in.
+The cold row is the one measurement not re-run on 2026-08-26 — it needs a
+fresh boot, so it is still 0.1.0 against 3.15.6 and says so rather than being
+adjusted on paper. It is also the honest one for how it feels in practice: the
+first time you open an editor after booting, Cursor took **8.2 seconds** and
+zero took **0.4**. zero has essentially no cold penalty because there is
+almost nothing to page in.
 
 ## Memory
 
@@ -100,27 +104,26 @@ Two accountings, because they disagree and only one of them is fair.
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| **phys_footprint** (Activity Monitor's "Memory") | **354 MB** | 687 MB | 1.9× |
-| Summed RSS across processes | 256 MB | 1,140–2,186 MB | |
-| Processes | **5** | 8–12 | |
+| **phys_footprint** (Activity Monitor's "Memory") | **409 MB** | 872 MB | 2.1× |
+| Summed RSS across processes | 278 MB | 1,805–2,136 MB | |
+| Processes | **5** | 8–11 | |
 
 **Use the first row.** Summed RSS counts a shared framework page once per
-process, so it punishes Cursor for having twelve of them and produces a
-headline like "8× less memory" that isn't true. By macOS's own accounting the
+process, so it punishes Cursor for having eleven of them and produces a
+headline like "7× less memory" that isn't true. By macOS's own accounting the
 real answer is that zero uses **a bit under half**. That's a good result, not a
 spectacular one, and the spectacular version would have been wrong.
 
 Worth noting for anyone reading zero's code: its single largest consumer isn't
-the app at all, it's `WebKit.GPU` at 216 MB — more than half the total, and
-more than seven times the 29 MB the zero process itself uses.
+the app at all, it's `WebKit.GPU` at 226 MB — more than half the total, and
+seven times the 32 MB the zero process itself uses.
 
-**This table and the first row of the next one disagree**, and both are
-`phys_footprint` — 354 MB here against 143 MB there for one project, 687 MB
-against 807 MB for Cursor. They're separate runs, and the difference is mostly
-WebKit's GPU process, which grows and is reclaimed on a schedule of its own
-(see the sampling spread below). The 1.9× headline uses the pair that flatters
-zero least. Neither run is more correct than the other; a single figure for
-"zero's memory" is finer-grained than the measurement supports.
+In the 0.1.0 measurements this table and the first row of the next one
+disagreed by 200 MB, because WebKit's GPU process grows and is reclaimed on a
+schedule of its own. Re-measured, the two runs land at 409 and 410 MB —
+either the GPU process has calmed down since, or that run got lucky. The
+sampling spread under the next table is what says how much a single figure
+can be trusted.
 
 ## Multiple projects
 
@@ -135,35 +138,35 @@ Opening four real repos one after another, measuring after each:
 | Projects open | zero | | Cursor | |
 |---|---:|---:|---:|---:|
 | | memory | procs | memory | procs |
-| 1 | 143 MB | 5 | 807 MB | 8 |
-| 2 | 176 MB | 5 | 1,050 MB | 11 |
-| 3 | 420 MB | 5 | 1,453 MB | 14 |
-| 4 | 242 MB | 5 | 1,900 MB | 17 |
-| **4, steady state** | **243 MB** | **5** | **1,803 MB** | **17** |
+| 1 | 410 MB | 5 | 866 MB | 8 |
+| 2 | 470 MB | 5 | 1,520 MB | 11 |
+| 3 | 538 MB | 5 | 1,393 MB | 14 |
+| 4 | 594 MB | 5 | 1,851 MB | 17 |
+| **4, steady state** | **594 MB** | **5** | **1,709 MB** | **17** |
 
-Measured before 0.20.0, which added the terminal daemon — one more process,
-and one more regardless of how many projects are open. Measured on its own it
-is 2.1 MB of `phys_footprint` empty and 3.7 MB holding six shells, so the
-readings above become 6 processes and about four megabytes more. The shape of
-the comparison is what the table is for, and that is unchanged; the memory
-column is due a re-run on an installed 0.20.0 build.
+The process counts exclude the terminal daemon, which pre-exists the launch
+the diff is taken around — one more process regardless of how many projects
+are open, 2.1 MB of `phys_footprint` empty and a few tens of MB holding live
+sessions with full scrollback.
 
-**Cursor costs about 360 MB and three processes per extra project.** That's
+**Cursor costs about 330 MB and three processes per extra project.** That's
 linear and it doesn't flatten out.
 
-**zero's process count never moves with projects** — six now rather than five,
-since the terminal daemon arrived, but six whether one project is open or
-four — and its per-project cost is small enough
-that it disappears into measurement noise — note that the 3-project reading is
-*higher* than the 4-project one. That isn't a mistake: nearly all of zero's
-memory is WebKit's GPU process, which grows and gets reclaimed on its own
-schedule. Sampling five times at four projects gave 243, 243, 243, 243, 506 MB.
-So the honest statement is not "zero costs X per project" but "**at this scale
-the per-project cost is below zero's own noise floor**".
+**zero costs about 60 MB per extra project, and no processes at all.** The
+0.1.0 measurements claimed the per-project cost was below zero's own noise
+floor, and it was — that run gave steady-state samples of 243, 243, 243, 243,
+506 MB. Both halves of that have changed. The cost is real now: +60, +68,
++56 MB across the three added projects, which is what keeping a terminal with
+2,000 rows of scrollback and a painted layer tree per project actually
+weighs. And the noise is gone: five steady-state samples now read 605, 594,
+595, 588, 588 MB. zero's memory grew since 0.1.0 — that's the terminal
+persistence and scrollback features, priced in megabytes — and the honest
+table says so rather than keeping the flattering old rows.
 
-The gap therefore widens with use: **~2× at one project, ~7× at four.** If you
-work the way this editor was built for — several repos open, an agent in each —
-that's the number to look at, not the single-project one.
+The gap still widens with use — **2.1× at one project, 2.9× at four** — but
+less dramatically than the ~7× the 0.1.0 run showed. If you work the way this
+editor was built for — several repos open, an agent in each — that's the
+number to look at, not the single-project one.
 
 The trade zero makes for this is deliberate: every project stays painted, so
 none of them re-render when you switch. That's a bet that GPU layers are
@@ -177,10 +180,43 @@ of one core.
 
 | | zero | Cursor |
 |---|---:|---:|
-| Idle | **1.10%** | 2.66% |
+| Idle, one project | **4.69%** | 5.99% |
+| Idle, four projects | **3.42%** | 11.35% |
 
-Both are low. Cursor's is file watchers, the extension host, and a git worker;
-zero's is its own once-a-second poll for what Claude is doing in each terminal.
+Cursor's is file watchers, the extension host, and a git worker, and it
+roughly doubles when four windows each carry their own set. zero's is its
+once-a-second poll for what Claude is doing in each terminal, and it does not
+grow with projects. Neither is as low as the 0.1.0-era measurement (1.10%
+against 2.66%) — zero's idle cost has grown with its features, and saying so
+beats quoting the old number.
+
+## Under load
+
+The workload zero actually exists for, and the one none of the tables above
+touch: what the editor costs while agents are talking. Real Claude output
+isn't reproducible, so `bench/loadgen.py` stands in for it — four projects
+open, a stream in each terminal printing 25 colored lines a second, editor
+CPU and memory measured over a minute of that and attributed the same way as
+everywhere else. The streams' own processes are excluded; they cost both
+editors the same. What's left is what each editor spends parsing and drawing
+100 lines a second.
+
+| | zero | Cursor |
+|---|---:|---:|
+| 4 projects, terminals idle | 3.42% of a core | 11.35% |
+| 4 streams × 25 lines/s | **39.25%** | 66.22% |
+| **Cost of the streams** | **+35.8%** of a core | +54.9% |
+| Memory while streaming | +103 MB | ~0 |
+
+zero renders the same firehose for two thirds of Cursor's CPU, on top of an
+idle floor a third the size. The +103 MB is the scrollback buffers doing
+their job — 2,000 rows per terminal filling up — and it stops growing when
+they do. Cursor's memory doesn't move because its terminal keeps less.
+
+One caveat: the Cursor half of this table was measured earlier in the day
+than the quiet-machine window the rest of the tables come from, because its
+integrated terminals have to be opened by hand. CPU is attributed per
+process, so the difference is noise, not headroom.
 
 ## Frame rate
 
@@ -235,7 +271,9 @@ The comparison is only honest with all of this attached:
 - **Cursor was measured with my extensions installed**, which is how I actually
   ran it — not a clean profile. A stock install would use less.
 - **Neither had an agent running.** Put Claude Code in both and that process
-  dwarfs the editor either way.
+  dwarfs the editor either way. The Under load table is the nearest thing —
+  a synthetic stand-in for agent output at a fixed rate — and it measures the
+  editor's share only, not the agent's.
 - **Nothing here measures the things you feel most**: typing latency, scroll
   smoothness, search speed on a big repo, or how either behaves on a 50 MB
   file. Those need instrumentation I don't have, and I'd rather report nothing
@@ -255,7 +293,17 @@ python3 bench/drive.py [project-path]      # launch, memory, idle CPU, 3 reps
 python3 bench/mem.py   [project-path]      # phys_footprint per process
 python3 bench/multi.py [project ...]       # memory as projects are added
 python3 bench/multi_steady.py [project ...]  # steady state, sampled 5×
+python3 bench/load.py zero|cursor [project ...]  # editor cost under terminal load
 ```
+
+`load.py` needs a `bench/loadgen.py` stream running in each terminal; its
+docstring explains the shell-rc hook that starts them automatically, and for
+Cursor the terminals themselves have to be opened by hand.
+
+A warning before running any of these from a terminal that lives inside zero:
+they quit and relaunch the editor, and `multi.py`/`multi_steady.py` fall back
+to `pkill -x zero` — which also matches the pty daemon, the process holding
+every terminal session on the machine. Run them from Terminal.app.
 
 Both diff the process table around launch, so an app's helpers are attributed
 to it whether they live inside the bundle (Electron) or in `/System` (WebKit's
