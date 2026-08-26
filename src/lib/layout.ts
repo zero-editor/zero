@@ -150,15 +150,25 @@ export function removeLeaf(node: LayoutNode, id: string): LayoutNode | null {
   const sizes = sizesOf(node);
   const children: LayoutNode[] = [];
   const kept: number[] = [];
+  let freed = -1;
   node.children.forEach((c, i) => {
     const next = removeLeaf(c, id);
-    if (next === null) return;
+    if (next === null) {
+      freed = i;
+      return;
+    }
     children.push(next);
     kept.push(sizes[i]);
   });
   if (children.length === 0) return null;
   if (children.length === 1) return children[0];
-  // the closed pane's share is handed to the survivors in proportion
+  // the departed pane's share goes to its immediate neighbours — half each,
+  // or all of it to the only one — so no other seam in the split moves
+  if (freed >= 0) {
+    // children before the gap keep their index in `kept`; the one after sits at `freed`
+    const targets = [freed - 1, freed].filter((i) => i >= 0 && i < kept.length);
+    for (const t of targets) kept[t] += sizes[freed] / targets.length;
+  }
   const total = kept.reduce((a, b) => a + b, 0);
   return { ...node, children, sizes: kept.map((s) => s / total) };
 }
