@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Twenty-three thousand lines, a 19 MB app. It exists because Cursor was an 860 MB
+Twenty-nine thousand lines, a 19 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -11,8 +11,8 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-24,919 lines of source   (21,026 code, 3,893 CSS)
-    19 MB app bundle            Cursor: 860 MB
+29,465 lines of source   (25,281 code, 4,184 CSS)
+    19 MB app bundle            Cursor: 845 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    243 MB with 4 projects open  Cursor: 1,803 MB
 ```
@@ -20,21 +20,22 @@ Never capitalised. It's `zero`, not Zero.
 ## Benchmarks
 
 Same machine, same project, both editors, three launches each, median
-reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.15.6.
+reported. M3 Max · 36 GB · macOS 26.5.1 · Cursor 3.17.19 for the disk rows,
+3.15.6 for the rest.
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **19 MB** | 860 MB | 45× |
-| Files in the bundle | **7** | 17,035 | |
-| Shipped JS | **1.4 MB** at startup, 2.7 MB in all | 256 MB in 12,021 files | 183× |
-| Bundled runtime | 0, system WebKit | 259 MB of Electron | |
+| App bundle | **19 MB** | 845 MB | 44× |
+| Files in the bundle | **7** | 17,021 | |
+| Shipped JS | **1.5 MB** at startup, 2.8 MB in all | 265 MB in 11,995 files | 180× |
+| Bundled runtime | 0, system WebKit | 257 MB of Electron | |
 | Bundled extensions | 0 | 116 | |
 | Cold launch, first of the session | **0.38 s** | 8.16 s | 21× |
 | Warm: window / ready to use | **0.40 s** / 2.39 s | 1.14 s / 6.59 s | |
 | Memory, one project | **354 MB** | 687 MB | 1.9× |
 | Idle CPU | **1.10%** of a core | 2.66% | |
 
-The disk rows are the 0.20.0 build — the 171 KB compiled Swift helper
+The disk rows are the 0.24.3 build — the 189 KB compiled Swift helper
 included, and two of the seven files are the code signature a notarized app
 carries. Launch, memory and idle CPU are still 0.1.0's and say so rather than
 being adjusted on paper; the helper is spawned per recording, not at startup,

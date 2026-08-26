@@ -12,10 +12,11 @@ showing up as a cost, not Cursor being badly built.
 
 ```
 Machine   Apple M3 Max · 36 GB · macOS 26.5.1
-Cursor    3.15.6, with the extensions I actually have installed
-zero      0.1.0 for launch, memory and CPU; 0.13.0 for disk and code
-Project   the zero repo itself — 5.0k lines when these were run, a git
-          worktree, node_modules present (it is 24.7k now; see Code below)
+Cursor    3.17.19 for disk and code; 3.15.6 for launch, memory and CPU,
+          with the extensions I actually have installed
+zero      0.24.3 for disk and code; 0.1.0 for launch, memory and CPU
+Project   the zero repo itself — 5.0k lines when the launch numbers were
+          run, a git worktree, node_modules present (29.5k now; see Code)
 Method    3 launches each, median reported, apps quit between runs
 ```
 
@@ -23,11 +24,11 @@ Method    3 launches each, median reported, apps quit between runs
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **19 MB** | 860 MB | 45× |
+| App bundle | **19 MB** | 845 MB | 44× |
 | Installer | **8.1 MB** dmg | — | |
-| Files in the bundle | **7** | 17,035 | |
-| Shipped JS | **1.4 MB** loaded, 2.7 MB in all | 256 MB across 12,021 files | 183× |
-| Electron/WebKit runtime | 0 (system WebKit) | 259 MB bundled | |
+| Files in the bundle | **7** | 17,021 | |
+| Shipped JS | **1.5 MB** loaded, 2.8 MB in all | 265 MB across 11,995 files | 180× |
+| Electron/WebKit runtime | 0 (system WebKit) | 257 MB bundled | |
 | Bundled extensions | 0 | 116 | |
 
 zero's bundle is seven files — five of substance, plus the two-file code
@@ -36,14 +37,14 @@ the binary and uses the WebKit that ships with macOS. Electron carries its own
 Chromium.
 
 The fifth arrived with voice memos in 0.2.0: `zero-voice`, a 175 KB Swift
-binary (171 KB today) that records and transcribes, spawned per request rather
+binary (189 KB today) that records and transcribes, spawned per request rather
 than held open. It was only a sixth of the megabyte the bundle grew — the
 icons didn't change, so the rest was the memo pipeline compiled into the main
-binary, which is 16.6 MB of the 19 today.
+binary, which is 16.7 MB of the 19 today.
 
 The bundle gained a megabyte in 0.20.0 and no files at all: the terminal
 daemon is the same binary re-executed, so `vt100` and the daemon's own code
-landed inside the 16.6 MB rather than beside it.
+landed inside the main binary rather than beside it.
 
 Two of those five are the icon, and they're most of the 2 MB the bundle grew
 in August 2026: a 428 KB `.icns` for macOS 25 and earlier, and a 1.6 MB
@@ -52,17 +53,17 @@ seven appearances — light, dark, clear light and dark, tinted light and dark,
 and the mono one. That's the price of letting the system compose the icon
 instead of drawing it ourselves, and it is a real 11% of the app.
 
-Two JS numbers, because the syntax highlighting split them apart: 1.4 MB is
-what loads to draw the window, and the other 1.3 MB is 113 language modes
-that are fetched only when a file of that kind is opened. Both live inside the
-binary; neither adds a file to the bundle.
+Two JS numbers, because the syntax highlighting split them apart: 1.5 MB is
+what loads to draw the window, and the other 1.3 MB is 115 lazy chunks — most
+of them language modes — fetched only when a file of that kind is opened. Both
+live inside the binary; neither adds a file to the bundle.
 
 The JS figure was wrong here until it was rechecked: it read 12 MB, which was
 a measuring mistake — `find … | xargs du -ch | tail -1` splits into several
 xargs batches on a tree this size and `tail -1` reports only the last one. The
-sum of every `.js` file in the bundle is 256 MB, and one file alone
-(`workbench.glass.main.js`) is 45.9 MB. The error was in Cursor's favour, and
-the corrected ratio is the 183× in the table.
+sum of every `.js` file in the bundle is 265 MB, and one file alone
+(`workbench.glass.main.js`) is 46.9 MB. The error was in Cursor's favour, and
+the corrected ratio is the 180× in the table.
 
 ```sh
 du -sh /Applications/Cursor.app                     # bundle
@@ -205,9 +206,9 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **24,919 lines** (12,542 TS/TSX · 7,676 Rust · 3,893 CSS · 808 Swift) | closed, VS Code fork |
-| npm dependencies | **24** direct, 65 in the production tree | — |
-| Rust crates | 443 | — |
+| Source | **29,465 lines** (14,046 TS/TSX · 10,427 Rust · 4,184 CSS · 808 Swift) | closed, VS Code fork |
+| npm dependencies | **30** direct, 77 in the production tree | — |
+| Rust crates | 492 | — |
 
 Voice memos roughly doubled it: 4,009 of the Rust lines and 808 of the Swift
 are the memo pipeline and its helper.
