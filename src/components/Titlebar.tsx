@@ -6,6 +6,7 @@ import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { identicon, useProjectIcons } from "../lib/projectIcon";
 import { useTabReorder } from "../lib/tabReorder";
 import { useUpdate } from "../lib/update";
+import { WhatsNew } from "./WhatsNew";
 
 const sameSet = (a: Set<string>, b: Set<string>) =>
   a.size === b.size && [...a].every((v) => b.has(v));
@@ -104,6 +105,9 @@ export function Titlebar({
   }, [zoom]);
 
   const { ready, busy, restart } = useUpdate();
+  // the update pill's dialog — what the staged version is carrying, with the
+  // restart at the bottom of it
+  const [notesOpen, setNotesOpen] = useState(false);
 
   return (
     <div className="titlebar" ref={barRef} data-tauri-drag-region>
@@ -227,11 +231,11 @@ export function Titlebar({
           it and not like an alert, because that is what it is: the update is
           on disk either way, and the only thing being asked is when.
 
-          One click, and it restarts. It used to arm and want a second, back
-          when a restart closed every terminal in the window; the daemon holds
-          those now, so the click costs a relaunch and nothing else, and a
-          button that has to be pressed twice to do one thing is a button that
-          reads as broken the first time.
+          The click opens the what's-new dialog — every release note between
+          this version and the staged one — with the restart at its foot. It
+          restarted on the spot for a while, and before that it armed and
+          wanted a second click; this is the second click given something to
+          be: the first shows what the restart buys, the second takes it.
 
           Before that it is only ever here for a check someone asked for from
           zero → Check for Updates…, where it is the running commentary a menu
@@ -241,8 +245,8 @@ export function Titlebar({
           <button
             className={`titlebar-update ${ready ? "" : "waiting"}`}
             disabled={!ready}
-            title={ready ? `restart into zero ${ready}` : "checking for a newer zero"}
-            onClick={() => void restart()}
+            title={ready ? `what's new in zero ${ready}` : "checking for a newer zero"}
+            onClick={() => setNotesOpen(true)}
           >
             {ready && (
               /* an arrow into a tray: the same drawn-not-glyph mark as the
@@ -320,6 +324,14 @@ export function Titlebar({
           </svg>
         </button>
       </div>
+      {notesOpen && ready && (
+        <WhatsNew
+          from={__APP_VERSION__}
+          to={ready}
+          onClose={() => setNotesOpen(false)}
+          onRestart={() => void restart()}
+        />
+      )}
     </div>
   );
 }

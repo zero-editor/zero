@@ -175,7 +175,7 @@ export function useUpdate(): UpdateState {
           // downloaded on an earlier look, so the pill has been sitting in the
           // titlebar saying so — point at it rather than repeat it
           await say(
-            `zero ${staged.current?.version} is downloaded. Use the update button in the titlebar to restart into it.`
+            `zero ${staged.current?.version} is downloaded. The update button in the titlebar shows what's new and restarts into it.`
           );
         }
         // "downloaded" says itself: the pill was showing the download and is

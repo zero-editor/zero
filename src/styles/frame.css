@@ -380,8 +380,8 @@ body.dragging-tab .editor-tab * {
   cursor: default;
 }
 
-/* the click itself — the pill takes the accent for the instant between the
-   press and the window going, so the click is seen to have landed */
+/* the click itself — the pill takes the accent for the instant of the press,
+   so the click is seen to have landed before the what's-new dialog opens */
 .titlebar-update:active {
   color: var(--bg);
   background: var(--accent);
