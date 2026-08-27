@@ -64,6 +64,18 @@ function highlight(pane: HTMLElement | null) {
   hovered = pane;
 }
 
+/**
+ * Where a drop lands when it isn't aimed at a terminal: folders open as
+ * projects, files as editor tabs. Registered by App rather than imported from
+ * it, because this module must not depend on a component. One opener for the
+ * window, like the one listener below.
+ */
+let opener: ((paths: string[]) => void) | null = null;
+
+export function setDropOpener(fn: (paths: string[]) => void) {
+  opener = fn;
+}
+
 let started = false;
 
 /** Idempotent, and never torn down: one listener serves every pane in every
@@ -91,8 +103,14 @@ export function watchFileDrops() {
         return;
       }
       highlight(null);
+      if (payload.paths.length === 0) return;
       const id = pane?.dataset.termId;
-      if (!id || payload.paths.length === 0) return;
+      if (!id) {
+        // not aimed at a terminal, so it's an open: the Launcher, the file
+        // tree, an editor tab — anywhere in the window means "open this"
+        opener?.(payload.paths);
+        return;
+      }
       // trailing space so a second file, or whatever gets typed next, doesn't
       // run into the path
       const text = payload.paths.map(escapePath).join(" ") + " ";

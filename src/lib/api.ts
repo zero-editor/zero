@@ -41,6 +41,15 @@ export interface DirEntry {
   ignored: boolean;
 }
 
+/** a path handed to the app from outside, placed — see src-tauri/src/opens.rs */
+export interface OpenTarget {
+  path: string;
+  dir: boolean;
+  /** the project it belongs under: itself for a folder, the enclosing git
+      repository for a file, or its parent folder outside one */
+  root: string;
+}
+
 export interface ClaudeStat {
   cwd: string;
   running: boolean;
@@ -202,6 +211,10 @@ export const api = {
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   /** the folder picker the dev build has to use — see `pick_directory` */
   pickDirectory: (title: string) => invoke<string | null>("pick_directory", { title }),
+  /** what each path is and which project it belongs to; missing paths dropped */
+  classifyOpens: (paths: string[]) => invoke<OpenTarget[]>("classify_opens", { paths }),
+  /** drain the files macOS has handed over since the last drain */
+  takeOpenPaths: () => invoke<string[]>("take_open_paths"),
   projectFiles: (root: string) => invoke<string[]>("list_project_files", { root }),
   searchProject: (root: string, query: SearchQuery) =>
     invoke<SearchResult>("search_project", { root, query }),

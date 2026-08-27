@@ -6,5 +6,125 @@
 	<string>zero records voice memos when you press record. Audio stays on this Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>zero transcribes those recordings with macOS's own speech recognition, on this Mac.</string>
+	<!--
+	  What Finder's "Open With" menu (and a drop on the Dock icon) will offer
+	  zero for. Written here rather than through tauri.conf.json's
+	  fileAssociations because folders can only be claimed by UTI, which that
+	  config can't express. Three entries, not one, because macOS ignores
+	  CFBundleTypeExtensions in any entry that also names LSItemContentTypes.
+
+	  LSHandlerRank is Alternate throughout: zero can open these, but never
+	  claims to be their default just by being installed — "Change All…" in
+	  Get Info is the user's call. Registered by LaunchServices when the app
+	  lands in /Applications; a dev build never registers anything.
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Folder</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Text document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.text</string>
+				<string>public.plain-text</string>
+				<string>public.source-code</string>
+				<string>public.shell-script</string>
+				<string>public.json</string>
+				<string>public.yaml</string>
+				<string>public.xml</string>
+				<string>public.comma-separated-values-text</string>
+				<string>net.daringfireball.markdown</string>
+			</array>
+		</dict>
+		<!-- by extension, for the file types whose UTIs are dynamic or
+		     unregistered on a given machine — this is the entry that makes
+		     "Open With → zero" reliable for .md and friends -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Source file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>md</string>
+				<string>markdown</string>
+				<string>txt</string>
+				<string>text</string>
+				<string>json</string>
+				<string>jsonc</string>
+				<string>toml</string>
+				<string>yaml</string>
+				<string>yml</string>
+				<string>xml</string>
+				<string>html</string>
+				<string>htm</string>
+				<string>css</string>
+				<string>scss</string>
+				<string>less</string>
+				<string>js</string>
+				<string>jsx</string>
+				<string>mjs</string>
+				<string>cjs</string>
+				<string>ts</string>
+				<string>tsx</string>
+				<string>rs</string>
+				<string>py</string>
+				<string>go</string>
+				<string>rb</string>
+				<string>java</string>
+				<string>kt</string>
+				<string>swift</string>
+				<string>c</string>
+				<string>h</string>
+				<string>cc</string>
+				<string>cpp</string>
+				<string>hpp</string>
+				<string>m</string>
+				<string>mm</string>
+				<string>sh</string>
+				<string>bash</string>
+				<string>zsh</string>
+				<string>fish</string>
+				<string>sql</string>
+				<string>lua</string>
+				<string>php</string>
+				<string>pl</string>
+				<string>r</string>
+				<string>ex</string>
+				<string>exs</string>
+				<string>hs</string>
+				<string>zig</string>
+				<string>vue</string>
+				<string>svelte</string>
+				<string>astro</string>
+				<string>ini</string>
+				<string>cfg</string>
+				<string>conf</string>
+				<string>env</string>
+				<string>lock</string>
+				<string>log</string>
+				<string>csv</string>
+				<string>tsv</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

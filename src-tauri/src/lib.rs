@@ -5,6 +5,7 @@ mod links;
 #[cfg(target_os = "macos")]
 mod high_refresh;
 mod memos;
+mod opens;
 mod pty;
 mod ptyd;
 mod recents;
@@ -58,6 +59,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(PtyManager::default())
         .manage(memos::MemoManager::default())
+        .manage(opens::PendingOpens::default())
         .manage(session::SessionStore::default())
         .setup(|_app| {
             // zero → Preferences… and zero → Check for Updates…, the mouse
@@ -198,6 +200,8 @@ pub fn run() {
             session::session_load,
             session::session_save,
             cli::pick_directory,
+            opens::classify_opens,
+            opens::take_open_paths,
             git::git_worktrees,
             git::git_worktree_remove,
             pty::claude_status,
@@ -252,6 +256,19 @@ pub fn run() {
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
                 let _ = session::commit(app);
+            }
+            // Finder handing files over — "Open With", a drop on the Dock
+            // icon. It can fire before the webview has a listener (a cold
+            // launch by double-clicked file), which is why these are queued
+            // and drained rather than emitted with a payload; see opens.rs.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                let paths = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .filter_map(|p| p.to_str().map(String::from))
+                    .collect();
+                opens::queue(app, paths);
             }
         });
 }

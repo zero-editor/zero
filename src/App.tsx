@@ -19,6 +19,8 @@ import {
 } from "./lib/session";
 import type { ProjectSession } from "./lib/session";
 import { closeSeq } from "./lib/closeOrder";
+import { openInProject } from "./lib/openBus";
+import { setDropOpener, watchFileDrops } from "./lib/fileDrop";
 import { resolvedAppearance, useSettings } from "./lib/settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isGlassSupported, setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
@@ -154,6 +156,56 @@ export default function App() {
       stop.then((off) => off()).catch(() => {});
     };
   }, [openProject]);
+
+  /**
+   * Paths handed over whole — dropped on the window, or given to the app by
+   * Finder. A folder is a project; a file opens as a tab in the project it
+   * belongs to, which is an already-open project holding it if there is one,
+   * and otherwise its repository (or bare parent folder), opened for the
+   * occasion. The file itself travels through the open bus, because the
+   * workspace that will show it may not have mounted yet.
+   */
+  const openPaths = useCallback(
+    async (paths: string[]) => {
+      const targets = await api.classifyOpens(paths).catch(() => []);
+      for (const t of targets) {
+        if (t.dir) {
+          openProject(t.path);
+          continue;
+        }
+        const holder = projects.find(
+          (p) => t.path === p.root || t.path.startsWith(p.root + "/")
+        );
+        const root = holder?.root ?? t.root;
+        openProject(root);
+        openInProject(root, t.path);
+      }
+    },
+    [projects, openProject]
+  );
+
+  // the two ways whole paths arrive: macOS's open events, drained from the
+  // Rust side's mailbox (drained once at mount too — a cold launch by
+  // double-clicked file queues them before this listener exists), and drops
+  // anywhere on the window that isn't a terminal pane
+  useEffect(() => {
+    const drain = () =>
+      api
+        .takeOpenPaths()
+        .then((p) => {
+          if (p.length) openPaths(p);
+        })
+        .catch(() => {});
+    drain();
+    const stop = listen("open-paths", drain);
+    setDropOpener(openPaths);
+    // started here as well as from the panes: with no project open there are
+    // no panes, and a drop on the Launcher still has to land somewhere
+    watchFileDrops();
+    return () => {
+      stop.then((off) => off()).catch(() => {});
+    };
+  }, [openPaths]);
 
   // Two pickers for one gesture, and only because of where they run: the dev
   // build is an unbundled binary, which macOS 26 will not open an NSOpenPanel

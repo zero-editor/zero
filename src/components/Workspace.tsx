@@ -29,6 +29,7 @@ import {
 import { flushSync } from "react-dom";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
+import { onProjectOpen } from "../lib/openBus";
 import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
 import { useSearch } from "../lib/search";
@@ -454,6 +455,11 @@ export const Workspace = memo(function Workspace({
       openView({ kind: "file", key: `file:${abs}`, absPath: abs, line }),
     [openView]
   );
+
+  // files handed over from outside — dropped on the window, or opened with
+  // zero from Finder. The App decided they belong to this project; queued
+  // requests from before this mount drain on subscribe.
+  useEffect(() => onProjectOpen(project.root, openFile), [project.root, openFile]);
 
   const reorderViews = useCallback((paneId: string, from: number, to: number) => {
     setDocPanes((prev) => {
