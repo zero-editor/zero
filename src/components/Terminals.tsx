@@ -858,11 +858,16 @@ function TerminalPane({
       resizeRaf = window.requestAnimationFrame(() => {
         resizeRaf = 0;
         if (!live || live.w === 0 || live.h === 0) return;
-        // a panel in flight: no refit now — notifyPty below re-arms until
-        // the drag and the landing are over, then applySize()s once
+        // a panel in flight, or the pane mid-glide (a close or split eases
+        // the survivors' rects for 160ms): no refit now — refitting every
+        // frame of an easing means a full scrollback rewrap per cell
+        // boundary crossed. The pane clips instead, and notifyPty below
+        // re-arms until everything is still, then applySize()s once.
+        const pane = el.closest(".pane-abs");
         if (
           document.body.classList.contains("dragging-panel") ||
-          el.closest(".pane-abs.landing") !== null
+          pane?.classList.contains("landing") ||
+          (pane && pane.getAnimations().length > 0)
         ) {
           window.clearTimeout(resizeTimer);
           resizeTimer = window.setTimeout(notifyPty, 50);

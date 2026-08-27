@@ -145,14 +145,24 @@ export function insertAtRoot(
   };
 }
 
-export function removeLeaf(node: LayoutNode, id: string): LayoutNode | null {
+/**
+ * Remove `id` from the tree. With `equalize` — the close gesture — the
+ * departed pane's siblings of its own kind (terminals among terminals,
+ * document panes among document panes) pool their shares with the freed one
+ * and come out equal, so a row of terminals is always evenly split after a
+ * close; siblings of any other kind keep their exact share, which is what
+ * keeps a sidebar or editor in the same split from moving. Without it — the
+ * move paths, where the leaf is coming straight back — the freed share goes
+ * to the immediate neighbours alone: half each, or all to the only one.
+ */
+export function removeLeaf(node: LayoutNode, id: string, equalize = false): LayoutNode | null {
   if (node.type === "leaf") return node.id === id ? null : node;
   const sizes = sizesOf(node);
   const children: LayoutNode[] = [];
   const kept: number[] = [];
   let freed = -1;
   node.children.forEach((c, i) => {
-    const next = removeLeaf(c, id);
+    const next = removeLeaf(c, id, equalize);
     if (next === null) {
       freed = i;
       return;
@@ -162,12 +172,20 @@ export function removeLeaf(node: LayoutNode, id: string): LayoutNode | null {
   });
   if (children.length === 0) return null;
   if (children.length === 1) return children[0];
-  // the departed pane's share goes to its immediate neighbours — half each,
-  // or all of it to the only one — so no other seam in the split moves
   if (freed >= 0) {
-    // children before the gap keep their index in `kept`; the one after sits at `freed`
-    const targets = [freed - 1, freed].filter((i) => i >= 0 && i < kept.length);
-    for (const t of targets) kept[t] += sizes[freed] / targets.length;
+    const kind = isTerm(id) ? isTerm : isEditorPane(id) ? isEditorPane : null;
+    const ofKind = (n: LayoutNode): boolean =>
+      n.type === "leaf" ? kind!(n.id) : n.children.every(ofKind);
+    const peers = equalize && kind ? children.flatMap((c, i) => (ofKind(c) ? [i] : [])) : [];
+    if (peers.length > 0) {
+      const pool = peers.reduce((a, i) => a + kept[i], sizes[freed]);
+      for (const i of peers) kept[i] = pool / peers.length;
+    } else {
+      // children before the gap keep their index in `kept`; the one after
+      // sits at `freed`
+      const targets = [freed - 1, freed].filter((i) => i >= 0 && i < kept.length);
+      for (const t of targets) kept[t] += sizes[freed] / targets.length;
+    }
   }
   const total = kept.reduce((a, b) => a + b, 0);
   return { ...node, children, sizes: kept.map((s) => s / total) };
@@ -565,7 +583,7 @@ export function useLayoutTree(
   const removePane = useCallback((id: string) => {
     if (!isTerm(id)) return;
     setRoot((r) => {
-      const next = removeLeaf(r, id);
+      const next = removeLeaf(r, id, true);
       if (!next) return r; // can't happen: a document pane always survives
       setFocused((f) => (f === id ? firstTermId(next) : f));
       return next;
@@ -583,7 +601,7 @@ export function useLayoutTree(
       // the last document pane stays whatever happens to its tabs — the
       // migration reads an editorless tree as no layout at all
       if (!isEditorPane(id) || leafIds(r).filter(isEditorPane).length < 2) return r;
-      return removeLeaf(r, id) ?? r;
+      return removeLeaf(r, id, true) ?? r;
     });
   }, []);
 
