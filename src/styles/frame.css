@@ -134,9 +134,9 @@ body.dragging-tab .editor-tab * {
   cursor: grabbing;
 }
 
-/* per-project claude indicator, built on zero's own mark: a hairline ring with
-   one arc of light travelling round it while a session works, closing into a
-   complete circle once it's finished and waiting on you. White throughout, like
+/* per-project coding-agent indicator, built on zero's own mark: a hairline
+   ring with one arc of light travelling round it while a session works,
+   closing into a complete circle once it's finished and waiting on you. White throughout, like
    everything else in this theme — the two states are told apart by whether the
    light is moving and whether the ring is closed, which reads at 10px better
    than a hue does. Cleared once you've been there. */
@@ -151,7 +151,7 @@ body.dragging-tab .editor-tab * {
   height: 18px;
 }
 
-.claude-ring {
+.agent-ring {
   position: relative;
   flex: none;
   width: 10px;
@@ -172,7 +172,7 @@ body.dragging-tab .editor-tab * {
    on the half of the browser that isn't busy — the other half is decoding pty
    output, and Claude printing hard is exactly when the ring is meant to be
    moving. Without it the spin freezes under the load that causes it. */
-.claude-ring::after {
+.agent-ring::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -189,17 +189,17 @@ body.dragging-tab .editor-tab * {
   mask: radial-gradient(farthest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
   filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.5));
   will-change: transform;
-  animation: claude-spin 1.5s linear infinite;
+  animation: agent-spin 1.5s linear infinite;
   animation-play-state: paused;
 }
 
-.claude-ring.working::after {
+.agent-ring.working::after {
   opacity: 1;
   animation-play-state: running;
 }
 
 /* the unlit part of the circle, so the arc reads as travelling round a ring */
-.claude-ring.working::before {
+.agent-ring.working::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -207,12 +207,12 @@ body.dragging-tab .editor-tab * {
   border: 1.4px solid rgba(255, 255, 255, 0.07);
 }
 
-.claude-ring.done {
+.agent-ring.done {
   border: 1.4px solid #ffffff;
   box-shadow: 0 0 4px 0 rgba(255, 255, 255, 0.4);
 }
 
-@keyframes claude-spin {
+@keyframes agent-spin {
   to {
     transform: rotate(1turn);
   }
@@ -221,7 +221,7 @@ body.dragging-tab .editor-tab * {
 /* Still an open arc against a closed circle, so the two states stay apart
    without anything moving — the distinction was never only the motion. */
 @media (prefers-reduced-motion: reduce) {
-  .claude-ring::after {
+  .agent-ring::after {
     animation: none;
   }
 }

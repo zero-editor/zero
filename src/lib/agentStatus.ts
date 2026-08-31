@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 
-export interface ProjectClaude {
-  /** claude sessions that are still printing, i.e. mid-task */
+export interface ProjectAgents {
+  /** agent sessions that are still printing, i.e. mid-task */
   working: number;
-  /** claude sessions that have gone quiet — done, waiting on you */
+  /** agent sessions that have gone quiet — done, waiting on you */
   done: number;
 }
 
@@ -40,7 +40,7 @@ const MIN_BURST_MS = 600;
 // — and being three seconds late on that is cheaper than a flicker throughout.
 const WORKING_HOLD_MS = 3000;
 
-const sameStatus = (a: Record<string, ProjectClaude>, b: Record<string, ProjectClaude>) => {
+const sameStatus = (a: Record<string, ProjectAgents>, b: Record<string, ProjectAgents>) => {
   const keys = Object.keys(a);
   return (
     keys.length === Object.keys(b).length &&
@@ -48,8 +48,8 @@ const sameStatus = (a: Record<string, ProjectClaude>, b: Record<string, ProjectC
   );
 };
 
-export function useClaudeStatus(roots: string[]): Record<string, ProjectClaude> {
-  const [byRoot, setByRoot] = useState<Record<string, ProjectClaude>>({});
+export function useAgentStatus(roots: string[]): Record<string, ProjectAgents> {
+  const [byRoot, setByRoot] = useState<Record<string, ProjectAgents>>({});
   const key = roots.join("\0");
 
   useEffect(() => {
@@ -58,23 +58,26 @@ export function useClaudeStatus(roots: string[]): Record<string, ProjectClaude> 
     // landed. Local to the effect, so a change to the project list starts
     // everyone clean rather than holding a reading on behalf of a project that
     // has moved.
-    const held: Record<string, { at: number; stat: ProjectClaude }> = {};
+    const held: Record<string, { at: number; stat: ProjectAgents }> = {};
     const poll = async () => {
-      const stats = await api.claudeStatus().catch(() => []);
+      const stats = await api.agentStatus().catch(() => []);
       if (stop) return;
-      const next: Record<string, ProjectClaude> = {};
+      const next: Record<string, ProjectAgents> = {};
       for (const root of key ? key.split("\0") : []) next[root] = { working: 0, done: 0 };
       for (const s of stats) {
         const slot = next[s.cwd];
         if (!slot || !s.running) continue;
-        if (s.title_working ?? (s.quiet_ms < QUIET_MS && s.burst_ms >= MIN_BURST_MS))
+        // Codex does not set Claude's OSC title, so even if a previous Claude
+        // run left one behind this pane is classified from Codex's output.
+        const active = s.quiet_ms < QUIET_MS && s.burst_ms >= MIN_BURST_MS;
+        if (s.codex ? active : (s.title_working ?? active))
           slot.working++;
         else slot.done++;
       }
       const now = Date.now();
       for (const [root, slot] of Object.entries(next)) {
         if (slot.working > 0) held[root] = { at: now, stat: slot };
-        // A quiet claude is held; a closed one isn't. The hold covers the gap
+        // A quiet agent is held; a closed one isn't. The hold covers the gap
         // between two bursts, and a session that has gone away has no next
         // burst — so it drops the moment the count does.
         else if (slot.done > 0 && held[root] && now - held[root].at < WORKING_HOLD_MS)

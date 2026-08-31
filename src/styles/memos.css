@@ -383,7 +383,7 @@
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.2px), #000 calc(100% - 1.2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 1.2px), #000 calc(100% - 1.2px));
-  animation: claude-spin 1.5s linear infinite;
+  animation: agent-spin 1.5s linear infinite;
 }
 
 /* Failure spends the one hue this theme keeps for it. Same red as the live

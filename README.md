@@ -101,14 +101,15 @@ disk and frame-rate ones were measured by hand and say how.
 and switching between them is a compositor swap — every project stays laid out
 and painted, so nothing re-fits or re-rasterises when you come back to it.
 
-**A ring per tab tells you what Claude is doing.** A sweeping arc while a
-session is working, a closed green circle once it has gone quiet and is waiting
-on you. The arc runs on every tab, the one you're on included — switching to a
-project isn't the same as its work being over. The green circle is an unread
-mark, so that one clears once you've been there. It works by walking each
-shell's process tree once a second looking for a live `claude`, then reading
-how long that pty has been silent — no integration, no cooperation from the
-agent.
+**A ring per tab tells you what your coding agent is doing.** A sweeping arc
+while a session is working, a closed circle once it has gone quiet and is
+waiting on you. The arc runs on every tab, the one you're on included —
+switching to a project isn't the same as its work being over. The closed circle
+is an unread mark, so that one clears once you've been there. It works by
+walking each shell's process tree once a second looking for a live `claude` or
+`codex`, then reading Claude's own terminal title where it sets one and how
+long the pty has been silent where it doesn't — no integration, no cooperation
+from the agent.
 
 **The terminal is the point.** Full window width by default, splits in any
 direction with draggable dividers, and no furniture: no title, no bar. The

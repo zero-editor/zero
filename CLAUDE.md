@@ -106,10 +106,11 @@ fallback anyway.
 
 The restart is never automatic, and that is the point rather than an
 omission. Restarting zero closes every terminal in it, and a terminal here may
-be holding a Claude session mid-task, so the button arms on the first click and
-says what it costs — the live session count comes from the `claude_status` poll
-the tab strip already runs — and only the second click relaunches. The same
-rule as the one further down about the installed app: it is not ours to quit.
+be holding a Claude or Codex session mid-task, so the button arms on the first
+click and says what it costs — the live session count comes from the
+`agent_status` poll the tab strip already runs — and only the second click
+relaunches. The same rule as the one further down about the installed app: it
+is not ours to quit.
 
 Three artifacts go up per release, not one. The dmg is for a new user; the
 updater reads `zero.app.tar.gz` (the same bundle, signed and notarized and

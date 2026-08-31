@@ -361,10 +361,13 @@ struct Sessions(Mutex<HashMap<String, PtySession>>);
 // ── what is running inside them ──────────────────────────────────────────────
 
 #[derive(Serialize)]
-pub struct ClaudeStat {
+pub struct AgentStat {
     pub cwd: String,
-    /// a `claude` process is running under this shell
+    /// a `claude` or `codex` process is running under this shell
     pub running: bool,
+    /// Codex does not publish Claude's terminal-title state, so callers use
+    /// the output-activity fallback whenever this is the agent in the pane.
+    pub codex: bool,
     /// ms since that shell last printed anything — Claude Code animates while
     /// it works, so silence means it's finished and waiting on you
     pub quiet_ms: u64,
@@ -408,17 +411,22 @@ fn ps_children() -> HashMap<u32, Vec<(u32, String)>> {
         children
 }
 
-fn has_claude(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> bool {
+fn agents(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> (bool, bool) {
     if depth > 6 {
-        return false;
+        return (false, false);
     }
-    children.get(&pid).is_some_and(|kids| {
-        kids.iter()
-            .any(|(cpid, name)| name.starts_with("claude") || has_claude(children, *cpid, depth + 1))
-    })
+    let mut found = (false, false);
+    for (cpid, name) in children.get(&pid).into_iter().flatten() {
+        found.0 |= name.starts_with("claude");
+        found.1 |= name.starts_with("codex");
+        let nested = agents(children, *cpid, depth + 1);
+        found.0 |= nested.0;
+        found.1 |= nested.1;
+    }
+    found
 }
 
-fn status(sessions: &Sessions) -> Vec<ClaudeStat> {
+fn status(sessions: &Sessions) -> Vec<AgentStat> {
     let children = ps_children();
     let now = now_ms();
     let stats = sessions
@@ -428,16 +436,20 @@ fn status(sessions: &Sessions) -> Vec<ClaudeStat> {
         .values()
         .map(|s| {
             let last = s.last_output.load(Ordering::Relaxed);
-            let running = s.shell_pid.is_some_and(|p| has_claude(&children, p, 0));
+            let (claude, codex) = s
+                .shell_pid
+                .map_or((false, false), |p| agents(&children, p, 0));
+            let running = claude || codex;
             if !running {
                 // don't let a dead session's last title speak for the next
                 // one: a claude that exits mid-work leaves ◐ behind, and a
                 // later launch would wear it until its own first retitle
                 s.claude_title.store(TITLE_UNKNOWN, Ordering::Relaxed);
             }
-            ClaudeStat {
+            AgentStat {
                 cwd: s.cwd.clone(),
                 running,
+                codex,
                 quiet_ms: now.saturating_sub(last),
                 burst_ms: last.saturating_sub(s.burst_start.load(Ordering::Relaxed)),
                 title_working: match s.claude_title.load(Ordering::Relaxed) {
@@ -929,7 +941,7 @@ fn reap_except(sessions: &Sessions, keep: &[String]) {
 /// Reply to whichever request carried `req`. `error` is null on success and
 /// `status` is only there for `C_STATUS`; one shape for both saves the app a
 /// second reply tag to demultiplex.
-fn reply(out: &Out, req: u64, error: Option<String>, status: Option<Vec<ClaudeStat>>) {
+fn reply(out: &Out, req: u64, error: Option<String>, status: Option<Vec<AgentStat>>) {
     let body = serde_json::json!({ "req": req, "error": error, "status": status });
     out.send(proto::D_REPLY, body.to_string().as_bytes());
 }
@@ -1217,6 +1229,18 @@ mod tests {
         assert_eq!(feed(&mut s, "\x1b]0;✳ Claude Code\x07"), Some(TITLE_IDLE));
         assert_eq!(feed(&mut s, "\x1b]0;◐ Fix the bug\x07"), Some(TITLE_WORKING));
         assert_eq!(feed(&mut s, "\x1b]0;◑ Fix the bug\x07"), Some(TITLE_WORKING));
+    }
+
+    #[test]
+    fn coding_agents_are_found_anywhere_below_the_shell() {
+        let children = HashMap::from([
+            (1, vec![(2, "zsh".to_string()), (3, "other".to_string())]),
+            (2, vec![(4, "codex-aarch64-apple-darwin".to_string())]),
+            (3, vec![(5, "claude".to_string())]),
+        ]);
+        assert_eq!(agents(&children, 1, 0), (true, true));
+        assert_eq!(agents(&children, 2, 0), (false, true));
+        assert_eq!(agents(&children, 99, 0), (false, false));
     }
 
     #[test]

@@ -668,10 +668,23 @@ pub fn cli(kill: bool) -> ! {
                 total += sessions.len();
                 for s in &sessions {
                     let cwd = s["cwd"].as_str().unwrap_or("?");
-                    let quiet = s["quiet_ms"].as_u64().unwrap_or(0) / 1000;
-                    let what = match (s["running"].as_bool(), s["title_working"].as_bool()) {
-                        (Some(true), Some(true)) => "claude, working".to_string(),
-                        (Some(true), _) => "claude, waiting on you".to_string(),
+                    let quiet_ms = s["quiet_ms"].as_u64().unwrap_or(0);
+                    let quiet = quiet_ms / 1000;
+                    let codex = s["codex"].as_bool() == Some(true);
+                    let agent = if codex { "codex" } else { "claude" };
+                    // Codex never sets Claude's title, so asking the title
+                    // whether it is working would answer "waiting on you" all
+                    // the way through a turn. It gets the same output-activity
+                    // fallback the tab strip gives it, thresholds included —
+                    // src/lib/agentStatus.ts is where they are explained.
+                    let working = if codex {
+                        quiet_ms < 1500 && s["burst_ms"].as_u64().unwrap_or(0) >= 600
+                    } else {
+                        s["title_working"].as_bool() == Some(true)
+                    };
+                    let what = match (s["running"].as_bool(), working) {
+                        (Some(true), true) => format!("{agent}, working"),
+                        (Some(true), _) => format!("{agent}, waiting on you"),
                         _ => format!("shell, quiet {quiet}s"),
                     };
                     println!("  {cwd}  —  {what}");
@@ -719,7 +732,7 @@ pub fn cli(kill: bool) -> ! {
 
 // ── the commands, unchanged as far as the frontend is concerned ──────────────
 
-/// Async now, where it used to be sync, and for the reason `claude_status` was
+/// Async now, where it used to be sync, and for the reason agent status was
 /// already async: this waits for the daemon to answer, and waiting on the main
 /// thread is a frozen window. `invoke` returned a promise either way, so
 /// nothing on the other side changes.
@@ -798,10 +811,10 @@ pub fn pty_kill(state: tauri::State<PtyManager>, id: String) -> Result<(), Strin
 }
 
 /// Passed through as JSON rather than re-typed on this side. The shape is
-/// `ptyd::server::ClaudeStat`, it is defined once, and a second copy here
+/// `ptyd::server::AgentStat`, it is defined once, and a second copy here
 /// would only be a second thing to keep in step.
 #[tauri::command]
-pub async fn claude_status(state: tauri::State<'_, PtyManager>) -> Result<serde_json::Value, ()> {
+pub async fn agent_status(state: tauri::State<'_, PtyManager>) -> Result<serde_json::Value, ()> {
     let Ok(client) = client(&state) else {
         return Ok(serde_json::Value::Array(vec![]));
     };

@@ -50,9 +50,11 @@ export interface OpenTarget {
   root: string;
 }
 
-export interface ClaudeStat {
+export interface AgentStat {
   cwd: string;
   running: boolean;
+  /** a Codex process is present; unlike Claude it has no title state */
+  codex: boolean;
   quiet_ms: number;
   burst_ms: number;
   /** claude's own terminal title: true mid-task, false waiting on you,
@@ -159,7 +161,7 @@ export interface Memo {
 export const api = {
   /** print to the stdout of `tauri dev` — the webview console isn't forwarded */
   debugLog: (msg: string) => invoke<void>("debug_log", { msg }),
-  claudeStatus: () => invoke<ClaudeStat[]>("claude_status"),
+  agentStatus: () => invoke<AgentStat[]>("agent_status"),
   /** how tall the top bar is in window points, so macOS's traffic lights can
    *  be put on its axis — see src-tauri/src/traffic_lights.rs */
   titlebarHeight: (height: number) => invoke<void>("titlebar_height", { height }),

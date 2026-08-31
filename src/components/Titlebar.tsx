@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "../App";
 import { api } from "../lib/api";
-import { useClaudeStatus } from "../lib/claudeStatus";
+import { useAgentStatus } from "../lib/agentStatus";
 import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { identicon, useProjectIcons } from "../lib/projectIcon";
 import { useTabReorder } from "../lib/tabReorder";
@@ -38,7 +38,7 @@ export function Titlebar({
   locked: boolean;
   onLocked: (on: boolean) => void;
 }) {
-  const claude = useClaudeStatus(projects.map((p) => p.root));
+  const agents = useAgentStatus(projects.map((p) => p.root));
   const icons = useProjectIcons(projects.map((p) => p.root));
   const activeRoot = projects[activeIdx]?.root;
 
@@ -58,11 +58,11 @@ export function Titlebar({
           next.add(p.root);
         }
         if (p.root === activeRoot) next.add(p.root);
-        else if ((claude[p.root]?.working ?? 0) > 0) next.delete(p.root);
+        else if ((agents[p.root]?.working ?? 0) > 0) next.delete(p.root);
       }
       return sameSet(prev, next) ? prev : next;
     });
-  }, [claude, projects, activeRoot]);
+  }, [agents, projects, activeRoot]);
 
   const { stripRef, drag, start: startDrag, shift } = useTabReorder(".titlebar-tab", onReorder);
 
@@ -145,7 +145,7 @@ export function Titlebar({
                 session starts and the row never shuffles under the cursor */}
             <span className="titlebar-tab-status">
               {(() => {
-                const c = claude[p.root];
+                const c = agents[p.root];
                 const working = c?.working ?? 0;
                 // Working shows on every tab, the one you're on included:
                 // switching to a project isn't the same as its work being
@@ -182,11 +182,11 @@ export function Titlebar({
                   );
                 return (
                   <span
-                    className={`claude-ring ${working ? "working" : "done"}`}
+                    className={`agent-ring ${working ? "working" : "done"}`}
                     title={
                       working
-                        ? `${working} claude working`
-                        : `${done} claude finished — waiting for you`
+                        ? `${working} agent${working === 1 ? "" : "s"} working`
+                        : `${done} agent${done === 1 ? "" : "s"} finished — waiting for you`
                     }
                   />
                 );

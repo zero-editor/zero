@@ -204,7 +204,7 @@ pub fn run() {
             opens::take_open_paths,
             git::git_worktrees,
             git::git_worktree_remove,
-            pty::claude_status,
+            pty::agent_status,
             git::git_status,
             git::git_stage,
             git::git_unstage,
