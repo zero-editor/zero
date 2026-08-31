@@ -138,14 +138,14 @@ const MAX_TICKS = 400;
 
 function ticks(view: EditorView): Tick[] {
   const set = view.state.field(marks);
-  const total = view.contentHeight;
-  if (!total) return [];
+  const doc = view.state.doc;
+  const total = doc.lines;
   const out: Tick[] = [];
   for (let it = set.iter(); it.value; it.next()) {
     const kind = (it.value as ChangeMarker).kind;
-    const block = view.lineBlockAt(Math.min(it.from, view.state.doc.length));
-    const top = block.top / total;
-    const bottom = (block.top + block.height) / total;
+    const line = doc.lineAt(Math.min(it.from, doc.length)).number;
+    const top = (line - 1) / total;
+    const bottom = line / total;
     // consecutive changed lines are one change; drawing them as one div is
     // both what it looks like and a lot less DOM
     const last = out[out.length - 1];

@@ -42,8 +42,6 @@ export function scrollRuler(
       isDiff = false;
       dragging = false;
       destroyed = false;
-      /** the document height the ticks were last computed against */
-      lastHeight = -1;
       /** what the strip currently shows; null until the first draw */
       lastKey: string | null = null;
 
@@ -82,25 +80,15 @@ export function scrollRuler(
       }
 
       update(u: ViewUpdate) {
-        // geometryChanged fires on every scroll frame of a long wrapped file —
-        // CodeMirror measures lines as they come into view and corrects its
-        // estimates — and redrawing the strip inside those frames is exactly
-        // the work that makes the scroll stutter. The ticks only move when the
-        // document's height does, so that is the signal to redraw on.
-        if (
-          u.docChanged ||
-          dirty?.(u) ||
-          (u.geometryChanged && this.view.contentHeight !== this.lastHeight)
-        )
-          this.draw();
+        // Change marks use logical line positions, not lazily measured pixel
+        // geometry, so scrolling and the height corrections it triggers must
+        // not redraw (or subtly move) them.
+        if (u.docChanged || dirty?.(u)) this.draw();
       }
 
       draw() {
-        this.lastHeight = this.view.contentHeight;
         const ts = ticks(this.view);
-        // same marks in the same places: leave the DOM alone. Height
-        // corrections land here constantly while a long file is first
-        // scrolled, and almost none of them move a tick a visible amount.
+        // same marks in the same places: leave the DOM alone
         const key = ts.map((t) => `${t.kind} ${t.top.toFixed(4)} ${t.bottom.toFixed(4)}`).join("\n");
         if (key !== this.lastKey) {
           this.lastKey = key;
@@ -200,10 +188,10 @@ export function diffRuler(other: () => Text | null): Extension {
 
 function chunkTicks(view: EditorView, other: () => Text | null): Tick[] {
   const info = getChunks(view.state);
-  const total = view.contentHeight;
-  if (!info || !total) return [];
+  if (!info) return [];
   const doc = view.state.doc;
   const len = doc.length;
+  const total = doc.lines;
   const otherDoc = other();
   const isA = info.side === "a";
   const out: Tick[] = [];
@@ -214,10 +202,14 @@ function chunkTicks(view: EditorView, other: () => Text | null): Tick[] {
     const across = isA
       ? { from: chunk.fromB, to: chunk.toB, end: chunk.endB }
       : { from: chunk.fromA, to: chunk.toA, end: chunk.endA };
-    const start = view.lineBlockAt(Math.min(own.from, len));
-    const last = view.lineBlockAt(Math.min(Math.max(own.end, own.from), len));
-    const top = start.top / total;
-    const bottom = (last.top + last.height) / total;
+    // CodeMirror only measures wrapped off-screen lines as they approach the
+    // viewport. Pixel-based positions therefore shift while scrolling as its
+    // height estimates become exact. An overview ruler maps the file, so line
+    // fractions are both the natural coordinate system and completely stable.
+    const first = doc.lineAt(Math.min(own.from, len)).number;
+    const last = doc.lineAt(Math.min(Math.max(own.end, own.from), len)).number;
+    const top = (first - 1) / total;
+    const bottom = last / total;
     if (own.from >= own.to) {
       // nothing on this side: lines were removed and none put back, so the mark
       // goes on the seam they closed over rather than down a line that isn't there
@@ -238,11 +230,9 @@ function chunkTicks(view: EditorView, other: () => Text | null): Tick[] {
           otherDoc.lineAt(Math.min(Math.max(across.end, across.from), oLen)).number -
           otherDoc.lineAt(Math.min(across.from, oLen)).number +
           1;
-        const first = doc.lineAt(Math.min(own.from, len)).number;
-        const kept = doc.lineAt(Math.min(Math.max(own.end, own.from), len)).number - first + 1;
+        const kept = last - first + 1;
         if (lost < kept) {
-          const block = view.lineBlockAt(doc.line(first + lost - 1).from);
-          delBottom = (block.top + block.height) / total;
+          delBottom = (first + lost - 1) / total;
         }
       }
       out.push({ kind: "del", top, bottom: delBottom });
