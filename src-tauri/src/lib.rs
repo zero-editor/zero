@@ -5,6 +5,7 @@ mod links;
 #[cfg(target_os = "macos")]
 mod high_refresh;
 mod memos;
+mod opaque;
 mod opens;
 mod pty;
 mod ptyd;
@@ -186,6 +187,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             debug_log,
             traffic_lights::titlebar_height,
+            opaque::set_opaque,
             links::open_url,
             links::reveal_path,
             links::resolve_paths,

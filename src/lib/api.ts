@@ -165,6 +165,9 @@ export const api = {
   /** how tall the top bar is in window points, so macOS's traffic lights can
    *  be put on its axis — see src-tauri/src/traffic_lights.rs */
   titlebarHeight: (height: number) => invoke<void>("titlebar_height", { height }),
+  /** tell WindowServer whether this window still needs per-frame blending —
+   *  opaque whenever glass is off, see src-tauri/src/opaque.rs */
+  setOpaque: (opaque: boolean) => invoke<void>("set_opaque", { opaque }),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
   addRecent: (path: string) => invoke<void>("add_recent", { path }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),

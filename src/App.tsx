@@ -56,17 +56,26 @@ export default function App() {
       .catch(() => {});
   }, [appearance, resolved]);
 
+  // The window's opacity bit moves with the glass: tauri.conf.json says
+  // `transparent: true` at build time, which has WindowServer alpha-blending
+  // every repaint against the desktop even when every surface paints solid.
+  // So solid mode — glass off, or a Mac that can't glass at all — marks the
+  // window opaque and gets those frames back. Order keeps the see-through
+  // moments unseen: opacity drops just before the pane goes in, and returns
+  // only after the pane is gone and the surfaces are solid again.
   useEffect(() => {
     let live = true;
     isGlassSupported()
       .then(async (ok) => {
-        if (!ok || !live) return;
-        if (glass) {
+        if (!live) return;
+        if (ok && glass) {
+          await api.setOpaque(false);
           await setLiquidGlassEffect({ variant: GlassMaterialVariant.Regular });
           if (live) document.documentElement.classList.add("glass");
         } else {
           document.documentElement.classList.remove("glass");
-          await setLiquidGlassEffect({ enabled: false });
+          if (ok) await setLiquidGlassEffect({ enabled: false });
+          await api.setOpaque(true);
         }
       })
       .catch((e) => api.debugLog(`[glass] failed: ${e}`).catch(() => {}));
