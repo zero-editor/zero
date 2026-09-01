@@ -755,7 +755,35 @@ function TerminalPane({
     // subscribe before spawning: the shell's first prompt can land before an
     // awaited spawn resolves, and there is no replay
     const decoder = { current: null as null | TextDecoder };
-    ptyBus.onOutput(id, (bytes) => term.write(bytes));
+
+    // Writes are coalesced, and the honest reason is the unfocused case. The
+    // cost of a streaming pane is per frame, not per hertz — a Claude session
+    // renders at only 4–16fps (measured, onRender) and still bills ~25% of a
+    // core in WindowServer, because each frame is a big retina composite; a
+    // native terminal pays about half that for the same stream, so most of
+    // it is the platform's price for being watched. What a frontend *can*
+    // decide is how often to pay it when nobody is watching: unfocused,
+    // writes settle to 4fps — the difference between an agent working behind
+    // another window all afternoon and the same afternoon at a third of the
+    // compositing bill. Focused, 30fps only caps pathological streams (`yes`,
+    // a runaway loop); agent output never reaches it. The first chunk after
+    // a quiet moment always goes through immediately, so keystroke echo and
+    // the prompt never wait; only a stream settles into the cadence.
+    const pending: Uint8Array[] = [];
+    let flushTimer: number | null = null;
+    let lastFlush = 0;
+    const flush = () => {
+      flushTimer = null;
+      lastFlush = performance.now();
+      for (const chunk of pending.splice(0)) term.write(chunk);
+    };
+    ptyBus.onOutput(id, (bytes) => {
+      pending.push(bytes);
+      if (flushTimer !== null) return;
+      const frame = document.hasFocus() ? 33 : 250;
+      const wait = Math.max(0, frame - (performance.now() - lastFlush));
+      flushTimer = window.setTimeout(flush, wait);
+    });
     ptyBus.onExit(id, () => onExit(id));
 
     api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
@@ -903,6 +931,7 @@ function TerminalPane({
       el.removeEventListener("focusin", onFocusIn);
       observer.disconnect();
       window.clearTimeout(resizeTimer);
+      if (flushTimer !== null) window.clearTimeout(flushTimer);
       window.cancelAnimationFrame(resizeRaf);
       window.cancelAnimationFrame(sizeRaf);
       smooth.dispose();

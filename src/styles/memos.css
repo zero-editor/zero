@@ -95,7 +95,10 @@
   border-color: transparent;
   background: var(--red);
   box-shadow: 0 0 6px rgba(241, 76, 76, 0.5);
-  animation: memo-pulse 2.4s ease-in-out infinite;
+  /* steps for the same reason as the spinners: continuous animation is a
+     window composite per display refresh. 24 opacity levels over 2.4s still
+     reads as breathing. */
+  animation: memo-pulse 2.4s steps(24, end) infinite;
 }
 
 @keyframes memo-pulse {
@@ -383,7 +386,9 @@
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.2px), #000 calc(100% - 1.2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 1.2px), #000 calc(100% - 1.2px));
-  animation: agent-spin 1.5s linear infinite;
+  /* steps for the same reason as the titlebar ring (frame.css): a smoothly
+     animated layer costs a whole-window composite per display refresh */
+  animation: agent-spin 1.5s steps(24, end) infinite;
 }
 
 /* Failure spends the one hue this theme keeps for it. Same red as the live
