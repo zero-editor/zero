@@ -378,6 +378,11 @@ function TerminalPane({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  // read by the write coalescer below, which lives in the mount effect and
+  // must see the current value without remounting the terminal
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const flushNowRef = useRef<() => void>(() => {});
   // the link provider is registered once, for the life of the pane, but the
   // callback it closes over is a fresh function every render
   const onOpenFileRef = useRef(onOpenFile);
@@ -777,13 +782,24 @@ function TerminalPane({
       lastFlush = performance.now();
       for (const chunk of pending.splice(0)) term.write(chunk);
     };
+    // A pane in an inactive project is still painted — the workspace stays
+    // resident on the GPU so switching is a compositor swap (workspace.css) —
+    // so an agent streaming into it repaints an invisible project at full
+    // price. 1fps there; the switch back flushes instantly (below), so the
+    // pane is current by the time it can be seen.
     ptyBus.onOutput(id, (bytes) => {
       pending.push(bytes);
       if (flushTimer !== null) return;
-      const frame = document.hasFocus() ? 33 : 250;
+      const frame = !activeRef.current ? 1000 : document.hasFocus() ? 33 : 250;
       const wait = Math.max(0, frame - (performance.now() - lastFlush));
       flushTimer = window.setTimeout(flush, wait);
     });
+    flushNowRef.current = () => {
+      if (flushTimer !== null) {
+        window.clearTimeout(flushTimer);
+        flush();
+      }
+    };
     ptyBus.onExit(id, () => onExit(id));
 
     api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
@@ -955,6 +971,12 @@ function TerminalPane({
     if (focused && active) term.focus();
     else if (!active) term.blur();
   }, [focused, active]);
+
+  // arriving at a project whose panes were coalescing at 1fps: show them the
+  // present, not up to a second ago
+  useEffect(() => {
+    if (active) flushNowRef.current();
+  }, [active]);
 
   // three levels on purpose: the pane holds the padding, the clip bounds the
   // sub-row transform, and the host is what xterm opens on
