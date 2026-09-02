@@ -23,6 +23,9 @@ export interface Tick {
   bottom: number;
 }
 
+/** the shortest thumb worth grabbing, the same floor a scrollbar keeps */
+const MIN_THUMB_PX = 24;
+
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 /**
@@ -107,19 +110,22 @@ export function scrollRuler(
         this.placeThumb();
       }
 
-      /** The scrollbar-thumb identity, at double weight: height is twice the
-       *  visible fraction of the file (capped at the whole strip), which
-       *  keeps it legible in files long enough to shrink an honest thumb to
-       *  a sliver. A thumb taller than the true fraction can't sit at the
-       *  scrolled fraction — it would hang past the end — so it travels the
-       *  way every scrollbar with a minimum thumb does: progress through the
-       *  file maps to progress through the room the thumb has left. A file
-       *  that fits entirely spans the whole strip rather than disappearing. */
+      /** The scrollbar-thumb identity: height is the visible fraction of
+       *  the file, the way the scrollbar it replaces draws it, with only
+       *  the minimum every scrollbar has so it stays grabbable in a file
+       *  long enough to shrink it to a sliver. When the minimum applies the
+       *  thumb can't sit at the scrolled fraction — it would hang past the
+       *  end — so it travels the way every scrollbar with a minimum thumb
+       *  does: progress through the file maps to progress through the room
+       *  the thumb has left. A file that fits entirely spans the whole
+       *  strip rather than disappearing. */
       placeThumb() {
         if (!this.isDiff) return;
         const s = this.scrollEl;
         const visible = s.scrollHeight ? Math.min(s.clientHeight / s.scrollHeight, 1) : 1;
-        const h = Math.min(visible * 2, 1);
+        const strip = this.dom.clientHeight;
+        const minH = strip ? Math.min(MIN_THUMB_PX / strip, 1) : 0;
+        const h = Math.max(visible, minH);
         const span = s.scrollHeight - s.clientHeight;
         const progress = span > 0 ? s.scrollTop / span : 0;
         this.thumb.style.top = `${progress * (1 - h) * 100}%`;
@@ -190,53 +196,48 @@ function chunkTicks(view: EditorView, other: () => Text | null): Tick[] {
   const info = getChunks(view.state);
   if (!info) return [];
   const doc = view.state.doc;
-  const len = doc.length;
-  const total = doc.lines;
   const otherDoc = other();
   const isA = info.side === "a";
-  const out: Tick[] = [];
+  // The merge view aligns the two panes: where the other side has lines this
+  // one lost, this pane gets a spacer as tall as them, and that is what
+  // scrolls. The ruler maps that aligned layout, not this document alone —
+  // a hundred deleted lines are a hundred rows of red you can scroll to, the
+  // way Cursor draws them, not a hairline on the seam where they used to be.
+  // Row counts stand in for spacer heights: CodeMirror only measures wrapped
+  // off-screen lines as they approach the viewport, so pixel positions shift
+  // while scrolling, and line-based ones don't.
+  type Span = { kind: TickKind; from: number; to: number };
+  const spans: Span[] = [];
+  let extra = 0; // aligned rows added by spacers before the current chunk
+  const lines = (d: Text, from: number, to: number, end: number) => {
+    if (from >= to) return { first: d.lineAt(Math.min(from, d.length)).number, count: 0 };
+    const first = d.lineAt(Math.min(from, d.length)).number;
+    const last = d.lineAt(Math.min(Math.max(end, from), d.length)).number;
+    return { first, count: last - first + 1 };
+  };
   for (const chunk of info.chunks) {
     const own = isA
-      ? { from: chunk.fromA, to: chunk.toA, end: chunk.endA }
-      : { from: chunk.fromB, to: chunk.toB, end: chunk.endB };
-    const across = isA
-      ? { from: chunk.fromB, to: chunk.toB, end: chunk.endB }
-      : { from: chunk.fromA, to: chunk.toA, end: chunk.endA };
-    // CodeMirror only measures wrapped off-screen lines as they approach the
-    // viewport. Pixel-based positions therefore shift while scrolling as its
-    // height estimates become exact. An overview ruler maps the file, so line
-    // fractions are both the natural coordinate system and completely stable.
-    const first = doc.lineAt(Math.min(own.from, len)).number;
-    const last = doc.lineAt(Math.min(Math.max(own.end, own.from), len)).number;
-    const top = (first - 1) / total;
-    const bottom = last / total;
-    if (own.from >= own.to) {
-      // nothing on this side: lines were removed and none put back, so the mark
-      // goes on the seam they closed over rather than down a line that isn't there
-      out.push({ kind: "del", top, bottom });
-    } else if (across.from >= across.to) {
-      out.push({ kind: "add", top, bottom });
-    } else {
-      // A modified chunk is two claims, and they need not be the same size:
-      // green for every line standing on this side, red for what the other
-      // side lost. One line rewritten into twenty is one line of red beside
-      // twenty of green — a red half as tall as the green would say twenty
-      // lines died here, and they didn't.
-      out.push({ kind: "add", top, bottom });
-      let delBottom = bottom;
-      if (otherDoc) {
-        const oLen = otherDoc.length;
-        const lost =
-          otherDoc.lineAt(Math.min(Math.max(across.end, across.from), oLen)).number -
-          otherDoc.lineAt(Math.min(across.from, oLen)).number +
-          1;
-        const kept = last - first + 1;
-        if (lost < kept) {
-          delBottom = (first + lost - 1) / total;
-        }
-      }
-      out.push({ kind: "del", top, bottom: delBottom });
-    }
+      ? lines(doc, chunk.fromA, chunk.toA, chunk.endA)
+      : lines(doc, chunk.fromB, chunk.toB, chunk.endB);
+    const across = otherDoc
+      ? isA
+        ? lines(otherDoc, chunk.fromB, chunk.toB, chunk.endB)
+        : lines(otherDoc, chunk.fromA, chunk.toA, chunk.endA)
+      : { first: 1, count: own.count ? own.count : 1 };
+    const kept = own.count;
+    const lost = across.count;
+    // an empty own range sits *before* the line its position names; a
+    // non-empty one starts on it
+    const row = own.first - 1 + extra;
+    if (kept) spans.push({ kind: "add", from: row, to: row + kept });
+    // A modified chunk is two claims, and they need not be the same size:
+    // green for every line standing on this side, red for what the other
+    // side lost. One line rewritten into twenty is one line of red beside
+    // twenty of green — a red half as tall as the green would say twenty
+    // lines died here, and they didn't.
+    if (lost) spans.push({ kind: "del", from: row, to: row + lost });
+    extra += Math.max(0, lost - kept);
   }
-  return out;
+  const total = doc.lines + extra;
+  return spans.map((s) => ({ kind: s.kind, top: s.from / total, bottom: s.to / total }));
 }
