@@ -41,7 +41,7 @@ export default function App() {
   // together, in the order that never leaves a see-through frame: pane first
   // when enabling, class off first when disabling. On macOS < 26 (and
   // everywhere else) `isGlassSupported` says no and the setting is inert.
-  const { glass, appearance, theme } = useSettings();
+  const { glass, appearance, theme, field } = useSettings();
 
   // The theme is a class on <html>, the way appearance and glass are: every
   // rule in styles/subzero.css hangs off it, and the default theme is the bare
@@ -49,6 +49,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("subzero", theme === "subzero");
   }, [theme]);
+
+  // the field's pattern, the same way — one `field-<name>` class at a time
+  useEffect(() => {
+    const el = document.documentElement;
+    for (const c of Array.from(el.classList)) if (c.startsWith("field-")) el.classList.remove(c);
+    el.classList.add(`field-${field}`);
+  }, [field]);
 
   // Appearance is two changes that must agree: the `light` class drives every
   // CSS token, and the NSWindow's own theme drives what CSS can't reach — the

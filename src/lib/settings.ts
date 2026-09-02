@@ -21,6 +21,12 @@ export type EditorTheme = (typeof EDITOR_THEMES)[number];
 export const THEMES = ["zero", "subzero"] as const;
 export type Theme = (typeof THEMES)[number];
 
+/** What subzero draws on the field between the panes — see the field
+ *  section of styles/subzero.css. Only that theme reads it; zero's field
+ *  is a colour. */
+export const FIELDS = ["aurora", "contour", "bare"] as const;
+export type Field = (typeof FIELDS)[number];
+
 export const APPEARANCES = ["light", "dark", "system"] as const;
 export type Appearance = (typeof APPEARANCES)[number];
 
@@ -29,6 +35,7 @@ export type TermStyle = (typeof TERM_STYLES)[number];
 
 export interface Settings {
   theme: Theme;
+  field: Field;
   editorTheme: EditorTheme;
   /** Liquid Glass behind every surface (macOS 26+). Off means solid — the
    *  app exactly as it looks where glass doesn't exist. */
@@ -58,6 +65,7 @@ export interface Settings {
 
 const DEFAULTS: Settings = {
   theme: "zero",
+  field: "aurora",
   editorTheme: "dark-modern",
   glass: true,
   appearance: "system",
@@ -78,6 +86,7 @@ function parse(raw: string | null): Settings {
   }
   return {
     theme: THEMES.includes(blob.theme as Theme) ? (blob.theme as Theme) : DEFAULTS.theme,
+    field: FIELDS.includes(blob.field as Field) ? (blob.field as Field) : DEFAULTS.field,
     editorTheme: EDITOR_THEMES.includes(blob.editorTheme as EditorTheme)
       ? (blob.editorTheme as EditorTheme)
       : DEFAULTS.editorTheme,

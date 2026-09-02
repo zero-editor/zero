@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { EDITOR_THEME_CHOICES } from "../lib/cmTheme";
 import { updateSettings, useSettings } from "../lib/settings";
+import { FIELDS } from "../lib/settings";
 import type { Theme } from "../lib/settings";
 
 /** The two themes, each with the four tones that make it what it is —
@@ -66,6 +67,26 @@ export function Settings({ onClose }: { onClose: () => void }) {
             );
           })}
         </div>
+        {settings.theme === "subzero" && (
+          <div className="settings-group">
+            <div className="settings-label">field</div>
+            {/* only while subzero is on: it is the one theme that draws
+                anything on the field, so the row would be inert under zero */}
+            {FIELDS.map((f) => {
+              const on = settings.field === f;
+              return (
+                <button
+                  key={f}
+                  className={`settings-choice ${on ? "on" : ""}`}
+                  onClick={() => updateSettings({ field: f })}
+                >
+                  <span className="settings-dot" aria-hidden />
+                  <span className="settings-choice-name">{f}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="settings-group">
           <div className="settings-label">syntax theme</div>
           {EDITOR_THEME_CHOICES.map((c) => {

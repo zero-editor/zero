@@ -117,36 +117,79 @@ html.subzero.light.glass {
   --bg-panel: rgba(244, 246, 249, 0.6);
 }
 
-/* The field. Solid mode paints it with what glass can't: a fine grid of
-   points, so the space between plates reads as a surface with a scale
-   rather than as a colour value; a cool wash of light high on the left;
-   and a vignette that takes the corners down further than the middle, so
-   the window reads deep rather than flat. All of it is one static
-   background on <body>, painted once and never re-rasterised by anything
-   scrolling above it, which is what keeps it free on a window whose every
-   pane composites on its own layer. Off under glass, where the field is the
-   desktop. */
+/* The field's colour; its pattern is the field setting, below */
 html.subzero:not(.glass) body {
   background-color: var(--bg-field);
-  background-image:
-    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.5)),
-    radial-gradient(ellipse 55% 40% at 8% -10%, rgba(var(--ice), 0.07), transparent 70%),
-    radial-gradient(rgba(205, 228, 255, 0.07) 1px, transparent 1.3px);
-  background-size:
-    100% 100%,
-    100% 100%,
-    22px 22px;
-  background-position:
-    0 0,
-    0 0,
-    11px 11px;
 }
 
-html.subzero.light:not(.glass) body {
+/* ----- the field's pattern -----
+   Three fields, picked in preferences while subzero is on (App.tsx puts
+   `field-<name>` on <html>). Each is a static background on <body> —
+   painted once, never re-rasterised by anything scrolling above it —
+   under the same vignette. Off under glass, where the field is the
+   desktop. There were eight for an afternoon: a frost, a hex lattice,
+   fractal dendrites, a dot grid, a single brush stroke, a geode of
+   shards, a snowflake. The two pictures that stayed are the abstract ones. The contour's SVG is written by a generator
+   (a turbulence sliced into bands, the band edges pulled out by a
+   convolution) — regenerate it rather than hand-edit it. */
+
+/* aurora: ribbons of cold light across the field — ice, a breath of
+   violet, a breath of teal — each a wide soft band on its own angle, so
+   they cross the way the real thing folds. Nothing repeats; the layers
+   are the window's size. */
+html.subzero.field-aurora:not(.glass) body {
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.5)),
+    linear-gradient(112deg, transparent 22%, rgba(142, 208, 255, 0.07) 36%, rgba(130, 150, 255, 0.06) 45%, transparent 60%),
+    linear-gradient(98deg, transparent 48%, rgba(110, 225, 205, 0.055) 60%, rgba(142, 208, 255, 0.045) 68%, transparent 82%),
+    linear-gradient(128deg, transparent 4%, rgba(165, 125, 255, 0.045) 16%, transparent 30%),
+    radial-gradient(ellipse 60% 45% at 72% -8%, rgba(142, 208, 255, 0.1), transparent 70%);
+  background-size: 100% 100%;
+}
+
+html.subzero.light.field-aurora:not(.glass) body {
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(30, 50, 80, 0.14)),
+    linear-gradient(112deg, transparent 22%, rgba(47, 127, 193, 0.09) 36%, rgba(80, 90, 200, 0.07) 45%, transparent 60%),
+    linear-gradient(98deg, transparent 48%, rgba(30, 150, 130, 0.07) 60%, rgba(47, 127, 193, 0.06) 68%, transparent 82%),
+    linear-gradient(128deg, transparent 4%, rgba(120, 80, 210, 0.06) 16%, transparent 30%),
+    radial-gradient(ellipse 60% 45% at 72% -8%, rgba(255, 255, 255, 0.7), transparent 70%);
+}
+
+/* contour: a frozen surface read as its own chart. A turbulence — the
+   creased kind, not the smooth one, so the lines fracture like crystal
+   edges rather than roll like hills — sliced into bands; the band edges
+   pulled out by a convolution as hairlines, and the alternate bands given
+   a breath of fill, so the field reads as sheets of ice of different
+   thicknesses meeting, not as a map. Kept well under the panes: a third
+   lighter than it first was, which is where it stopped competing. */
+html.subzero.field-contour:not(.glass) body {
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.5)),
+    radial-gradient(ellipse 55% 40% at 8% -10%, rgba(var(--ice), 0.08), transparent 70%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='640'><filter id='c' x='0' y='0' width='100%' height='100%' color-interpolation-filters='sRGB'><feTurbulence type='turbulence' baseFrequency='0.006' numOctaves='4' seed='9' stitchTiles='stitch' result='t'/><feColorMatrix in='t' values='0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 1' result='g'/><feComponentTransfer in='g' result='b'><feFuncR type='discrete' tableValues='0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1'/><feFuncG type='discrete' tableValues='0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1'/><feFuncB type='discrete' tableValues='0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1'/></feComponentTransfer><feConvolveMatrix in='b' order='3' kernelMatrix='-1 -1 -1 -1 8 -1 -1 -1 -1' preserveAlpha='true' result='e'/><feColorMatrix in='e' values='0 0 0 0 0.72  0 0 0 0 0.86  0 0 0 0 1  0.024 0.024 0.024 0 0' result='lines'/><feColorMatrix in='b' values='0 0 0 0 0.72  0 0 0 0 0.86  0 0 0 0 1  0.004 0.004 0.004 0 0' result='fill'/><feComposite in='lines' in2='fill' operator='arithmetic' k1='0' k2='1' k3='1' k4='0'/></filter><rect width='100%' height='100%' filter='url(%23c)'/></svg>");
+  background-size: 100% 100%, 100% 100%, 640px 640px;
+}
+
+html.subzero.light.field-contour:not(.glass) body {
   background-image:
     radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(30, 50, 80, 0.14)),
     radial-gradient(ellipse 55% 40% at 8% -10%, rgba(255, 255, 255, 0.6), transparent 70%),
-    radial-gradient(rgba(30, 50, 80, 0.12) 1px, transparent 1.3px);
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='640'><filter id='c' x='0' y='0' width='100%' height='100%' color-interpolation-filters='sRGB'><feTurbulence type='turbulence' baseFrequency='0.006' numOctaves='4' seed='9' stitchTiles='stitch' result='t'/><feColorMatrix in='t' values='0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 1' result='g'/><feComponentTransfer in='g' result='b'><feFuncR type='discrete' tableValues='0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1'/><feFuncG type='discrete' tableValues='0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1'/><feFuncB type='discrete' tableValues='0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1'/></feComponentTransfer><feConvolveMatrix in='b' order='3' kernelMatrix='-1 -1 -1 -1 8 -1 -1 -1 -1' preserveAlpha='true' result='e'/><feColorMatrix in='e' values='0 0 0 0 0.12  0 0 0 0 0.2  0 0 0 0 0.31  0.035 0.035 0.035 0 0' result='lines'/><feColorMatrix in='b' values='0 0 0 0 0.12  0 0 0 0 0.2  0 0 0 0 0.31  0.007 0.007 0.007 0 0' result='fill'/><feComposite in='lines' in2='fill' operator='arithmetic' k1='0' k2='1' k3='1' k4='0'/></filter><rect width='100%' height='100%' filter='url(%23c)'/></svg>");
+}
+
+/* bare: the vignette and the wash, nothing drawn on the field */
+html.subzero.field-bare:not(.glass) body {
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.5)),
+    radial-gradient(ellipse 55% 40% at 8% -10%, rgba(var(--ice), 0.08), transparent 70%);
+  background-size: 100% 100%, 100% 100%;
+}
+
+html.subzero.light.field-bare:not(.glass) body {
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(30, 50, 80, 0.14)),
+    radial-gradient(ellipse 55% 40% at 8% -10%, rgba(255, 255, 255, 0.6), transparent 70%);
 }
 
 /* ice where the system would paint its own selection blue */
