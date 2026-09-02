@@ -49,6 +49,12 @@ export interface ProjectSession {
   focusedId: string | null;
   sidebarTab: SidebarTab;
   sidebarVisible: boolean;
+  /** shown, but folded to its rail of icons: still a leaf of the tree, held
+   *  at the rail's pixel width by the workspace */
+  sidebarCollapsed: boolean;
+  /** the share of its split the sidebar had before it folded, to hand back
+   *  when it unfolds */
+  sidebarShare: number | null;
   terminalVisible: boolean;
   /** the era of the single document pane — read once by the migration into
    *  `docPanes`, never written again */
@@ -187,6 +193,8 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
         ? p.sidebarTab
         : undefined,
     sidebarVisible: typeof p.sidebarVisible === "boolean" ? p.sidebarVisible : undefined,
+    sidebarCollapsed: typeof p.sidebarCollapsed === "boolean" ? p.sidebarCollapsed : undefined,
+    sidebarShare: typeof p.sidebarShare === "number" ? p.sidebarShare : undefined,
     terminalVisible: typeof p.terminalVisible === "boolean" ? p.terminalVisible : undefined,
     views,
     // dropped untitled tabs can leave the index past the end — and can empty

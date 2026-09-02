@@ -71,12 +71,46 @@
   display: block;
 }
 
-.sidebar-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* its own compositor layer, same reason as .cm-scroller (main-column.css):
-     hundreds of translucent rows over glass otherwise repaint per frame */
-  transform: translateZ(0);
+/* the fold, at the end of the strip: a button among the tabs, drawn at
+   their weight, with no active state of its own */
+.sidebar-fold {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.sidebar-fold:hover {
+  color: var(--text);
+}
+
+.sidebar-fold svg {
+  display: block;
+}
+
+/* Folded: the card narrows to its run of icons (Workspace pins the width)
+   and the strip stacks. The body is not rendered, so nothing here has to
+   hide it. */
+.sidebar.collapsed .sidebar-tabs {
+  flex-direction: column;
+  height: auto;
+  padding: 4px 0;
+  border-bottom: none;
+}
+
+.sidebar.collapsed .sidebar-tab {
+  flex: none;
+  width: 100%;
+  height: 26px;
+}
+
+.sidebar.collapsed .sidebar-tab.active::after {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-fold {
+  width: 100%;
 }

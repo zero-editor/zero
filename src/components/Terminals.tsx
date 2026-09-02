@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
-import { onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
+import { getSettings, onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
@@ -170,6 +170,27 @@ export function TerminalPanes({
   // flag so a press with the bar already up still reaches it (see TermFind)
   const [finding, setFinding] = useState(0);
 
+  // What the agent in each pane is doing, read the way the daemon reads it
+  // for the tab strip: Claude retitles its terminal with ◐/◑ mid-task and ✳
+  // once it is waiting on you, and xterm hands every pane its own titles —
+  // so this is per pane where the strip's count is per project. `done` is
+  // an unread badge, as it is up there: focusing the pane reads it, and it
+  // shows only on a pane you are not in. Nothing here is drawn in the
+  // default theme; styles/subzero.css is what wears it.
+  const [agent, setAgent] = useState<Record<string, "working" | "done" | "seen">>({});
+  const onAgent = useCallback((id: string, state: "working" | "done" | null) => {
+    setAgent((prev) => {
+      const next = { ...prev };
+      if (!state) delete next[id];
+      else next[id] = state;
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    const id = tree.focusedId;
+    if (id && agent[id] === "done") setAgent((prev) => ({ ...prev, [id]: "seen" }));
+  }, [tree.focusedId, agent]);
+
   // app-wide rather than per-pane, and started from here because the panes
   // are what it delivers to; calling it again is a no-op
   useEffect(watchFileDrops, []);
@@ -205,7 +226,7 @@ export function TerminalPanes({
           key={id}
           className={`pane-abs term-abs ${termStyle === "plain" ? "plain" : ""} ${
             draggingId === id ? "moving" : ""
-          }`}
+          } ${agent[id] === "working" ? "agent-working" : agent[id] === "done" ? "agent-done" : ""}`}
           data-pane-id={id}
           // how a dropped file finds the pty it was dropped on
           data-term-id={id}
@@ -288,6 +309,7 @@ export function TerminalPanes({
             onFocus={tree.setFocused}
             onExit={tree.removePane}
             onOpenFile={onOpenFile}
+            onAgent={onAgent}
           />
         </div>
       ))}
@@ -345,6 +367,55 @@ const TERM_THEME_LIGHT = {
   brightWhite: "#a5a5a5",
 };
 
+// Subzero (styles/subzero.css) — the same ANSI slots in the theme's own family:
+// warm, a step lower in chroma than VS Code's, with the cursor in amber.
+// Background is the panel tone, for the same inversion reason as above.
+const TERM_THEME_SUBZERO = {
+  background: "#101219",
+  foreground: "#e3e6ee",
+  cursor: "#8ed0ff",
+  selectionBackground: "#8ed0ff40",
+  black: "#14161d",
+  red: "#e5716a",
+  green: "#9dc38c",
+  yellow: "#dfb970",
+  blue: "#8fb4d6",
+  magenta: "#d3a0c7",
+  cyan: "#8fc4bd",
+  white: "#d3d7df",
+  brightBlack: "#6b7280",
+  brightRed: "#f08a83",
+  brightGreen: "#b3d5a2",
+  brightYellow: "#edcb86",
+  brightBlue: "#a9c9e6",
+  brightMagenta: "#e4b6d9",
+  brightCyan: "#a8d8d1",
+  brightWhite: "#f2f4f8",
+};
+
+const TERM_THEME_SUBZERO_LIGHT = {
+  background: "#f4f6f9",
+  foreground: "#1f2430",
+  cursor: "#2f7fc1",
+  selectionBackground: "#2f7fc130",
+  black: "#1f2430",
+  red: "#c2392f",
+  green: "#4f7f3c",
+  yellow: "#a4780f",
+  blue: "#2f6a9e",
+  magenta: "#9a4a8c",
+  cyan: "#2c7f7a",
+  white: "#8a8073",
+  brightBlack: "#6a6156",
+  brightRed: "#d9463b",
+  brightGreen: "#5f9448",
+  brightYellow: "#b98a1a",
+  brightBlue: "#3c7fb5",
+  brightMagenta: "#b25ca3",
+  brightCyan: "#33958f",
+  brightWhite: "#5e554a",
+};
+
 /* Appearance picks the palette; the background is blanked in all of them.
    Whatever is behind the text — the panel's own card, the window's field when
    the terminal is set plain, or glass — is painted by the panel, so a
@@ -355,7 +426,15 @@ const TERM_THEME_LIGHT = {
    Read from the settings store, not the DOM: store listeners fire before
    React has moved the html classes, and the store is never behind. */
 function termTheme() {
-  const base = resolvedAppearance() === "light" ? TERM_THEME_LIGHT : TERM_THEME;
+  const light = resolvedAppearance() === "light";
+  const base =
+    getSettings().theme === "subzero"
+      ? light
+        ? TERM_THEME_SUBZERO_LIGHT
+        : TERM_THEME_SUBZERO
+      : light
+        ? TERM_THEME_LIGHT
+        : TERM_THEME;
   return { ...base, background: `${base.background}00` };
 }
 
@@ -367,6 +446,7 @@ function TerminalPane({
   onFocus,
   onExit,
   onOpenFile,
+  onAgent,
 }: {
   id: string;
   cwd: string;
@@ -375,8 +455,13 @@ function TerminalPane({
   onFocus: (id: string) => void;
   onExit: (id: string) => void;
   onOpenFile: (abs: string, line?: number) => void;
+  /** what the agent in this pane is doing, from its own title — see the
+   *  state in Terminals; null when the title stopped being an agent's */
+  onAgent: (id: string, state: "working" | "done" | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const onAgentRef = useRef(onAgent);
+  onAgentRef.current = onAgent;
   const termRef = useRef<Terminal | null>(null);
   // read by the write coalescer below, which lives in the mount effect and
   // must see the current value without remounting the terminal
@@ -802,6 +887,17 @@ function TerminalPane({
     };
     ptyBus.onExit(id, () => onExit(id));
 
+    // The same glyphs the daemon keys on (ptyd/server.rs): ✳ is Claude idle
+    // at its prompt, the half-circle family is its spinner. Any other title
+    // — the shell's own, a subcommand's — means no agent to speak of.
+    const titles = term.onTitleChange((title) => {
+      const c = title.trimStart()[0];
+      onAgentRef.current(
+        id,
+        c === "✳" ? "done" : c !== undefined && c >= "◐" && c <= "◓" ? "working" : null
+      );
+    });
+
     api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
       () => {
         // the command this pane was opened to run, if it was opened to run
@@ -943,6 +1039,8 @@ function TerminalPane({
 
     return () => {
       unTheme();
+      titles.dispose();
+      onAgentRef.current(id, null);
       el.removeEventListener("contextmenu", onMenu);
       el.removeEventListener("focusin", onFocusIn);
       observer.disconnect();

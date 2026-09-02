@@ -47,6 +47,9 @@ export function scrollRuler(
       destroyed = false;
       /** what the strip currently shows; null until the first draw */
       lastKey: string | null = null;
+      /** the marks as drawn, so a change of scale can move them in place */
+      marks: { el: HTMLElement; tick: Tick }[] = [];
+      lastScale = 1;
 
       constructor(readonly view: EditorView) {
         this.dom = document.createElement("div");
@@ -87,6 +90,44 @@ export function scrollRuler(
         // geometry, so scrolling and the height corrections it triggers must
         // not redraw (or subtly move) them.
         if (u.docChanged || dirty?.(u)) this.draw();
+        // The one geometry that does move them: the document's share of the
+        // strip (see scale). It is 1 for any file that scrolls, so this never
+        // fires on a long file — only a short one settling its height, or a
+        // pane resizing around it.
+        else if (u.geometryChanged && Math.abs(this.scale() - this.lastScale) > 0.002) {
+          this.placeTicks();
+        }
+        // The thumb follows every geometry change, not only scrolls. The
+        // first draw happens at mount, before CodeMirror has measured a
+        // line, when it still guesses the file's height — and a file that
+        // fits the pane never scrolls, so a thumb placed from the guess
+        // (three quarters of the strip, for a file that fills it) was never
+        // corrected.
+        if (u.geometryChanged) this.placeThumb();
+      }
+
+      /** How much of the strip the document covers. The strip is as tall as
+       *  the pane, and a file shorter than the pane fills only the top of
+       *  it — a mark at "line 28 of 31" drawn at 90% of the strip would sit
+       *  near the pane's floor while the line itself is a third of the way
+       *  down. So the marks are scaled to the document's own height over
+       *  the scroll height, which is 1 for anything that scrolls and puts
+       *  each mark beside its line for anything that doesn't — the way the
+       *  overview ruler in VS Code lands them. */
+      scale() {
+        const s = this.scrollEl;
+        const total = s?.scrollHeight ?? 0;
+        if (!total) return 1;
+        return Math.min(1, this.view.contentHeight / total);
+      }
+
+      placeTicks() {
+        const scale = this.scale();
+        this.lastScale = scale;
+        for (const { el, tick } of this.marks) {
+          el.style.top = `${tick.top * scale * 100}%`;
+          el.style.height = `${(tick.bottom - tick.top) * scale * 100}%`;
+        }
       }
 
       draw() {
@@ -96,17 +137,18 @@ export function scrollRuler(
         if (key !== this.lastKey) {
           this.lastKey = key;
           const next = document.createDocumentFragment();
+          this.marks = [];
           for (const t of ts) {
             const el = document.createElement("div");
             el.className = `cm-changeTick cm-change-${t.kind}`;
-            el.style.top = `${t.top * 100}%`;
-            el.style.height = `${(t.bottom - t.top) * 100}%`;
+            this.marks.push({ el, tick: t });
             next.appendChild(el);
           }
           // last, so it paints over the marks it locates you among
           if (this.isDiff) next.appendChild(this.thumb);
           this.dom.replaceChildren(next);
         }
+        this.placeTicks();
         this.placeThumb();
       }
 

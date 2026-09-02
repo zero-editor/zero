@@ -363,6 +363,18 @@ export function seatedLeafAtRoot(
 
 const clampShare = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
+/** the path to a leaf — indices down through the splits — or null if the
+ *  tree doesn't hold it */
+export function pathOf(node: LayoutNode | null, id: string, path: number[] = []): number[] | null {
+  if (!node) return null;
+  if (node.type === "leaf") return node.id === id ? path : null;
+  for (let i = 0; i < node.children.length; i++) {
+    const p = pathOf(node.children[i], id, [...path, i]);
+    if (p) return p;
+  }
+  return null;
+}
+
 export function leafIds(node: LayoutNode | null, out: string[] = []): string[] {
   if (!node) return out;
   if (node.type === "leaf") out.push(node.id);

@@ -1,6 +1,15 @@
 import { useEffect } from "react";
 import { EDITOR_THEME_CHOICES } from "../lib/cmTheme";
 import { updateSettings, useSettings } from "../lib/settings";
+import type { Theme } from "../lib/settings";
+
+/** The two themes, each with the four tones that make it what it is —
+ *  field, panel, text, accent — so the row shows the theme before it is
+ *  picked, the way the syntax rows show their palette. */
+const THEME_CHOICES: { id: Theme; label: string; swatch: string[] }[] = [
+  { id: "zero", label: "zero", swatch: ["#141414", "#181818", "#cccccc", "#e6e6e6"] },
+  { id: "subzero", label: "subzero", swatch: ["#06070c", "#101219", "#e3e6ee", "#8ed0ff"] },
+];
 
 /**
  * App settings, ⌘, — one overlay for the whole app, not per project. The
@@ -31,6 +40,32 @@ export function Settings({ onClose }: { onClose: () => void }) {
     <div className="quick-backdrop" onMouseDown={onClose}>
       <div className="settings-box" onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-title">preferences</div>
+        <div className="settings-group">
+          <div className="settings-label">theme</div>
+          {/* a theme brings its terminal style with it: subzero is drawn for
+              text straight on the field, zero for a card under it — and the
+              terminal group below is still there to pick otherwise */}
+          {THEME_CHOICES.map((c) => {
+            const on = settings.theme === c.id;
+            return (
+              <button
+                key={c.id}
+                className={`settings-choice ${on ? "on" : ""}`}
+                onClick={() =>
+                  updateSettings({ theme: c.id, termStyle: c.id === "subzero" ? "plain" : "panel" })
+                }
+              >
+                <span className="settings-dot" aria-hidden />
+                <span className="settings-choice-name">{c.label}</span>
+                <span className="settings-swatch" aria-hidden>
+                  {c.swatch.map((color) => (
+                    <i key={color} style={{ background: color }} />
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <div className="settings-group">
           <div className="settings-label">syntax theme</div>
           {EDITOR_THEME_CHOICES.map((c) => {

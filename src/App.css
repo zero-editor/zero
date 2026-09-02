@@ -26,3 +26,6 @@
 @import "./styles/main-column.css";
 @import "./styles/change-bars.css";
 @import "./styles/terminals.css";
+/* the other look, last: it answers everything above it, light and glass
+   included, and is inert until App.tsx puts `subzero` on <html> */
+@import "./styles/subzero.css";

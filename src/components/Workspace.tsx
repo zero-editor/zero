@@ -19,6 +19,7 @@ import {
   seatedLeaf,
   seatedLeafAtRoot,
   sizesOf,
+  pathOf,
   useLayoutTree,
   withSizes,
   type Divider,
@@ -141,6 +142,22 @@ export const Workspace = memo(function Workspace({
   // every other editor arrives — a clean repo's git tab reads as "empty"
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(saved.sidebarTab ?? "files");
   const [sidebarVisible, setSidebarVisible] = useState(saved.sidebarVisible ?? true);
+  // Folded to its rail: the same leaf of the tree, held at the width of its
+  // run of icons. Kept in the tree rather than taken out the way ⌘B takes
+  // it, because the tree is what keeps everything else still — a fold that
+  // hid the leaf and stood a strip beside the field moved every pane over
+  // by the strip's width, terminals along the floor included. In the tree,
+  // the editor beside it takes the room and nothing else moves. The width
+  // is pinned in pixels (see pinSidebar): a share would scale with the
+  // window, and a rail that is 40px at one width is 30px at another. Any
+  // reason to show the sidebar unfolds it too: a reveal that landed in a
+  // rail would have revealed nothing.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(saved.sidebarCollapsed ?? false);
+  const sidebarShare = useRef<number | null>(saved.sidebarShare ?? null);
+  const showSidebar = useCallback(() => {
+    setSidebarVisible(true);
+    setSidebarCollapsed(false);
+  }, []);
   const [terminalVisible, setTerminalVisible] = useState(saved.terminalVisible ?? true);
   const [quickOpen, setQuickOpen] = useState(false);
   const [reveal, setReveal] = useState<Reveal | null>(null);
@@ -230,6 +247,8 @@ export const Workspace = memo(function Workspace({
       focusedId: tree.focusedId,
       sidebarTab,
       sidebarVisible,
+      sidebarCollapsed,
+      sidebarShare: sidebarShare.current,
       terminalVisible,
       docPanes,
       activePane: currentPane,
@@ -240,6 +259,7 @@ export const Workspace = memo(function Workspace({
     tree.focusedId,
     sidebarTab,
     sidebarVisible,
+    sidebarCollapsed,
     terminalVisible,
     docPanes,
     currentPane,
@@ -444,10 +464,10 @@ export const Workspace = memo(function Workspace({
   // the tree open to this file and light its row. The keystroke works out
   // *which* file from the active tab; a menu already knows.
   const revealInTree = useCallback((abs: string) => {
-    setSidebarVisible(true);
+    showSidebar();
     setSidebarTab("files");
     setReveal({ path: abs, n: revealCount.current++ });
-  }, []);
+  }, [showSidebar]);
 
   // a resolved path from a ⌘-click, in the terminal or in the editor
   const openFile = useCallback(
@@ -704,7 +724,9 @@ export const Workspace = memo(function Workspace({
       }
       if (meta && !e.shiftKey && e.key.toLowerCase() === "b") {
         e.preventDefault();
-        setSidebarVisible((v) => !v);
+        // a folded sidebar is shown, not hidden — ⌘B on it unfolds it
+        if (sidebarCollapsed) showSidebar();
+        else setSidebarVisible((v) => !v);
       } else if ((meta && e.key.toLowerCase() === "j" && !e.shiftKey) || (ctrl && e.code === "Backquote" && !e.shiftKey)) {
         e.preventDefault();
         setTerminalVisible((v) => !v);
@@ -762,7 +784,7 @@ export const Workspace = memo(function Workspace({
         // the tree opens on the file you're looking at, folders and all —
         // ⌘⇧E does it too, since that's the one people arrive with
         e.preventDefault();
-        setSidebarVisible(true);
+        showSidebar();
         setSidebarTab("files");
         const dp = docPanesRef.current[currentPaneRef.current];
         const v = dp?.views[dp.activeView];
@@ -773,16 +795,16 @@ export const Workspace = memo(function Workspace({
         // ⌘⇧F searches, ⌘⇧H arrives with the replace field already open — the
         // same split VS Code and Cursor make
         e.preventDefault();
-        setSidebarVisible(true);
+        showSidebar();
         setSidebarTab("search");
         search.focus(e.key.toLowerCase() === "h");
       } else if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
         e.preventDefault();
-        setSidebarVisible(true);
+        showSidebar();
         setSidebarTab("scm");
       } else if (meta && e.shiftKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
-        setSidebarVisible(true);
+        showSidebar();
         setSidebarTab("memos");
       } else if ((ctrl && e.shiftKey && e.code === "Backquote") || (meta && !e.shiftKey && e.key.toLowerCase() === "t")) {
         e.preventDefault();
@@ -818,6 +840,8 @@ export const Workspace = memo(function Workspace({
     tree.newTerminal,
     tree.splitFocused,
     tree.removePane,
+    sidebarCollapsed,
+    showSidebar,
   ]);
 
   // ref-like holders so the key handler and the open/move callbacks don't
@@ -846,6 +870,94 @@ export const Workspace = memo(function Workspace({
   const activeMemo = shown?.kind === "memo" ? shown.id : null;
 
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // ----- the fold, held in pixels -----
+  // The folded sidebar's card: 4px, the 28px run of icons, and no room on the
+  // right — the float gap alone is the right-hand margin, which is what
+  // reads as even against the page's own inset beside it.
+  // Its slot is this plus the float gap, and the share written into the
+  // tree is whatever that comes to at the split's current width.
+  const RAIL_PX = 32;
+  const treeRootRef = useRef(tree.root);
+  treeRootRef.current = tree.root;
+  /** what the last render hid, for the pin to draw the tree the same way */
+  const hiddenIdsRef = useRef<Set<string>>(new Set());
+  /** the split the sidebar sits in, and where in it */
+  const sidebarSplit = useCallback(() => {
+    const path = pathOf(treeRootRef.current, SIDEBAR);
+    if (!path || path.length === 0) return null;
+    const parentPath = path.slice(0, -1);
+    const parent = nodeAt(treeRootRef.current, parentPath);
+    if (!parent || parent.type !== "split") return null;
+    return { parentPath, parent, idx: path[path.length - 1], sizes: sizesOf(parent) };
+  }, []);
+  /** give the sidebar this share of its split; its siblings scale to fit */
+  const setSidebarShare = useCallback(
+    (want: number) => {
+      const sp = sidebarSplit();
+      if (!sp) return;
+      const { parentPath, idx, sizes } = sp;
+      if (Math.abs(sizes[idx] - want) < 0.0005) return;
+      const rest = 1 - sizes[idx];
+      const next = sizes.map((v, i) =>
+        i === idx ? want : rest > 0 ? (v * (1 - want)) / rest : (1 - want) / (sizes.length - 1)
+      );
+      tree.setSizes(parentPath, next);
+    },
+    [sidebarSplit, tree.setSizes]
+  );
+  /** Hold the folded sidebar at RAIL_PX, whatever the window is doing.
+   *  Read off the rects the tree draws rather than the tree's raw shares:
+   *  a share is renormalised among the *visible* siblings when drawn (see
+   *  collectRects), so a hidden terminal in the same split stretches the
+   *  sidebar past whatever share a calculation handed it. The drawn rect
+   *  says how far off it is, and the share is scaled by that — one step,
+   *  since the mapping is linear. Not read off the DOM: panes glide to
+   *  their seats over 160ms, and a width measured mid-glide fed back into
+   *  the share is a loop that runs the sidebar down to nothing. */
+  const pinSidebar = useCallback(() => {
+    const root = rootRef.current;
+    const sp = sidebarSplit();
+    if (!root || !sp) return;
+    const drawn: { id: string; rect: Rect }[] = [];
+    collectRects(treeRootRef.current, FIELD, [], hiddenIdsRef.current, drawn, []);
+    const r = drawn.find((p) => p.id === SIDEBAR)?.rect;
+    if (!r) return;
+    const rr = root.getBoundingClientRect();
+    const actual = sp.parent.dir === "row" ? (rr.width * r.w) / 100 : (rr.height * r.h) / 100;
+    const gap = parseFloat(getComputedStyle(root).getPropertyValue("--float-gap")) || 8;
+    const target = RAIL_PX + gap;
+    if (!(actual > 0) || Math.abs(actual - target) < 0.5) return;
+    setSidebarShare(Math.min(Math.max(sp.sizes[sp.idx] * (target / actual), 0.01), 0.5));
+  }, [sidebarSplit, setSidebarShare]);
+  // the fold remembers the share it took, so the unfold can give it back
+  const foldSidebar = useCallback(() => {
+    const sp = sidebarSplit();
+    if (sp) sidebarShare.current = sp.sizes[sp.idx];
+    setSidebarCollapsed(true);
+  }, [sidebarSplit]);
+  const wasCollapsed = useRef(sidebarCollapsed);
+  useEffect(() => {
+    if (sidebarCollapsed) pinSidebar();
+    else if (wasCollapsed.current) {
+      // a remembered share, or a usable one if the fold never got to
+      // remember it — an unfold to a sliver is not an unfold
+      const back = sidebarShare.current;
+      setSidebarShare(back != null && back >= 0.05 ? back : 0.2);
+    }
+    wasCollapsed.current = sidebarCollapsed;
+  }, [sidebarCollapsed, pinSidebar, setSidebarShare]);
+  // a share is a fraction of the window; the rail is not, so every resize
+  // re-pins it — and so does every change to the tree or to what is hidden
+  // in it, since either moves the renormalisation the pin corrects for
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!sidebarCollapsed || !root) return;
+    pinSidebar();
+    const watch = new ResizeObserver(() => pinSidebar());
+    watch.observe(root);
+    return () => watch.disconnect();
+  }, [sidebarCollapsed, pinSidebar, terminalVisible]);
 
   // ----- carrying a pane -----
   // Same gesture for every pane — a terminal, the editor, the sidebar: pick
@@ -896,6 +1008,7 @@ export const Workspace = memo(function Workspace({
   // the drop — and an aimed re-seat rides on top as transforms.
   const hiddenIds = new Set<string>();
   if (!sidebarVisible) hiddenIds.add(SIDEBAR);
+  hiddenIdsRef.current = hiddenIds;
   const termIds = leafIds(tree.root).filter(isTerm);
   if (!terminalVisible) for (const id of termIds) hiddenIds.add(id);
 
@@ -927,15 +1040,20 @@ export const Workspace = memo(function Workspace({
     if (Math.abs(tx) < 0.01 && Math.abs(ty) < 0.01) return undefined;
     return `translate(${tx}%, ${ty}%)`;
   };
+  // `--px` / `--pw` are the slot's x and width as bare numbers, for the one
+  // thing inside a pane that wants to know where the window's axis is: the
+  // empty editor's mark (see .editor-empty in main-column.css)
   const paneStyle = (rect: Rect | null, shift?: string): React.CSSProperties =>
     rect
-      ? {
+      ? ({
           left: `${rect.x}%`,
           top: `${rect.y}%`,
           width: `${rect.w}%`,
           height: `${rect.h}%`,
           transform: shift,
-        }
+          "--px": rect.x,
+          "--pw": rect.w,
+        } as React.CSSProperties)
       : { display: "none" };
   // stable order, never tree order: re-seating a pane must not reorder the
   // keyed siblings, or React would move live terminal DOM around the tree
@@ -1318,7 +1436,12 @@ export const Workspace = memo(function Workspace({
           <Sidebar
             project={project}
             tab={sidebarTab}
-            onTab={setSidebarTab}
+            onTab={(t) => {
+              setSidebarTab(t);
+              // an icon on the folded rail is a request for its panel
+              if (sidebarCollapsed) showSidebar();
+            }}
+            collapsed={sidebarCollapsed}
             onOpenView={openView}
             active={active}
             search={search}
@@ -1327,6 +1450,8 @@ export const Workspace = memo(function Workspace({
             activeKey={shown?.key ?? null}
             reveal={reveal}
             onRevealInTree={revealInTree}
+            onCollapse={foldSidebar}
+            onExpand={showSidebar}
           />
         </div>
       )}

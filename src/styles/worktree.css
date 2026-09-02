@@ -452,8 +452,11 @@
 
 /* file tree */
 
+/* 7 on top rather than the 6 every other panel starts with: the tree's row
+   is 22px to the changes header's 24, and the extra pixel puts the two
+   chevrons on one line across a tab switch */
 .file-tree {
-  padding: 6px 0;
+  padding: 7px 0 6px;
 }
 
 .tree-item {

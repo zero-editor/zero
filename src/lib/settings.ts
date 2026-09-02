@@ -13,6 +13,14 @@ const KEY = "zero-settings";
 export const EDITOR_THEMES = ["dark-modern", "trmnl"] as const;
 export type EditorTheme = (typeof EDITOR_THEMES)[number];
 
+/** The theme of the app itself — tokens, layout, type — as one choice.
+ *  `zero` is the Dark Modern port the app has always worn; `subzero` is the
+ *  other one, styles/subzero.css. Kept apart from the syntax theme because
+ *  they answer different questions: what the window is vs. what the code
+ *  is, and the code's palette is the one people have habits about. */
+export const THEMES = ["zero", "subzero"] as const;
+export type Theme = (typeof THEMES)[number];
+
 export const APPEARANCES = ["light", "dark", "system"] as const;
 export type Appearance = (typeof APPEARANCES)[number];
 
@@ -20,6 +28,7 @@ export const TERM_STYLES = ["panel", "plain"] as const;
 export type TermStyle = (typeof TERM_STYLES)[number];
 
 export interface Settings {
+  theme: Theme;
   editorTheme: EditorTheme;
   /** Liquid Glass behind every surface (macOS 26+). Off means solid — the
    *  app exactly as it looks where glass doesn't exist. */
@@ -48,6 +57,7 @@ export interface Settings {
 }
 
 const DEFAULTS: Settings = {
+  theme: "zero",
   editorTheme: "dark-modern",
   glass: true,
   appearance: "system",
@@ -67,6 +77,7 @@ function parse(raw: string | null): Settings {
     return { ...DEFAULTS };
   }
   return {
+    theme: THEMES.includes(blob.theme as Theme) ? (blob.theme as Theme) : DEFAULTS.theme,
     editorTheme: EDITOR_THEMES.includes(blob.editorTheme as EditorTheme)
       ? (blob.editorTheme as EditorTheme)
       : DEFAULTS.editorTheme,

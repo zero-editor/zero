@@ -1,0 +1,720 @@
+/* ===== subzero =====
+   The other theme. App.tsx puts `subzero` on <html> when preferences say
+   so; off, nothing in here matches and the app is the Dark Modern port it
+   has always been. Last in the cascade on purpose: every rule below
+   overrides something above it, and light.css and glass.css have to have
+   said their piece first so `html.subzero.light` and `html.subzero.glass`
+   can answer them.
+
+   The idea: cold chrome, warm work.
+
+   Dark Modern is a grey editor with the code as the only colour. Subzero is
+   a cold one — a field the blue-black of a screen in a dark room, panels
+   standing off it as plates under one cold hairline, text a cool bone. Two hues, each with one job. Ice is the app's: the
+   caret, a selection, the tab you are on, the lock, the divider in your
+   hand — everything the window does is the temperature of the window.
+   Amber is the agents': the ring on a project tab, the edge of a pane whose
+   Claude is mid-task, breathing slowly; the same edge held steady once it
+   has finished and is waiting on you, until you go there. So the only warm
+   thing in the window is a machine working, and a window with three agents
+   running reads as three lamps lit in the cold before you have read a word
+   of what any of them printed. The state the tab strip counts per project,
+   the panes show per pane, in place.
+
+   Two departures in layout. The sidebar's four tabs stand in a rail down
+   the card's left edge rather than a row across its top — where every
+   macOS 26 sidebar keeps its sections — which gives the tree its height
+   back for 32px of its width, and the card is yours to widen — or to fold
+   to the rail alone, with the chevron at the foot of it. And the file tabs
+   are a run standing on the page, parted by hairlines, rounded at the
+   run's two top corners, the one you are in wearing the page's own tone
+   flush into it — the shape the strip had before it moved inside the
+   card. The sidebar's icons stand in the same run, turned on its side.
+   The project tabs stay as the default theme draws them.
+
+   The code keeps whatever syntax theme is picked. It had one of its own
+   once, and it lost to Dark Modern on contrast; the editor is the one
+   surface where being read matters more than matching. */
+
+html.subzero {
+  --bg: #14161d;
+  --bg-panel: #101219;
+  /* deeper than the default field by more than the panels moved: the
+     plates are meant to stand off it, and a hairline only reads as an edge
+     against something properly dark */
+  --bg-field: #06070c;
+  --bg-raised: #1f222b;
+  --bg-hover: #1f222b;
+  --border: #21242e;
+  --text: #e3e6ee;
+  --text-dim: #9aa0ad;
+  --text-faint: #5f6573;
+  /* ice. Everything that wore --accent in the default theme (the lock, the
+     split hint, the live divider, the settings radio) wears this without
+     being told. */
+  --accent: #8ed0ff;
+  --green: #8fd19a;
+  --red: #f0736c;
+  --yellow: #e8c46a;
+  /* the serif, for the few words that are the app's own and not the UI's:
+     the wordmark, the empty page, a dialog's title. New York on macOS,
+     which is the one serif the system draws as carefully as it draws SF. */
+  --font-display: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  /* Sharp. Ice is. Every corner in the theme takes one of these two, so
+     the whole window changes its mind together: the plates and the runs of
+     tabs the first, the chips and dialogs the second. */
+  --panel-radius: 0;
+  --chip-radius: 0;
+  --float-gap: 10px;
+  /* one hairline, the same all the way round. It was a frost that caught
+     light along the top and faded down the sides, and read as the top edge
+     being a different colour from the bottom one. */
+  --panel-border: rgba(205, 228, 255, 0.1);
+  --panel-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.9), 0 2px 8px -2px rgba(0, 0, 0, 0.55);
+  /* the two hues as triplets, for the places that need them with alpha */
+  --ice: 142, 208, 255;
+  --signal: 240, 164, 94;
+}
+
+/* Snow. The same window in daylight — white plates on pale ice-grey, ice
+   deepened to hold as text, amber deepened the same way. Not the dark
+   tokens inverted: every step is re-picked to hold on white. */
+html.subzero.light {
+  --bg: #fafbfd;
+  --bg-panel: #f4f6f9;
+  --bg-field: #dde2e9;
+  --bg-raised: #e6eaf0;
+  --bg-hover: #e6eaf0;
+  --border: #d5dbe3;
+  --text: #1f2430;
+  --text-dim: #535b69;
+  --text-faint: #7f8794;
+  --accent: #2f7fc1;
+  --green: #3f8a4f;
+  --red: #c93a3a;
+  --yellow: #a07a12;
+  --panel-border: rgba(30, 50, 80, 0.12);
+  --panel-shadow: 0 18px 40px -16px rgba(30, 50, 80, 0.28), 0 2px 8px -2px rgba(30, 50, 80, 0.1);
+  --ice: 47, 127, 193;
+  --signal: 200, 118, 31;
+}
+
+/* Under glass the scrim keeps the tone: the default theme's alphas, in
+   subzero's colour, so the desktop shows through something cold rather
+   than through grey. */
+html.subzero.glass {
+  --bg: rgba(17, 19, 26, 0.6);
+  --bg-panel: rgba(17, 19, 26, 0.6);
+}
+
+html.subzero.light.glass {
+  --bg: rgba(244, 246, 249, 0.6);
+  --bg-panel: rgba(244, 246, 249, 0.6);
+}
+
+/* The field. Solid mode paints it with what glass can't: a fine grid of
+   points, so the space between plates reads as a surface with a scale
+   rather than as a colour value; a cool wash of light high on the left;
+   and a vignette that takes the corners down further than the middle, so
+   the window reads deep rather than flat. All of it is one static
+   background on <body>, painted once and never re-rasterised by anything
+   scrolling above it, which is what keeps it free on a window whose every
+   pane composites on its own layer. Off under glass, where the field is the
+   desktop. */
+html.subzero:not(.glass) body {
+  background-color: var(--bg-field);
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.5)),
+    radial-gradient(ellipse 55% 40% at 8% -10%, rgba(var(--ice), 0.07), transparent 70%),
+    radial-gradient(rgba(205, 228, 255, 0.07) 1px, transparent 1.3px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    22px 22px;
+  background-position:
+    0 0,
+    0 0,
+    11px 11px;
+}
+
+html.subzero.light:not(.glass) body {
+  background-image:
+    radial-gradient(ellipse 85% 85% at 50% 50%, transparent 55%, rgba(30, 50, 80, 0.14)),
+    radial-gradient(ellipse 55% 40% at 8% -10%, rgba(255, 255, 255, 0.6), transparent 70%),
+    radial-gradient(rgba(30, 50, 80, 0.12) 1px, transparent 1.3px);
+}
+
+/* ice where the system would paint its own selection blue */
+html.subzero ::selection {
+  background: rgba(var(--ice), 0.28);
+}
+
+html.subzero ::-webkit-scrollbar-thumb {
+  background: rgba(var(--ice), 0.14);
+}
+
+html.subzero ::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--ice), 0.32);
+}
+
+/* ----- the plates ----- */
+
+/* The editor's card, drawn one storey down. The tab strip is the card's
+   first row, and a card whose fill, hairline and shadow start at its own
+   top edge would put all three behind the strip — the transparent band the
+   tabs used to stand in. So the card paints nothing itself and a layer
+   under its content does, starting a strip's height down: fill, hairline,
+   shadow, the corners rounded except the top-left, which the first tab's
+   own corner takes. The active tab overlaps the top hairline by standing on
+   it, which is what lets it flow into the page. With no tabs (the empty
+   pane) the layer fills the whole card. */
+html.subzero .editor-card {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+html.subzero .editor-card::before {
+  content: "";
+  position: absolute;
+  inset: 32px 0 0 0;
+  z-index: -1;
+  background: var(--bg);
+  /* no hairline: the page's tone against the field is edge enough, and a
+     line here was one more thing between a tab and its page */
+  border: none;
+  border-radius: 0 var(--panel-radius) var(--panel-radius) var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+}
+
+/* the terminal the keyboard belongs to: a hairline of ice round it, faint
+   enough to be looked past and enough to answer "where am I typing". The
+   editor gets none — its active tab already says which pane opens land
+   in, and a ring round the page read as a border on it. */
+html.subzero .term-pane.focused {
+  box-shadow:
+    0 0 0 1px rgba(var(--ice), 0.2),
+    var(--panel-shadow);
+}
+
+/* a plain terminal has no card to ring, so the ring is drawn on the same
+   rounded shape the card would have had — the ring alone, no lift */
+html.subzero .term-abs.plain .term-pane.focused {
+  border-radius: var(--panel-radius);
+  box-shadow: 0 0 0 1px rgba(var(--ice), 0.2);
+}
+
+/* The sidebar wears no card at all: no fill, no hairline, no shadow. The
+   tree, the search and the changes stand on the field the way a plain
+   terminal does — the sidebar is the one panel that is nothing but a list,
+   and a list needs no plate under it. The run of icons beside it is the
+   only thing drawn. */
+html.subzero .sidebar {
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* plain terminals keep nothing — the rule in terminals.css outranks these
+   and takes the fill, the hairline and the shadow off together */
+
+/* The lamp on a pane. Working: an amber edge that breathes, four frames a
+   second — a steps() opacity on a compositor layer of its own, the same
+   budget the ring on the tab strip runs at, so a pane streaming output is
+   not also the pane costing the window a repaint per refresh. Done: the
+   same edge held steady and a shade brighter, until you go there. The
+   glow lives on the slot rather than the card, so it reaches into the gap
+   between panes and is not clipped by the card's own overflow. */
+html.subzero .term-abs.agent-working::before,
+html.subzero .term-abs.agent-done::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--float-gap) / 2);
+  z-index: 4;
+  pointer-events: none;
+  border-radius: var(--panel-radius);
+  box-shadow:
+    0 0 0 1px rgba(var(--signal), 0.55),
+    0 0 18px -2px rgba(var(--signal), 0.35),
+    inset 0 0 24px -12px rgba(var(--signal), 0.35);
+}
+
+html.subzero .term-abs.agent-working::before {
+  will-change: opacity;
+  animation: subzero-breathe 2.8s steps(10, end) infinite;
+}
+
+html.subzero .term-abs.agent-done::before {
+  box-shadow:
+    0 0 0 1px rgba(var(--signal), 0.75),
+    0 0 22px -2px rgba(var(--signal), 0.45),
+    inset 0 0 24px -12px rgba(var(--signal), 0.4);
+}
+
+html.subzero .term-abs.plain.agent-working::before,
+html.subzero .term-abs.plain.agent-done::before {
+  border-radius: var(--panel-radius);
+}
+
+@keyframes subzero-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.subzero .term-abs.agent-working::before {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* the handles, lit in ice while in hand */
+html.subzero .pane-grab.live::after,
+html.subzero .term-divider.live::after {
+  box-shadow: 0 0 10px rgba(var(--ice), 0.7);
+}
+
+html.subzero .split-hint::after {
+  box-shadow: 0 0 12px rgba(var(--ice), 0.8);
+}
+
+/* ----- title bar ----- */
+
+/* The project tabs as the default theme has them: centred on the window's
+   axis, bare names told apart by their brightness, nothing drawn behind
+   them. They sat in a capsule at the left for a while, and the capsule was
+   one more box on a bar whose job is to name four projects. */
+
+/* the heartbeat, in amber, with more light than the white one had — the
+   one warm thing in the bar, and it can be seen from across the room */
+html.subzero .agent-ring::after {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 250deg,
+    rgba(var(--signal), 0.5) 330deg,
+    #ffc98f 358deg,
+    transparent 360deg
+  );
+  filter: drop-shadow(0 0 3px rgba(var(--signal), 0.8));
+}
+
+html.subzero .agent-ring.working::before {
+  border-color: rgba(var(--signal), 0.14);
+}
+
+html.subzero .agent-ring.done {
+  border-color: rgb(var(--signal));
+  box-shadow: 0 0 6px 0 rgba(var(--signal), 0.6);
+}
+
+/* the bar's buttons take a soft chip under the pointer, so the cluster
+   reads as controls on a surface rather than marks on nothing */
+html.subzero .titlebar-lock,
+html.subzero .titlebar-add,
+html.subzero .titlebar-gear {
+  border-radius: var(--chip-radius);
+}
+
+html.subzero .titlebar-lock:hover,
+html.subzero .titlebar-add:hover,
+html.subzero .titlebar-gear:hover {
+  background: rgba(205, 228, 255, 0.05);
+}
+
+html.subzero.light .titlebar-lock:hover,
+html.subzero.light .titlebar-add:hover,
+html.subzero.light .titlebar-gear:hover {
+  background: rgba(30, 50, 80, 0.06);
+}
+
+html.subzero .titlebar-lock.on {
+  box-shadow: 0 0 10px rgba(var(--ice), 0.5);
+}
+
+/* ----- sidebar: a rail, not a strip ----- */
+
+/* The four icons down the left, the panel beside them — 32px wide, the
+   same as the strip was tall, so what the tree loses in width it gets
+   back in height. Both are pinned to the sidebar's box absolutely. A flex
+   row and then a grid each let the body take its content's height in
+   WebKit — the sidebar's own height comes out of the slot's flex layout,
+   and neither treats that as definite enough to stretch a child against —
+   so the tree ran on under the terminals instead of scrolling. An absolute
+   box is measured against the laid-out sidebar, whatever the spec calls
+   its height. */
+html.subzero .sidebar {
+  display: block;
+  position: relative;
+}
+
+html.subzero .sidebar-tabs {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: 32px;
+  height: auto;
+  gap: 0;
+  /* 4px down, so the first icon sits on the file tabs' centre line across
+     the split — the tabs stand 4px into their 32px strip */
+  padding: 4px 0 0 4px;
+  border-bottom: none;
+  border-right: none;
+  background: transparent;
+}
+
+/* bare icons in a column, nothing drawn behind them at rest: a chip comes
+   up under the pointer, and the active one is said by its colour alone —
+   ice, the way the file tabs say it by brightness. The fold chevron below
+   them works the same way. */
+html.subzero .sidebar-tab {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  border-radius: var(--chip-radius);
+  background: transparent;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+html.subzero .sidebar-tab svg,
+html.subzero .sidebar-fold svg {
+  width: 15px;
+  height: 15px;
+}
+
+html.subzero .sidebar-tab:hover {
+  background: var(--bg-raised);
+}
+
+html.subzero .sidebar-tab.active {
+  color: var(--accent);
+}
+
+html.subzero .sidebar-tab.active::after {
+  display: none;
+}
+
+html.subzero .sidebar-fold {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 6px 0 0;
+  border-radius: var(--chip-radius);
+  background: transparent;
+  transition: color 0.12s ease;
+}
+
+html.subzero .sidebar-fold:hover {
+  background: var(--bg-raised);
+}
+
+html.subzero .sidebar-body {
+  position: absolute;
+  inset: 0 0 0 32px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Folded: the run alone, and nothing about it moves — the same padding
+   and size as unfolded, restated here because sidebar.css's own folded
+   rules outrank the theme's by a class and would otherwise resize it. */
+html.subzero .sidebar.collapsed .sidebar-tabs {
+  padding: 4px 0 0 4px;
+}
+
+html.subzero .sidebar.collapsed .sidebar-tab,
+html.subzero .sidebar.collapsed .sidebar-fold {
+  width: 28px;
+  height: 28px;
+}
+
+/* the memo panel's floor loses its hairline: it was the one thing saying
+   "pinned" against a card, and there is no card here for it to be pinned
+   to */
+html.subzero .memo-foot {
+  border-top: none;
+}
+
+/* the row ⌘E sent you to: a wash of ice, and a bar of it down the left
+   edge, in place of Dark Modern's blue */
+html.subzero .tree-item.selected {
+  background: rgba(var(--ice), 0.13);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+html.subzero .tree-item.selected:hover {
+  background: rgba(var(--ice), 0.19);
+}
+
+/* ----- editor ----- */
+
+/* File tabs on the window, the card below them — the strip's shape before
+   it moved inside the card (see git: "Panels that lie on the window"). The
+   strip is a row of the field with nothing painted on it but the tabs: a
+   run in the panel tone, a hairline parting each from the next, rounded at
+   its two top corners and square along the bottom, standing on the card.
+   The tab you are on wears the page's tone and meets the page with nothing
+   between them. The card itself is drawn as a layer under the
+   strip (see .editor-card::before) that starts at the strip's last pixel,
+   so the strip really is window and not a transparent band of card. */
+html.subzero .editor-tabs {
+  align-items: flex-end;
+  height: 32px;
+  gap: 0;
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+}
+
+html.subzero .editor-tab {
+  height: 28px;
+  border-radius: 0;
+  border-left: 1px solid transparent;
+  background: var(--bg-panel);
+  transition: color 0.12s ease;
+}
+
+html.subzero .editor-tab + .editor-tab {
+  border-left-color: var(--border);
+}
+
+html.subzero .editor-tab:first-child {
+  border-top-left-radius: var(--panel-radius);
+}
+
+html.subzero .editor-tab:last-child {
+  border-top-right-radius: var(--panel-radius);
+}
+
+html.subzero .editor-tab:hover {
+  background: var(--bg-raised);
+}
+
+/* the page's tone, flush into the page; the hairlines either side of it
+   are repainted rather than removed, so no tab changes width as you switch */
+html.subzero .editor-tab.active,
+html.subzero .editor-tab.active:hover {
+  background: var(--bg);
+  border-left-color: var(--bg);
+}
+
+html.subzero .editor-tab.active + .editor-tab {
+  border-left-color: var(--bg-panel);
+}
+
+/* in a pane that isn't focused the active tab keeps its place on the page
+   and loses the light, the way the default theme's mark went faint */
+html.subzero .editor-pane:not(.focused) .editor-tab.active {
+  color: var(--text-dim);
+}
+
+html.subzero .editor-tab.active::after {
+  display: none;
+}
+
+/* the carried tab is lifted off the run: raised tone, its own corners */
+html.subzero .editor-tab.dragging {
+  background: var(--bg-raised);
+  border-radius: var(--chip-radius);
+}
+
+/* The page is the card, and only the card. The syntax theme paints an
+   opaque background of its own under the code — Dark Modern's grey — and
+   the strip and breadcrumb above it showed the card's colder tone, so the
+   top of every editor was a band of a different colour with the tabs
+   standing in it. Blanked here the way glass.css blanks it, so the code
+   sits on the same page the tabs stand on. The breadcrumb likewise: it
+   painted the page's token, which under glass is a second scrim. */
+html.subzero .cm-editor,
+html.subzero .cm-gutters {
+  background: transparent !important;
+}
+
+html.subzero .editor-path {
+  background: transparent;
+}
+
+/* the breadcrumb as a readout: small, mono, spaced, upper-case — the line
+   of instrument text a plate like this would carry */
+html.subzero .editor-path {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* the change bars, in the same three meanings at subzero's chroma */
+html.subzero .cm-host .cm-change-add,
+html.subzero .cm-host > .cm-changeRuler .cm-change-add {
+  background: #6f9a45;
+}
+
+html.subzero .cm-host .cm-change-mod,
+html.subzero .cm-host > .cm-changeRuler .cm-change-mod {
+  background: #5a8fb0;
+}
+
+html.subzero .cm-host .cm-changeGutter .cm-change-del::before,
+html.subzero .cm-host .cm-changeTick.cm-change-del,
+html.subzero .cm-host > .cm-changeRuler .cm-change-del {
+  background: #c2453c;
+}
+
+/* the empty page: the wordmark in the serif, at the size a title is set,
+   with a little cold light on it. This is the page you see between files,
+   and here it is allowed to be beautiful. */
+html.subzero .editor-empty-hint {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 30px;
+  letter-spacing: 0.02em;
+  margin-left: 0;
+  opacity: 0.6;
+  text-shadow: 0 0 24px rgba(var(--ice), 0.3);
+}
+
+html.subzero .editor-empty-version {
+  margin-top: 6px;
+  letter-spacing: 0.22em;
+}
+
+html.subzero .editor-empty-keys {
+  margin-top: 34px;
+}
+
+/* the pane's ✕ reddens in the theme's red, not Dark Modern's */
+html.subzero .pane-actions .pane-close:hover {
+  color: var(--red);
+}
+
+/* the image stage's checkerboard, in the field's tone */
+html.subzero .image-stage {
+  background-color: #0c0e14;
+  background-image:
+    linear-gradient(45deg, #14171f 25%, transparent 25%, transparent 75%, #14171f 75%),
+    linear-gradient(45deg, #14171f 25%, transparent 25%, transparent 75%, #14171f 75%);
+}
+
+html.subzero.light .image-stage {
+  background-color: #eef1f5;
+  background-image:
+    linear-gradient(45deg, #e0e5ec 25%, transparent 25%, transparent 75%, #e0e5ec 75%),
+    linear-gradient(45deg, #e0e5ec 25%, transparent 25%, transparent 75%, #e0e5ec 75%);
+}
+
+/* ----- search, quick open ----- */
+
+html.subzero .search-opt.on {
+  background: var(--bg-raised);
+}
+
+html.subzero .search-opt:disabled {
+  color: var(--border);
+}
+
+html.subzero .quick-hit {
+  color: var(--accent);
+}
+
+html.subzero .quick-item.on {
+  background: rgba(var(--ice), 0.12);
+}
+
+/* ----- launcher ----- */
+
+/* the one screen with room for an introduction: the mark lit in ice, the
+   name in the serif, the version in the mono it always wore. Everything
+   else on it stays — it is a list of projects, and a list is a list. */
+html.subzero .launcher {
+  background: transparent;
+}
+
+html.subzero .launcher-mark {
+  background: var(--accent);
+  filter: drop-shadow(0 0 14px rgba(var(--ice), 0.55));
+}
+
+html.subzero .launcher-logo {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 40px;
+  letter-spacing: 0.02em;
+  margin-left: 0;
+  color: var(--text);
+}
+
+html.subzero .launcher-version {
+  margin-top: -14px;
+  letter-spacing: 0.22em;
+}
+
+html.subzero .launcher-item,
+html.subzero .launcher-open {
+  border-radius: var(--chip-radius);
+}
+
+/* ----- the overlays ----- */
+
+/* Frosted, glass or no glass. These float over the app's own content, and
+   backdrop-filter is the DOM's glass: what is under the box blurs through
+   it, so a dialog reads as a plate of the same material lifted off the
+   others. Cheap, because it only exists while a dialog is up. */
+html.subzero .settings-box,
+html.subzero .quick-box,
+html.subzero .prompt-box,
+html.subzero .whats-new-box {
+  border-radius: var(--chip-radius);
+  border-color: var(--panel-border);
+  background: rgba(14, 16, 22, 0.82);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.85);
+}
+
+html.subzero.light .settings-box,
+html.subzero.light .quick-box,
+html.subzero.light .prompt-box,
+html.subzero.light .whats-new-box {
+  background: rgba(244, 246, 249, 0.86);
+  box-shadow: 0 24px 64px -12px rgba(30, 50, 80, 0.35);
+}
+
+html.subzero .settings-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 15px;
+}
+
+/* the backdrop under every overlay, darkened to the field */
+html.subzero .quick-backdrop {
+  background: rgba(3, 4, 8, 0.5);
+}
+
+html.subzero.light .quick-backdrop {
+  background: rgba(30, 50, 80, 0.18);
+}
+
+/* ----- kbd ----- */
+
+html.subzero kbd {
+  border-radius: var(--chip-radius);
+  background: rgba(205, 228, 255, 0.04);
+}
+
+html.subzero.light kbd {
+  background: rgba(30, 50, 80, 0.04);
+}

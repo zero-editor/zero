@@ -51,6 +51,20 @@ const ICONS: Record<SidebarTab, ReactElement> = {
   ),
 };
 
+// a chevron pointing at the edge the panel folds towards, drawn on the
+// same grid as the tabs so the two read as one run
+const FOLD = (
+  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
+    <path d="M9.5 4 5.5 8l4 4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const UNFOLD = (
+  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
+    <path d="M6.5 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 const TABS: { id: SidebarTab; title: string }[] = [
   { id: "files", title: "files (⌘⇧E)" },
   { id: "search", title: "search (⌘⇧F)" },
@@ -70,6 +84,9 @@ export function Sidebar({
   activeKey,
   reveal,
   onRevealInTree,
+  collapsed,
+  onCollapse,
+  onExpand,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -88,6 +105,11 @@ export function Sidebar({
   /** walk the file tree open to a path and light its row — ⌘E's other half,
    *  offered as a menu item by the panels that name files they didn't find */
   onRevealInTree: (abs: string) => void;
+  /** folded to its run of icons — the body is gone, the run stays, and
+   *  picking an icon or the chevron unfolds it (Workspace holds the width) */
+  collapsed: boolean;
+  onCollapse: () => void;
+  onExpand: () => void;
 }) {
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
@@ -102,7 +124,7 @@ export function Sidebar({
         : "";
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-tabs">
         {TABS.map((t) => (
           <button
@@ -115,8 +137,22 @@ export function Sidebar({
             {t.id === "memos" && dot && <span className={`memo-tab-dot ${dot}`} />}
           </button>
         ))}
+        {collapsed ? (
+          <button className="sidebar-fold" title="expand sidebar (⌘B)" onClick={onExpand}>
+            {UNFOLD}
+          </button>
+        ) : (
+          <button className="sidebar-fold" title="collapse sidebar" onClick={onCollapse}>
+            {FOLD}
+          </button>
+        )}
       </div>
-      <div className="sidebar-body">
+      {/* The tree stays mounted behind the other panels and through a fold,
+          hidden rather than gone: its open folders and scroll position are
+          state it holds itself, and unmounting it on every tab switch threw
+          them away. The others are cheap to rebuild and are built on demand
+          as before. */}
+      <div className="sidebar-body" hidden={collapsed}>
         {tab === "scm" && (
           <WorktreePanel
             project={project}
@@ -126,14 +162,14 @@ export function Sidebar({
             activeKey={activeKey}
           />
         )}
-        {tab === "files" && (
+        <div hidden={tab !== "files"}>
           <FileTree
             root={project.root}
-            active={active}
+            active={active && tab === "files" && !collapsed}
             reveal={reveal}
             onOpenView={onOpenView}
           />
-        )}
+        </div>
         {tab === "search" && (
           <SearchPanel
             root={project.root}
@@ -154,3 +190,4 @@ export function Sidebar({
     </div>
   );
 }
+

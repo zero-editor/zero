@@ -30,14 +30,26 @@
 }
 
 .editor-pane.empty {
+  position: relative;
   align-items: center;
   justify-content: center;
 }
 
 /* Everything on the empty screen centres on the mark's axis — before the
    shortcut table arrived the widest child was the word itself and the
-   centring came free; now it has to be said. */
+   centring came free; now it has to be said.
+   The axis is the window's, not the pane's. With the sidebar open the pane
+   starts a third of the way across, and a mark centred in it sat right of
+   the window's middle, then jumped left when the sidebar folded. The slot
+   says where it stands (--px, --pw, from Workspace's paneStyle) and the
+   window's middle in the pane's own terms is (50 - x) / w of its width;
+   clamped so a pane that doesn't contain the middle — the editor split to
+   one side — centres the mark in itself instead of pushing it off. */
 .editor-empty {
+  position: absolute;
+  top: 50%;
+  left: clamp(170px, calc((50 - var(--px, 0)) / var(--pw, 100) * 100%), calc(100% - 170px));
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;

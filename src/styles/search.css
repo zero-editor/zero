@@ -14,13 +14,19 @@
   display: flex;
   align-items: flex-start;
   gap: 2px;
-  padding: 8px 6px 4px 2px;
+  /* 8px on the left like every panel's first column — the tree's chevron,
+     the changes header's — so switching tabs moves nothing on that edge */
+  padding: 6px 6px 4px 8px;
 }
 
+/* the chevron's own width, so it stands at the panel's 8px like the
+   tree's and the changes header's rather than centred two pixels in */
 .search-expand {
   flex: none;
-  width: 16px;
-  height: 25px;
+  width: 12px;
+  /* 24, not the field's 25: centres the chevron at 18px from the panel's
+     top, where the tree's and the changes header's sit */
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -141,7 +147,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 2px 24px 4px 20px;
+  padding: 2px 24px 4px 22px;
 }
 
 .search-input.filter {
@@ -157,7 +163,7 @@
 
 .search-summary {
   flex: none;
-  padding: 5px 10px 3px 20px;
+  padding: 5px 10px 3px 22px;
   font-size: 11px;
   color: var(--text-faint);
 }
@@ -179,7 +185,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px 2px 4px;
+  padding: 2px 8px 2px 8px;
   cursor: pointer;
 }
 
@@ -230,7 +236,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 1px 4px 1px 21px;
+  padding: 1px 4px 1px 25px;
   text-align: left;
   overflow: hidden;
 }
@@ -287,7 +293,7 @@
 }
 
 .search-row-more {
-  padding: 2px 8px 4px 33px;
+  padding: 2px 8px 4px 37px;
   font-size: 10.5px;
   color: var(--text-faint);
 }
