@@ -71,11 +71,35 @@ interface GhRelease {
  * be reached or answered strangely; the caller decides what silence looks
  * like. One page of 100 covers years of this project's releases, and a jump
  * long enough to fall off it is a reinstall, not an update.
+ *
+ * Answered once per jump: the fetch starts the moment an update is staged
+ * (see [`prefetchReleaseNotes`]) and the dialog, opened any time after,
+ * reads the same promise instead of watching a spinner for a round trip to
+ * GitHub. A failed fetch is forgotten rather than kept, so the next ask
+ * tries again — an offline moment at staging time shouldn't blank the
+ * dialog for the days the update might sit there.
  */
-export async function releaseNotesBetween(
-  from: string,
-  to: string,
-): Promise<ReleaseNote[] | null> {
+export function releaseNotesBetween(from: string, to: string): Promise<ReleaseNote[] | null> {
+  const key = `${from}\u0000${to}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const p = fetchBetween(from, to).then((got) => {
+    if (got === null) cache.delete(key);
+    return got;
+  });
+  cache.set(key, p);
+  return p;
+}
+
+/** start fetching now, for a dialog that may open later; the result is
+ *  whatever [`releaseNotesBetween`] would answer with */
+export function prefetchReleaseNotes(from: string, to: string): void {
+  void releaseNotesBetween(from, to);
+}
+
+const cache = new Map<string, Promise<ReleaseNote[] | null>>();
+
+async function fetchBetween(from: string, to: string): Promise<ReleaseNote[] | null> {
   try {
     const res = await fetch(
       "https://api.github.com/repos/zero-editor/zero/releases?per_page=100",

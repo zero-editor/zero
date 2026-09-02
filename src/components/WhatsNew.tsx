@@ -9,9 +9,10 @@ import { releaseNotesBetween, type ReleaseNote } from "../lib/releaseNotes";
  * lives in the footer — the pill used to restart on the spot, and this is
  * that same single decision with the reasons above it.
  *
- * The notes are fetched when the dialog opens rather than when the update
- * stages: the update can sit staged for days, and a list read at the moment
- * it is looked at is never stale. GitHub not answering is worth one quiet
+ * The notes were fetched when the update staged (update.ts asks for them
+ * the moment the bundle is on disk), so this normally opens on them; the
+ * "fetching" line is for a dialog that beat the fetch or a fetch that
+ * failed and is being retried. GitHub not answering is worth one quiet
  * line, not a broken dialog — the update itself is already here, and the
  * restart works the same with nothing above it.
  */

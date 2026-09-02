@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { prefetchReleaseNotes } from "./releaseNotes";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
@@ -115,6 +116,9 @@ export function useUpdate(): UpdateState {
           // the restart isn't
           await found.downloadAndInstall();
           staged.current = found;
+          // the notes the pill will show, fetched now so clicking it later
+          // opens on them rather than on a round trip to GitHub
+          prefetchReleaseNotes(__APP_VERSION__, found.version);
           if (live.current) setReady(found.version);
           return "downloaded";
         } catch {
