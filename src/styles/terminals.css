@@ -22,21 +22,23 @@
 /* The two bottom corners of a terminal, said once for every shape drawn
    on it — the card, the drop overlay, the theme's lamp and focus ring. The
    theme's radius everywhere but in the window's two bottom corners, where
-   the pane standing there (Terminals tags it) wears the window's own arc,
-   concentric with it: the window's radius less the gap the card stands off
-   the edge by. The top corners never do this — the title bar sits between
-   them and the window's. */
+   the pane standing there (Terminals tags it) wears the window's own
+   radius. Not the concentric one — the window's less the gap — which is
+   what the geometry says and came out at 6px under subzero, a corner too
+   small to read as the window's at all. The same number as the window's
+   is what looks like the window's. The top corners never do this — the
+   title bar sits between them and the window's. */
 .term-abs {
   --radius-bl: var(--panel-radius);
   --radius-br: var(--panel-radius);
 }
 
 .term-abs.corner-bl {
-  --radius-bl: calc(var(--window-radius) - var(--float-gap));
+  --radius-bl: var(--window-radius);
 }
 
 .term-abs.corner-br {
-  --radius-br: calc(var(--window-radius) - var(--float-gap));
+  --radius-br: var(--window-radius);
 }
 
 /* The pill a pane is carried by, floated at the top centre of its card — the
