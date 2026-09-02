@@ -1040,9 +1040,9 @@ export const Workspace = memo(function Workspace({
     if (Math.abs(tx) < 0.01 && Math.abs(ty) < 0.01) return undefined;
     return `translate(${tx}%, ${ty}%)`;
   };
-  // `--px` / `--pw` are the slot's x and width as bare numbers, for the one
-  // thing inside a pane that wants to know where the window's axis is: the
-  // empty editor's mark (see .editor-empty in main-column.css)
+  // `--px` … `--ph` are the slot's rect as bare numbers, for the one thing
+  // inside a pane that places itself against the window rather than the
+  // pane: the empty editor's mark (see .editor-empty in main-column.css)
   const paneStyle = (rect: Rect | null, shift?: string): React.CSSProperties =>
     rect
       ? ({
@@ -1052,7 +1052,9 @@ export const Workspace = memo(function Workspace({
           height: `${rect.h}%`,
           transform: shift,
           "--px": rect.x,
+          "--py": rect.y,
           "--pw": rect.w,
+          "--ph": rect.h,
         } as React.CSSProperties)
       : { display: "none" };
   // stable order, never tree order: re-seating a pane must not reorder the

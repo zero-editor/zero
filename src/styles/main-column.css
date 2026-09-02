@@ -40,15 +40,19 @@
    centring came free; now it has to be said.
    The axis is the window's, not the pane's. With the sidebar open the pane
    starts a third of the way across, and a mark centred in it sat right of
-   the window's middle, then jumped left when the sidebar folded. The slot
-   says where it stands (--px, --pw, from Workspace's paneStyle) and the
-   window's middle in the pane's own terms is (50 - x) / w of its width;
-   clamped so a pane that doesn't contain the middle — the editor split to
-   one side — centres the mark in itself instead of pushing it off. */
+   the window's middle, then moved when the sidebar folded. So the mark is
+   placed against the workspace instead: `fixed` here means the workspace,
+   whose transform makes it the containing block, and the workspace does
+   not move when a pane does — the mark holds still through a fold rather
+   than gliding after the pane. Its height is still the pane's, read from
+   the slot's rect (--py, --ph, from Workspace's paneStyle, as percentages
+   of the same workspace); and the left is clamped into the pane, so an
+   editor split to one side that doesn't contain the window's middle keeps
+   the mark inside itself instead of over its neighbour. */
 .editor-empty {
-  position: absolute;
-  top: 50%;
-  left: clamp(170px, calc((50 - var(--px, 0)) / var(--pw, 100) * 100%), calc(100% - 170px));
+  position: fixed;
+  top: calc(var(--py, 0) * 1% + var(--ph, 100) * 0.5%);
+  left: clamp(calc(var(--px, 0) * 1% + 170px), 50%, calc((var(--px, 0) + var(--pw, 100)) * 1% - 170px));
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;

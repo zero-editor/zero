@@ -51,27 +51,7 @@
     top 160ms cubic-bezier(0.2, 0, 0, 1),
     width 160ms cubic-bezier(0.2, 0, 0, 1),
     height 160ms cubic-bezier(0.2, 0, 0, 1),
-    transform 160ms cubic-bezier(0.2, 0, 0, 1),
-    --px 160ms cubic-bezier(0.2, 0, 0, 1),
-    --pw 160ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-/* The slot's position as numbers, for what's inside it to place itself
-   against the window (the empty editor's mark). Registered so they can be
-   transitioned: an unregistered custom property flips in one step, and the
-   mark computed from it snapped to its final seat while the slot was still
-   gliding to its own. Eased on the slot's own curve, the two arrive
-   together. */
-@property --px {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-
-@property --pw {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 100;
+    transform 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 body.dragging-col .pane-abs,
