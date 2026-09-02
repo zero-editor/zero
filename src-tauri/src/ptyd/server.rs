@@ -362,6 +362,9 @@ struct Sessions(Mutex<HashMap<String, PtySession>>);
 
 #[derive(Serialize)]
 pub struct AgentStat {
+    /// the session's own id — the one the pane spawned it under — so a pane
+    /// can find its row, not only a project its total
+    pub id: String,
     pub cwd: String,
     /// a `claude` or `codex` process is running under this shell
     pub running: bool,
@@ -433,8 +436,8 @@ fn status(sessions: &Sessions) -> Vec<AgentStat> {
         .0
         .lock()
         .unwrap()
-        .values()
-        .map(|s| {
+        .iter()
+        .map(|(id, s)| {
             let last = s.last_output.load(Ordering::Relaxed);
             let (claude, codex) = s
                 .shell_pid
@@ -447,6 +450,7 @@ fn status(sessions: &Sessions) -> Vec<AgentStat> {
                 s.claude_title.store(TITLE_UNKNOWN, Ordering::Relaxed);
             }
             AgentStat {
+                id: id.clone(),
                 cwd: s.cwd.clone(),
                 running,
                 codex,

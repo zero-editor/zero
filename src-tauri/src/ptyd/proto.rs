@@ -35,7 +35,7 @@ use std::io::{self, Read, Write};
 /// with a dozen shells open is forever. Whether the two ends can still talk is
 /// not the question; whether the old one is still the right one to be holding
 /// the shells is. When it isn't, this is the only lever that moves them.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
 // ── app → daemon ─────────────────────────────────────────────────────────────
 

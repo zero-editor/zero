@@ -51,6 +51,9 @@ export interface OpenTarget {
 }
 
 export interface AgentStat {
+  /** the pty id the pane spawned it under. Missing from a daemon older
+      than the field, which the app goes on joining across an update. */
+  id?: string;
   cwd: string;
   running: boolean;
   /** a Codex process is present; unlike Claude it has no title state */

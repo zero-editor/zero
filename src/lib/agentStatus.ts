@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import type { AgentStat } from "./api";
 
 export interface ProjectAgents {
   /** agent sessions that are still printing, i.e. mid-task */
@@ -48,30 +49,59 @@ const sameStatus = (a: Record<string, ProjectAgents>, b: Record<string, ProjectA
   );
 };
 
+/** whether one row reads as mid-task: Claude's own title when it has set
+ *  one, the output-activity guess otherwise. Codex does not set Claude's OSC
+ *  title, so even if a previous Claude run left one behind a Codex pane is
+ *  classified from Codex's output. */
+const isWorking = (s: AgentStat) => {
+  const active = s.quiet_ms < QUIET_MS && s.burst_ms >= MIN_BURST_MS;
+  return s.codex ? active : (s.title_working ?? active);
+};
+
+// One poll for everyone who reads it. Each poll is a `ps` sweep in the
+// daemon, so two readers — the tab strip and the panes — share the interval
+// rather than each running their own; it runs while anyone is subscribed.
+type Listener = (stats: AgentStat[]) => void;
+const listeners = new Set<Listener>();
+let timer: number | null = null;
+
+const poll = async () => {
+  const stats = await api.agentStatus().catch(() => []);
+  for (const fn of listeners) fn(stats);
+};
+
+function subscribe(fn: Listener) {
+  listeners.add(fn);
+  if (listeners.size === 1) {
+    poll();
+    timer = window.setInterval(poll, 1000);
+  }
+  return () => {
+    listeners.delete(fn);
+    if (listeners.size === 0 && timer !== null) {
+      window.clearInterval(timer);
+      timer = null;
+    }
+  };
+}
+
 export function useAgentStatus(roots: string[]): Record<string, ProjectAgents> {
   const [byRoot, setByRoot] = useState<Record<string, ProjectAgents>>({});
   const key = roots.join("\0");
 
   useEffect(() => {
-    let stop = false;
     // the latch: per project, the last reading that said working and when it
     // landed. Local to the effect, so a change to the project list starts
     // everyone clean rather than holding a reading on behalf of a project that
     // has moved.
     const held: Record<string, { at: number; stat: ProjectAgents }> = {};
-    const poll = async () => {
-      const stats = await api.agentStatus().catch(() => []);
-      if (stop) return;
+    return subscribe((stats) => {
       const next: Record<string, ProjectAgents> = {};
       for (const root of key ? key.split("\0") : []) next[root] = { working: 0, done: 0 };
       for (const s of stats) {
         const slot = next[s.cwd];
         if (!slot || !s.running) continue;
-        // Codex does not set Claude's OSC title, so even if a previous Claude
-        // run left one behind this pane is classified from Codex's output.
-        const active = s.quiet_ms < QUIET_MS && s.burst_ms >= MIN_BURST_MS;
-        if (s.codex ? active : (s.title_working ?? active))
-          slot.working++;
+        if (isWorking(s)) slot.working++;
         else slot.done++;
       }
       const now = Date.now();
@@ -88,14 +118,42 @@ export function useAgentStatus(roots: string[]): Record<string, ProjectAgents> {
       // object was a re-render of the whole tab strip — plus the seen-badge
       // effect hanging off it — for a second in which nothing had changed.
       setByRoot((prev) => (sameStatus(prev, next) ? prev : next));
-    };
-    poll();
-    const iv = window.setInterval(poll, 1000);
-    return () => {
-      stop = true;
-      window.clearInterval(iv);
-    };
+    });
   }, [key]);
 
   return byRoot;
+}
+
+export type PaneAgent = "working" | "done";
+
+const samePanes = (a: Record<string, PaneAgent>, b: Record<string, PaneAgent>) => {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
+};
+
+/** The Codex panes, by pty id, each read the way the strip reads them — the
+ *  activity guess, held through the gaps the same way. Claude panes are not
+ *  here: they say what they are doing in their own title, which xterm hands
+ *  each pane directly (see Terminals), and that is both sooner and steadier
+ *  than a poll. Codex has no title to read, so the poll is all there is. A
+ *  daemon from before the rows carried ids reports nothing here. */
+export function useCodexPanes(): Record<string, PaneAgent> {
+  const [panes, setPanes] = useState<Record<string, PaneAgent>>({});
+  useEffect(() => {
+    // when each pane last read as working — the latch
+    const held: Record<string, number> = {};
+    return subscribe((stats) => {
+      const now = Date.now();
+      const next: Record<string, PaneAgent> = {};
+      for (const s of stats) {
+        if (!s.id || !s.codex || !s.running) continue;
+        if (isWorking(s)) held[s.id] = now;
+        else if (!(held[s.id] && now - held[s.id] < WORKING_HOLD_MS)) delete held[s.id];
+        next[s.id] = held[s.id] ? "working" : "done";
+      }
+      for (const id of Object.keys(held)) if (!next[id]) delete held[id];
+      setPanes((prev) => (samePanes(prev, next) ? prev : next));
+    });
+  }, []);
+  return panes;
 }

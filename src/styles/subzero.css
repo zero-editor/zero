@@ -74,6 +74,10 @@ html.subzero {
   /* the two hues as triplets, for the places that need them with alpha */
   --ice: 142, 208, 255;
   --signal: 240, 164, 94;
+  /* Codex's lamp: OpenAI's green, lifted to carry on the dark field the way
+     the amber is. A pane says which agent it holds by its colour before
+     you have read a line of it. */
+  --signal-codex: 60, 210, 160;
 }
 
 /* Snow. The same window in daylight — white plates on pale ice-grey, ice
@@ -97,6 +101,7 @@ html.subzero.light {
   --panel-shadow: 0 18px 40px -16px rgba(30, 50, 80, 0.28), 0 2px 8px -2px rgba(30, 50, 80, 0.1);
   --ice: 47, 127, 193;
   --signal: 200, 118, 31;
+  --signal-codex: 18, 145, 105;
 }
 
 /* Under glass the scrim keeps the tone: the default theme's alphas, in
@@ -203,7 +208,7 @@ html.subzero .term-pane.focused {
 /* a plain terminal has no card to ring, so the ring is drawn on the same
    rounded shape the card would have had — the ring alone, no lift */
 html.subzero .term-abs.plain .term-pane.focused {
-  border-radius: var(--panel-radius);
+  border-radius: var(--panel-radius) var(--panel-radius) var(--radius-br) var(--radius-bl);
   box-shadow: 0 0 0 1px rgba(var(--ice), 0.2);
 }
 
@@ -222,13 +227,22 @@ html.subzero .sidebar {
 /* plain terminals keep nothing — the rule in terminals.css outranks these
    and takes the fill, the hairline and the shadow off together */
 
-/* The lamp on a pane. Working: an amber edge that breathes, four frames a
+/* The lamp on a pane. Working: an edge that breathes, four frames a
    second — a steps() opacity on a compositor layer of its own, the same
    budget the ring on the tab strip runs at, so a pane streaming output is
    not also the pane costing the window a repaint per refresh. Done: the
    same edge held steady and a shade brighter, until you go there. The
    glow lives on the slot rather than the card, so it reaches into the gap
-   between panes and is not clipped by the card's own overflow. */
+   between panes and is not clipped by the card's own overflow. Amber for
+   Claude, green for Codex (Terminals says which); one lamp, two colours. */
+html.subzero .term-abs {
+  --lamp: var(--signal);
+}
+
+html.subzero .term-abs.agent-codex {
+  --lamp: var(--signal-codex);
+}
+
 html.subzero .term-abs.agent-working::before,
 html.subzero .term-abs.agent-done::before {
   content: "";
@@ -236,11 +250,11 @@ html.subzero .term-abs.agent-done::before {
   inset: calc(var(--float-gap) / 2);
   z-index: 4;
   pointer-events: none;
-  border-radius: var(--panel-radius);
+  border-radius: var(--panel-radius) var(--panel-radius) var(--radius-br) var(--radius-bl);
   box-shadow:
-    0 0 0 1px rgba(var(--signal), 0.55),
-    0 0 18px -2px rgba(var(--signal), 0.35),
-    inset 0 0 24px -12px rgba(var(--signal), 0.35);
+    0 0 0 1px rgba(var(--lamp), 0.55),
+    0 0 18px -2px rgba(var(--lamp), 0.35),
+    inset 0 0 24px -12px rgba(var(--lamp), 0.35);
 }
 
 html.subzero .term-abs.agent-working::before {
@@ -250,14 +264,9 @@ html.subzero .term-abs.agent-working::before {
 
 html.subzero .term-abs.agent-done::before {
   box-shadow:
-    0 0 0 1px rgba(var(--signal), 0.75),
-    0 0 22px -2px rgba(var(--signal), 0.45),
-    inset 0 0 24px -12px rgba(var(--signal), 0.4);
-}
-
-html.subzero .term-abs.plain.agent-working::before,
-html.subzero .term-abs.plain.agent-done::before {
-  border-radius: var(--panel-radius);
+    0 0 0 1px rgba(var(--lamp), 0.75),
+    0 0 22px -2px rgba(var(--lamp), 0.45),
+    inset 0 0 24px -12px rgba(var(--lamp), 0.4);
 }
 
 @keyframes subzero-breathe {

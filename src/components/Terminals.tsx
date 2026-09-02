@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
 import { getSettings, onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
+import { useCodexPanes } from "../lib/agentStatus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
 import { pathLinkProvider, pathTextAt, resolveOne } from "../lib/termLinks";
@@ -178,7 +179,7 @@ export function TerminalPanes({
   // shows only on a pane you are not in. Nothing here is drawn in the
   // default theme; styles/subzero.css is what wears it.
   const [agent, setAgent] = useState<Record<string, "working" | "done" | "seen">>({});
-  const onAgent = useCallback((id: string, state: "working" | "done" | null) => {
+  const setState = useCallback((id: string, state: "working" | "done" | null) => {
     setAgent((prev) => {
       const next = { ...prev };
       if (!state) delete next[id];
@@ -186,6 +187,27 @@ export function TerminalPanes({
       return next;
     });
   }, []);
+  // Codex panes come from the daemon's poll instead, since Codex never
+  // retitles (see useCodexPanes). While a pane is Codex's the title says
+  // nothing about it — a subcommand retitling the terminal would otherwise
+  // put the lamp out mid-turn — so the title path is gated on that, and
+  // only a change of reading is written, so a pane you have read stays
+  // read through every poll that repeats "done".
+  const codex = useCodexPanes();
+  const codexRef = useRef(codex);
+  const onAgent = useCallback(
+    (id: string, state: "working" | "done" | null) => {
+      if (codexRef.current[id]) return;
+      setState(id, state);
+    },
+    [setState]
+  );
+  useEffect(() => {
+    const prev = codexRef.current;
+    codexRef.current = codex;
+    for (const id of Object.keys(prev)) if (!codex[id]) setState(id, null);
+    for (const [id, state] of Object.entries(codex)) if (prev[id] !== state) setState(id, state);
+  }, [codex, setState]);
   useEffect(() => {
     const id = tree.focusedId;
     if (id && agent[id] === "done") setAgent((prev) => ({ ...prev, [id]: "seen" }));
@@ -226,7 +248,16 @@ export function TerminalPanes({
           key={id}
           className={`pane-abs term-abs ${termStyle === "plain" ? "plain" : ""} ${
             draggingId === id ? "moving" : ""
-          } ${agent[id] === "working" ? "agent-working" : agent[id] === "done" ? "agent-done" : ""}`}
+          } ${agent[id] === "working" ? "agent-working" : agent[id] === "done" ? "agent-done" : ""} ${
+            codex[id] ? "agent-codex" : ""
+          } ${
+            // the panes standing in the window's two bottom corners wear
+            // its corner there (see .term-abs.corner-bl in terminals.css).
+            // Percent arithmetic, so near enough is equal.
+            rect && rect.y + rect.h > 99.9
+              ? `${rect.x < 0.1 ? "corner-bl" : ""} ${rect.x + rect.w > 99.9 ? "corner-br" : ""}`
+              : ""
+          }`}
           data-pane-id={id}
           // how a dropped file finds the pty it was dropped on
           data-term-id={id}

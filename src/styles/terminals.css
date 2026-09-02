@@ -15,8 +15,28 @@
   z-index: 3;
   pointer-events: none;
   border: 1px solid var(--text-faint);
-  border-radius: var(--panel-radius);
+  border-radius: var(--panel-radius) var(--panel-radius) var(--radius-br) var(--radius-bl);
   background: rgb(255 255 255 / 4%);
+}
+
+/* The two bottom corners of a terminal, said once for every shape drawn
+   on it — the card, the drop overlay, the theme's lamp and focus ring. The
+   theme's radius everywhere but in the window's two bottom corners, where
+   the pane standing there (Terminals tags it) wears the window's own arc,
+   concentric with it: the window's radius less the gap the card stands off
+   the edge by. The top corners never do this — the title bar sits between
+   them and the window's. */
+.term-abs {
+  --radius-bl: var(--panel-radius);
+  --radius-br: var(--panel-radius);
+}
+
+.term-abs.corner-bl {
+  --radius-bl: calc(var(--window-radius) - var(--float-gap));
+}
+
+.term-abs.corner-br {
+  --radius-br: calc(var(--window-radius) - var(--float-gap));
 }
 
 /* The pill a pane is carried by, floated at the top centre of its card — the
@@ -229,8 +249,10 @@
   padding: 6px 6px 6px 12px;
   display: flex;
   /* the card itself: fill behind the text, and the clip that makes the
-     radius real against the scrollbar and the selection fills */
+     radius real against the scrollbar and the selection fills. The radius
+     is panels.css's, except in the window's corners — see .term-abs above */
   background: var(--bg-panel);
+  border-radius: var(--panel-radius) var(--panel-radius) var(--radius-br) var(--radius-bl);
   overflow: hidden;
 }
 
