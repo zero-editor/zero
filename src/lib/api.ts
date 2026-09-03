@@ -225,6 +225,9 @@ export const api = {
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   /** the folder picker the dev build has to use — see `pick_directory` */
   pickDirectory: (title: string) => invoke<string | null>("pick_directory", { title }),
+  /** the file picker the dev build has to use, for the same reason */
+  pickFile: (title: string, extensions: string[]) =>
+    invoke<string | null>("pick_file", { title, extensions }),
   /** what each path is and which project it belongs to; missing paths dropped */
   classifyOpens: (paths: string[]) => invoke<OpenTarget[]>("classify_opens", { paths }),
   /** drain the files macOS has handed over since the last drain */

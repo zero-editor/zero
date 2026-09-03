@@ -731,12 +731,20 @@ export function useMemos(
   const importMemo = useCallback(
     (into?: string) => {
       void run("import", async () => {
-        const path = await open({
-          multiple: false,
-          directory: false,
-          filters: [{ name: "audio", extensions: AUDIO_EXTENSIONS }],
-          title: into ? "import a follow-up recording" : "import a voice recording",
-        });
+        const title = into ? "import a follow-up recording" : "import a voice recording";
+        // Two pickers for one gesture, as with "open project" in `App.tsx`:
+        // macOS 26 will not open an `NSOpenPanel` for the unbundled binary
+        // `tauri dev` runs, and the dialog plugin panics on the NULL it gets
+        // back instead — an import was a way to quit the dev build. The
+        // shipped app is bundled and uses the real panel.
+        const path = import.meta.env.DEV
+          ? await api.pickFile(title, AUDIO_EXTENSIONS)
+          : await open({
+              multiple: false,
+              directory: false,
+              filters: [{ name: "audio", extensions: AUDIO_EXTENSIONS }],
+              title,
+            });
         if (typeof path !== "string") return;
         follow(await api.memoImport(root, path, into));
       });

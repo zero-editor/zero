@@ -203,6 +203,7 @@ pub fn run() {
             session::session_load,
             session::session_save,
             cli::pick_directory,
+            cli::pick_file,
             opens::classify_opens,
             opens::take_open_paths,
             git::git_worktrees,

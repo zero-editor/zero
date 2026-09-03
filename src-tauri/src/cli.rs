@@ -157,3 +157,39 @@ pub async fn pick_directory(title: String) -> Result<Option<String>, String> {
     let dir = String::from_utf8_lossy(&out.stdout).trim().trim_end_matches('/').to_string();
     Ok((!dir.is_empty()).then_some(dir))
 }
+
+/// The file picker, for the same reason and by the same route.
+///
+/// See `pick_directory`: an unbundled `tauri dev` binary gets NULL back from
+/// `NSOpenPanel` and the plugin panics on it, so importing a voice memo was
+/// another way to quit the dev build. `choose file` is that panel, asked for
+/// by a process macOS will open one for.
+///
+/// `extensions` narrows it the way the plugin's filters do. AppleScript's
+/// `of type` takes bare extensions as well as UTIs, and an empty list means
+/// no filter rather than nothing selectable.
+#[tauri::command]
+pub async fn pick_file(title: String, extensions: Vec<String>) -> Result<Option<String>, String> {
+    // as in `pick_directory`, everything interpolated is going into a script
+    let clean = |s: &str| s.replace(['"', '\\', '\n'], " ");
+    let prompt = clean(&title);
+    let of_type = if extensions.is_empty() {
+        String::new()
+    } else {
+        let list =
+            extensions.iter().map(|e| format!("\"{}\"", clean(e))).collect::<Vec<_>>().join(", ");
+        format!(" of type {{{list}}}")
+    };
+    let out = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(format!("POSIX path of (choose file with prompt \"{prompt}\"{of_type})"))
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    // cancelling is -128, and is a decision rather than something to report
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok((!path.is_empty()).then_some(path))
+}
