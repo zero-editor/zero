@@ -158,12 +158,19 @@ pub async fn pick_directory(title: String) -> Result<Option<String>, String> {
     Ok((!dir.is_empty()).then_some(dir))
 }
 
-/// The file picker, for the same reason and by the same route.
+/// The file picker, and unlike `pick_directory` this one is not dev-only.
 ///
-/// See `pick_directory`: an unbundled `tauri dev` binary gets NULL back from
-/// `NSOpenPanel` and the plugin panics on it, so importing a voice memo was
-/// another way to quit the dev build. `choose file` is that panel, asked for
-/// by a process macOS will open one for.
+/// The same NULL `NSOpenPanel` and the same objc2 panic on it — but the file
+/// panel dies in the *shipped* app too, where importing a voice memo quit
+/// zero for anyone who tried it in 0.37.0. So nothing calls the plugin for a
+/// file, in any build.
+///
+/// What is not the explanation: being unbundled. `pick_directory` exists
+/// because macOS 26 refuses the out-of-process panel to a binary outside an
+/// `.app`, and that really is dev-only — the bundled app opens a folder panel
+/// through the plugin every time someone opens a project. Whatever kills the
+/// file panel is something else, and unproven; this routes around it rather
+/// than claiming to understand it.
 ///
 /// `extensions` narrows it the way the plugin's filters do. AppleScript's
 /// `of type` takes bare extensions as well as UTIs, and an empty list means
