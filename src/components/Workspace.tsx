@@ -95,6 +95,9 @@ const SPLIT_BAND_MIN = 28;
 const SPLIT_BAND_MAX = 90;
 /** crosswise travel before split bands arm at all — a level slide never splits */
 const CROSS_ARM = 24;
+/** how near a seam has to come to another running the same way before it
+ *  takes its line exactly (⌥ during the drag passes on the offer) */
+const SEAM_SNAP = 7;
 
 /**
  * Everything in this window that a keystroke might belong to instead of to us.
@@ -1334,6 +1337,75 @@ export const Workspace = memo(function Workspace({
     // neither side may be squeezed below a usable pane
     const min = Math.min(0.15, 60 / span) * d.visSum;
     const start = d.dir === "row" ? e.clientX : e.clientY;
+    const axis = d.dir === "row" ? rr.width : rr.height;
+
+    const sizesFor = (step: number) => {
+      const next = [...base];
+      next[d.li] = base[d.li] + step;
+      next[d.ri] = base[d.ri] - step;
+      return next;
+    };
+
+    /*
+      ----- seams snap into line -----
+
+      A seam brought within SEAM_SNAP px of another seam running the same way
+      takes its line exactly: drag the bottom terminals' top edge near the
+      split in the column beside them and the two become one rule across the
+      window rather than two a few pixels apart.
+
+      Both seams are usually moving. Raising the floor shortens the column the
+      other seam divides, so that seam rises too — at its own rate, which is
+      why "move it by the gap" would overshoot. Every seam's position is affine
+      in the step (the sizes are, and collectRects is a linear pass over them),
+      so one probe step gives the rate the gap closes at and the meeting point
+      is solved for rather than hunted for. Out of reach of the clamps, or a
+      partner keeping perfect pace, and there is nothing to take.
+    */
+    const seamPos = (step: number) => {
+      const rects: { id: string; rect: Rect }[] = [];
+      const seams: Divider[] = [];
+      collectRects(withSizes(tree.root, d.path, sizesFor(step)), FIELD, [], hiddenIds, rects, seams);
+      const out = new Map<string, number>();
+      for (const s of seams) {
+        if (s.dir !== d.dir) continue;
+        const at = s.dir === "row" ? s.host.x + s.host.w * s.at : s.host.y + s.host.h * s.at;
+        out.set(seamKey(s), (at / 100) * axis);
+      }
+      return out;
+    };
+    const me = seamKey(d);
+    const probe = d.visSum / span; // a step worth one pixel of travel
+    const snap = (step: number, lo: number, hi: number) => {
+      const here = seamPos(step);
+      const mine = here.get(me);
+      if (mine === undefined) return { step, onto: null as string | null };
+      let key: string | null = null;
+      let gap = SEAM_SNAP;
+      for (const [k, p] of here) {
+        if (k === me || Math.abs(p - mine) > Math.abs(gap)) continue;
+        key = k;
+        gap = p - mine;
+      }
+      if (key === null) return { step, onto: null as string | null };
+      const then = seamPos(step + probe);
+      const rate = ((then.get(key) ?? 0) - (then.get(me) ?? 0) - gap) / probe;
+      const want = step - gap / rate;
+      if (!Number.isFinite(want) || want < lo || want > hi) return { step, onto: null as string | null };
+      return { step: want, onto: key };
+    };
+    /** the partner's own handle lights too, so which line was taken is
+     *  visible rather than inferred from the panes */
+    let onto: string | null = null;
+    const mark = (next: string | null) => {
+      if (next === onto) return;
+      const pill = (k: string | null) =>
+        k ? root.querySelector<HTMLElement>(`[data-seam="${CSS.escape(k)}"]`) : null;
+      pill(onto)?.classList.remove("aligned");
+      pill(next)?.classList.add("aligned");
+      handle.classList.toggle("snapped", next !== null);
+      onto = next;
+    };
 
     /*
       The gesture paints itself, and the tree hears about it once.
@@ -1384,10 +1456,11 @@ export const Workspace = memo(function Workspace({
       // (see validTree) and answers by resizing the panes around it too.
       const room = { back: Math.max(base[d.li] - min, 0), fwd: Math.max(base[d.ri] - min, 0) };
       const step = Math.max(-room.back, Math.min(room.fwd, delta));
-      const next = [...base];
-      next[d.li] = base[d.li] + step;
-      next[d.ri] = base[d.ri] - step;
-      sizes = next;
+      // ⌥ hands over the raw step: the one gesture snapping can't be asked
+      // to stay out of the way for is landing just shy of another seam
+      const taken = ev.altKey ? { step, onto: null } : snap(step, -room.back, room.fwd);
+      mark(taken.onto);
+      sizes = sizesFor(taken.step);
       // one paint per frame, however many moves the mouse crowds into it
       if (!raf) raf = window.requestAnimationFrame(paint);
     };
@@ -1396,6 +1469,7 @@ export const Workspace = memo(function Workspace({
       window.removeEventListener("mouseup", up);
       if (raf) window.cancelAnimationFrame(raf);
       livePaint.current = null;
+      mark(null);
       handle.classList.remove("live");
       document.body.classList.remove("dragging-col", "dragging-row");
       if (sizes !== base) tree.setSizes(d.path, sizes);

@@ -140,6 +140,26 @@
   background: var(--accent);
 }
 
+/* Lined up with another seam: the pill in hand runs longer, and the seam it
+   met lights faintly — so the line that was taken is visible, rather than
+   read back off the panes. */
+.term-divider.snapped::after {
+  transition: opacity 0.12s ease, width 0.12s ease, height 0.12s ease;
+}
+
+.term-divider.col.snapped::after {
+  width: 72px;
+}
+
+.term-divider.row.snapped::after {
+  height: 72px;
+}
+
+.term-divider.aligned::after {
+  opacity: 0.55;
+  background: var(--accent);
+}
+
 /* No bar, no title, no rule under it — the pane is only the terminal. The
    split/close actions float over its top-right corner and are shown by JS
    while the pointer is in the top fifth of that pane. */
