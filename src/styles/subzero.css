@@ -600,13 +600,13 @@ html.subzero .editor-path {
   background: transparent;
 }
 
-/* the breadcrumb as a readout: small, mono, spaced, upper-case — the line
-   of instrument text a plate like this would carry */
+/* the breadcrumb as a readout: small, mono, spaced — the line of instrument
+   text a plate like this would carry. Not upper-cased, though it once was: a
+   path is case-sensitive, and PAGE.TSX is not the name of a file that exists. */
 html.subzero .editor-path {
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* the change bars, in the same three meanings at subzero's chroma */

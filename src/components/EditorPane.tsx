@@ -50,6 +50,11 @@ function viewPath(v: View, root: string): string {
   const abs = viewAbs(v, root);
   if (v.kind === "new") return abs;
   if (abs.startsWith(root + "/")) return abs.slice(root.length + 1);
+  // A linked worktree sits beside the project rather than inside it, so the
+  // rule above misses it and the whole home path comes back — half of which is
+  // wherever the checkouts happen to be kept. The worktree is the root of that
+  // file the way the project is of its own, so name it and start there.
+  if (v.kind === "diff") return `${v.worktree.split("/").pop()}/${v.relPath}`;
   return abs.replace(/^\/Users\/[^/]+\//, "~/");
 }
 
