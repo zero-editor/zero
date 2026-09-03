@@ -5,6 +5,7 @@ mod links;
 #[cfg(target_os = "macos")]
 mod high_refresh;
 mod memos;
+mod notes;
 mod opaque;
 mod opens;
 mod pty;
@@ -242,6 +243,8 @@ pub fn run() {
             memos::memo_retry,
             memos::memo_delete,
             memos::memo_vocabulary_path,
+            notes::note_open,
+            notes::note_format,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

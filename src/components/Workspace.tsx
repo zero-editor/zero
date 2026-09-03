@@ -35,6 +35,8 @@ import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
 import { useSearch } from "../lib/search";
 import { useMemos } from "../lib/memos";
+import { api } from "../lib/api";
+import { goToNoteEnd } from "../lib/notes";
 
 export type View =
   // `staged` picks which of git's two diffs this is: HEAD→index when set, and
@@ -813,7 +815,23 @@ export const Workspace = memo(function Workspace({
         e.preventDefault();
         setTerminalVisible(true);
         tree.newTerminal();
-      } else if (meta && !e.shiftKey && e.key.toLowerCase() === "n") {
+      } else if (meta && e.altKey && !e.shiftKey && e.code === "KeyN") {
+        // The project's scratch note, opened at the end of whatever is already
+        // in it — one note per project rather than one per press, because a
+        // document you keep pasting into is the thing that was wanted and a
+        // folder of `note-14.md` is the thing that gets abandoned.
+        //
+        // `code` and not `key`, like the Backquote and Backslash branches: ⌥N
+        // is a dead key for the tilde, so `e.key` here is "Dead" and matching
+        // on "n" would never fire.
+        e.preventDefault();
+        void api.noteOpen(project.root).then((abs) => {
+          openView({ kind: "file", key: `file:${abs}`, absPath: abs });
+          // the tab may have been open already, in which case opening it did
+          // nothing and this is the whole of what the press meant
+          goToNoteEnd(abs);
+        });
+      } else if (meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         untitledRef.current += 1;
         const n = untitledRef.current;

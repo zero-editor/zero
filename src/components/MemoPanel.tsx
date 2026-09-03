@@ -361,6 +361,7 @@ export function MemoPanel({
     if (abs) onOpenView({ kind: "file", key: `file:${abs}`, absPath: abs });
   };
 
+
   const elapsed = since ? ((frozen ?? now) - Date.parse(since)) / 1000 : 0;
   // What the button says before there is anything to stop. The live words moved
   // into the cluster, which is the only thing that draws them now.

@@ -380,7 +380,7 @@ struct RunningJob {
 
 /// Where a running child is parked so another thread can kill it. The lock is
 /// only ever held for a `try_wait` or a `kill`, never for a blocking `wait`.
-type ChildSlot = Mutex<Option<Child>>;
+pub(crate) type ChildSlot = Mutex<Option<Child>>;
 
 // ── paths and other small change ─────────────────────────────────────────────
 
@@ -1061,6 +1061,9 @@ fn derive_seed(app: &tauri::AppHandle, root: &str, file: &Path, readme: &Path) {
         cwd: neutral_dir(app),
         slot: &slot,
         timeout: SEED_TIMEOUT,
+        // the user's own pick, like every memo pass: see `claude_args`
+        model: None,
+        hurried: false,
         timed_out: "the README scan gave up after two minutes",
     });
     let Ok(out) = derived.text else { return };
@@ -1808,7 +1811,7 @@ fn harvest(app: &tauri::AppHandle, root: &str, suggested: &[String]) {
 /// Somewhere with no `CLAUDE.md` in it. The project root would load one, which
 /// is both a style pollution for a pure-text task and an injection surface for
 /// a prompt that carries someone's dictation.
-fn neutral_dir(app: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn neutral_dir(app: &tauri::AppHandle) -> PathBuf {
     let dir = app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir());
     let _ = std::fs::create_dir_all(&dir);
     dir
@@ -1836,18 +1839,33 @@ fn clean_transcript(req: CleanupRequest) -> ClaudeAnswer {
         cwd: req.cwd,
         slot: req.slot,
         timeout: CLEANUP_TIMEOUT,
+        model: None,
+        hurried: false,
         timed_out: "cleanup gave up after four minutes",
     })
 }
 
-struct ClaudeRun<'a> {
-    prompt: Prompt,
-    cwd: PathBuf,
-    slot: &'a Arc<ChildSlot>,
-    timeout: Duration,
+pub(crate) struct ClaudeRun<'a> {
+    pub prompt: Prompt,
+    pub cwd: PathBuf,
+    pub slot: &'a Arc<ChildSlot>,
+    pub timeout: Duration,
+    /// which model to ask for, or `None` to leave the CLI's own default alone
+    /// — see [`claude_args`]
+    pub model: Option<&'static str>,
+    /// Whether somebody is watching the spot this answer goes into.
+    ///
+    /// Two things follow from it, and both are latency. Extended thinking is
+    /// turned off, and the MCP servers configured on this machine are not
+    /// started — neither is any use to a text-in, text-out pass that is
+    /// already forbidden every tool, and together they are most of the wait.
+    /// Measured on one pasted screenful, warm: 33 s of it thinking, against
+    /// 4 s without. A memo pays that gladly and is read minutes later; a paste
+    /// is a cursor sitting still while somebody looks at it.
+    pub hurried: bool,
     /// what to say when the timeout is what ended it — the one failure whose
     /// wording is the caller's business, because "gave up" needs a subject
-    timed_out: &'static str,
+    pub timed_out: &'static str,
 }
 
 /// One `claude -p`: a prompt in, everything it printed out.
@@ -1875,24 +1893,27 @@ struct ClaudeRun<'a> {
 /// the way they always went, as one message on stdin. Decided per call and
 /// never remembered: the second node start-up is the whole cost, and nothing
 /// is left believing an upgrade hasn't happened.
-fn run_claude(req: ClaudeRun) -> ClaudeAnswer {
-    let ClaudeRun { prompt, cwd, slot, timeout, timed_out } = req;
+pub(crate) fn run_claude(req: ClaudeRun) -> ClaudeAnswer {
+    let ClaudeRun { prompt, cwd, slot, timeout, model, hurried, timed_out } = req;
     let started = Instant::now();
     // the PATH and the words are made once and go two ways — to the process,
     // and into the record of what the process got — so the record cannot
     // describe a call other than the one that ran
     let path = repaired_path();
+    // made once and passed two ways, like the words below it, so the record
+    // cannot describe an environment other than the one the process had
+    let env = claude_env(hurried);
     let system = prompt.system();
-    let mut args = claude_args(Some(&system));
+    let mut args = claude_args(Some(&system), model, hurried);
     let mut stdin = prompt.message.clone();
     let mut refused = None;
-    let mut spawned = spawn_claude(&cwd, &path, slot, timeout, &args, stdin.clone());
+    let mut spawned = spawn_claude(&cwd, &path, slot, timeout, &args, &env, stdin.clone());
     if let Ok((_, run)) = &spawned {
         if !run.ok && !run.timed_out && lacks_system_prompt_flag(&run.stderr) {
             refused = Some(first_lines(&run.stderr, 1));
-            args = claude_args(None);
+            args = claude_args(None, model, hurried);
             stdin = prompt.combined();
-            spawned = spawn_claude(&cwd, &path, slot, timeout, &args, stdin.clone());
+            spawned = spawn_claude(&cwd, &path, slot, timeout, &args, &env, stdin.clone());
         }
     }
     let secs = started.elapsed().as_secs_f64();
@@ -1914,6 +1935,7 @@ fn run_claude(req: ClaudeRun) -> ClaudeAnswer {
         instructions: prompt.instructions,
         cwd,
         path,
+        env,
         args,
         stdin,
         refused,
@@ -1948,10 +1970,13 @@ fn answer_of(out: String, run: Run, timed_out: &'static str) -> Result<String, S
 /// The two travel together because the second is only ever wanted about the
 /// first: a developer reading a turn of a memo and asking what, exactly,
 /// produced it.
-struct ClaudeAnswer {
+pub(crate) struct ClaudeAnswer {
     /// everything claude printed, or why there is nothing
-    text: Result<String, String>,
-    invocation: Invocation,
+    pub text: Result<String, String>,
+    /// the call that produced it, for whoever keeps a record of one — the memo
+    /// passes do, and drop it is all a caller that doesn't has to do
+    #[allow(dead_code)]
+    pub invocation: Invocation,
 }
 
 /// One `claude -p` call as the operating system saw it: where it ran, with
@@ -1962,10 +1987,13 @@ struct ClaudeAnswer {
 /// Taken from the vector the process was given, never re-described from the
 /// prompt — see [`claude_args`] — which is what lets the file claim to be
 /// verbatim.
-struct Invocation {
+pub(crate) struct Invocation {
     instructions: Instructions,
     cwd: PathBuf,
     path: String,
+    /// what was put in the environment beyond `PATH`, exactly as
+    /// `Command::envs` got it — see [`claude_env`]
+    env: Vec<(String, String)>,
     /// the words after `claude`, exactly as `Command::args` got them
     args: Vec<String>,
     stdin: String,
@@ -1978,11 +2006,17 @@ struct Invocation {
 }
 
 /// The words after `claude`, for every call: print mode, plain text back, no
-/// tools, and the system prompt when there is one. One function, because
-/// [`Invocation`] keeps the vector this returns and the process gets the same
-/// vector — two lists would be two chances to record something other than
-/// what ran.
-fn claude_args(system: Option<&str>) -> Vec<String> {
+/// tools, the model when the caller named one, and the system prompt when
+/// there is one. One function, because [`Invocation`] keeps the vector this
+/// returns and the process gets the same vector — two lists would be two
+/// chances to record something other than what ran.
+///
+/// `model` is a name, not a version: `haiku` and `sonnet` are aliases the CLI
+/// resolves to whatever it currently points them at, which is what a caller
+/// choosing on speed actually means. `None` leaves the choice to the CLI's own
+/// configuration, which is what every memo pass wants — the user picked a
+/// model when they set `claude` up, and a memo is worth their pick.
+fn claude_args(system: Option<&str>, model: Option<&str>, hurried: bool) -> Vec<String> {
     let mut args: Vec<String> = [
         "-p",
         "--output-format",
@@ -1995,6 +2029,15 @@ fn claude_args(system: Option<&str>) -> Vec<String> {
     ]
     .map(String::from)
     .into();
+    if let Some(model) = model {
+        args.push("--model".to_string());
+        args.push(model.to_string());
+    }
+    if hurried {
+        // the MCP servers this machine is configured with are started before
+        // the first token and are no use to a pass that may call nothing
+        args.push("--strict-mcp-config".to_string());
+    }
     if let Some(system) = system {
         // its own argument, not `--system-prompt=…`: the text is readable in
         // `ps` either way, and this way it is readable by a person
@@ -2002,6 +2045,23 @@ fn claude_args(system: Option<&str>) -> Vec<String> {
         args.push(system.to_string());
     }
     args
+}
+
+/// What goes in the environment beyond `PATH`, for every call.
+///
+/// One entry, and only when the caller is in a hurry: extended thinking off.
+/// It is an environment variable rather than a flag because that is the only
+/// lever the CLI offers for it, and it is the larger half of the wait by far
+/// — 2,964 thinking tokens on one pasted screenful, and thirty seconds of the
+/// thirty-four it took. A `claude` that stops honouring the variable costs a
+/// slower paste and nothing else, which is why nothing here checks that it
+/// was honoured.
+fn claude_env(hurried: bool) -> Vec<(String, String)> {
+    if hurried {
+        vec![("MAX_THINKING_TOKENS".to_string(), "0".to_string())]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Whether a failure is an older `claude` refusing `--system-prompt` — the one
@@ -2023,10 +2083,12 @@ fn spawn_claude(
     slot: &Arc<ChildSlot>,
     timeout: Duration,
     args: &[String],
+    env: &[(String, String)],
     stdin: String,
 ) -> Result<(String, Run), String> {
     let mut child = Command::new("claude")
         .args(args)
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .current_dir(cwd)
         .env("PATH", path)
         .stdin(Stdio::piped())
@@ -2108,6 +2170,9 @@ fn invocation_script(inv: &Invocation, when: &str, what: &str) -> String {
     }
     s.push_str(&format!("cd {} || exit 1\n", sh_word(&inv.cwd.to_string_lossy())));
     s.push_str(&format!("export PATH={}\n", sh_word(&inv.path)));
+    for (k, v) in &inv.env {
+        s.push_str(&format!("export {k}={}\n", sh_word(v)));
+    }
     s.push_str("claude");
     for arg in &inv.args {
         s.push_str(" \\\n  ");
@@ -2157,24 +2222,31 @@ fn heredoc_tag(body: &str) -> String {
 
 // ── the prompts ──────────────────────────────────────────────────────────────
 
-/// Which of the three jobs a [`Prompt`] is for — distilling a recording,
+/// Which of the four jobs a [`Prompt`] is for — distilling a recording,
 /// merging a follow-up into the document it was recorded onto, reading a
-/// README for a vocabulary — and, through [`Instructions::text`], the system
-/// prompt for it. Three and not one because they are three jobs with three
-/// output contracts: a seed that answered in the cleanup's shape would put a
-/// title into someone's glossary.
+/// README for a vocabulary, tidying a paste into a note — and, through
+/// [`Instructions::text`], the system prompt for it. Four and not one because
+/// they are four jobs with four output contracts: a seed that answered in the
+/// cleanup's shape would put a title into someone's glossary.
 ///
-/// An enum over three `const`s rather than a `&'static str` field: the
+/// The fourth is not a memo at all; see [`crate::notes`], which owns its words
+/// and calls [`run_claude`] with them. It is listed here because the enum is
+/// the closed set of instructions this binary can send, and a pass kept
+/// outside it would be one nothing counts.
+///
+/// An enum over four `const`s rather than a `&'static str` field: the
 /// instructions are fixed at compile time, and a closed choice between them
 /// has no slot a runtime string can reach — where a `'static` str *field*
 /// would be a convention, since `String::leak` mints one from anything. What
 /// can reach the system prompt is decided one field over, in [`Prompt`], and
-/// it is the vocabulary and nothing else.
+/// it is the vocabulary, or a note's house style, and nothing else.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Instructions {
+pub(crate) enum Instructions {
     Cleanup,
     Merge,
     Seed,
+    /// the paste format — one note's, and the only pass no memo asks for
+    Format,
 }
 
 impl Instructions {
@@ -2183,6 +2255,7 @@ impl Instructions {
             Instructions::Cleanup => CLEANUP_SYSTEM,
             Instructions::Merge => MERGE_SYSTEM,
             Instructions::Seed => SEED_SYSTEM,
+            Instructions::Format => crate::notes::FORMAT_SYSTEM,
         }
     }
 
@@ -2193,6 +2266,7 @@ impl Instructions {
             Instructions::Cleanup => "cleanup",
             Instructions::Merge => "merge",
             Instructions::Seed => "README seed",
+            Instructions::Format => "paste format",
         }
     }
 }
@@ -2209,12 +2283,26 @@ impl Instructions {
 /// that costs — and it is named here as exactly that, so that the transcript,
 /// the document and the README, which have no field on this side, still
 /// cannot follow it.
-struct Prompt {
-    instructions: Instructions,
-    /// the project's own words, already passed through [`vocabulary_or_none`];
-    /// `None` for the one pass that has no use for them, the README seed
-    vocabulary: Option<String>,
-    message: String,
+pub(crate) struct Prompt {
+    pub instructions: Instructions,
+    /// what to append to the instructions under a heading of its own — the
+    /// project's own words for the memo passes, the note's house style for the
+    /// paste format. `None` for the passes that have neither: the README seed,
+    /// and a note with no `FORMAT.md` beside it.
+    pub extra: Option<Extra>,
+    pub message: String,
+}
+
+/// One section appended to a system prompt, and the heading it goes under.
+///
+/// Heading and body travel together because the instructions above them refer
+/// to the section by name — "the `## Project vocabulary` section below" — and
+/// a body that arrived under a different heading would make that sentence
+/// false without making anything fail.
+pub(crate) struct Extra {
+    /// the heading text, without the `##`
+    pub heading: &'static str,
+    pub body: String,
 }
 
 impl Prompt {
@@ -2222,9 +2310,9 @@ impl Prompt {
     /// that "the `## Project vocabulary` section below" in the instructions is
     /// true of the system prompt on its own and of [`combined`] alike.
     fn system(&self) -> String {
-        match &self.vocabulary {
-            Some(vocabulary) => {
-                format!("{}\n\n## Project vocabulary\n\n{vocabulary}", self.instructions.text())
+        match &self.extra {
+            Some(Extra { heading, body }) => {
+                format!("{}\n\n## {heading}\n\n{body}", self.instructions.text())
             }
             None => self.instructions.text().to_string(),
         }
@@ -2285,6 +2373,15 @@ fn vocabulary_or_none(vocabulary: &str) -> &str {
     }
 }
 
+impl Extra {
+    /// The project vocabulary under the heading the memo prompts name it by.
+    /// The heading is written once, here, rather than at each call site, for
+    /// the reason [`Extra`] itself gives.
+    fn vocabulary(vocabulary: &str) -> Self {
+        Extra { heading: "Project vocabulary", body: vocabulary_or_none(vocabulary).to_string() }
+    }
+}
+
 /// The cleanup instructions. Assembled at compile time so the exact words are
 /// in one place and a test can hold them to it — and so that nothing assembled
 /// at run time can be in them.
@@ -2318,7 +2415,7 @@ Then the distilled memo. No preamble, no commentary, no code fences around the w
 fn cleanup_prompt(vocabulary: &str, transcript: &str) -> Prompt {
     Prompt {
         instructions: Instructions::Cleanup,
-        vocabulary: Some(vocabulary_or_none(vocabulary).to_string()),
+        extra: Some(Extra::vocabulary(vocabulary)),
         message: format!("## Transcript\n\n{transcript}\n"),
     }
 }
@@ -2365,7 +2462,7 @@ Then the revised document. No preamble, no commentary, no code fences around the
 fn merge_prompt(vocabulary: &str, document: &str, transcript: &str) -> Prompt {
     Prompt {
         instructions: Instructions::Merge,
-        vocabulary: Some(vocabulary_or_none(vocabulary).to_string()),
+        extra: Some(Extra::vocabulary(vocabulary)),
         message: format!("## Current document\n\n{document}\n\n## Follow-up transcript\n\n{transcript}\n"),
     }
 }
@@ -2412,7 +2509,7 @@ If the README names nothing worth listing, output nothing at all."
 fn seed_prompt(readme: &str) -> Prompt {
     let readme = head(readme, MAX_README);
     // no vocabulary: this is the pass that writes the first one
-    Prompt { instructions: Instructions::Seed, vocabulary: None, message: format!("## README\n\n{readme}\n") }
+    Prompt { instructions: Instructions::Seed, extra: None, message: format!("## README\n\n{readme}\n") }
 }
 
 /// The first `max` bytes of `text`, cut where a character ends rather than
@@ -3966,7 +4063,8 @@ plain prose, which is fine";
             cwd: dir.clone(),
             // the shim first, then enough of a PATH for `cat`
             path: format!("{}:/bin:/usr/bin", bin.to_string_lossy()),
-            args: claude_args(Some("it's a system prompt\n\nwith a blank line and a `tick`")),
+            env: claude_env(true),
+            args: claude_args(Some("it's a system prompt\n\nwith a blank line and a `tick`"), None, false),
             stdin: stdin.to_string(),
             refused: Some("error: unknown option '--system-prompt'".into()),
             outcome: "exit 0 after 1.2 s".into(),

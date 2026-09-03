@@ -11,16 +11,24 @@ import { modClick } from "../lib/modClick";
 import { changeGutter, setBaseline } from "../lib/changeGutter";
 import { pokeGit } from "../lib/gitStatus";
 import { minimalChange } from "../lib/minimalChange";
+import { notePaste } from "../lib/notePaste";
+import { onNoteEnd } from "../lib/notes";
 
 export function FileView({
   absPath,
   line,
   visible,
+  note,
   onOpenFile,
 }: {
   absPath: string;
   line?: number;
   visible: boolean;
+  /** The project root, when this file is one of its notes — see `isNote`.
+   *  Three things follow from it and from nothing else: what you paste is
+   *  tidied on the way in, ⌘⌥N can put the cursor at the end of it, and it
+   *  saves itself. Every other file behaves exactly as it always has. */
+  note?: string;
   /** ⌘-click resolved to a definition somewhere */
   onOpenFile: (abs: string, line?: number) => void;
 }) {
@@ -36,6 +44,35 @@ export function FileView({
 
   useEffect(() => {
     let disposed = false;
+    let offEnd: (() => void) | null = null;
+
+    /**
+     * A note saves itself a moment after it stops changing.
+     *
+     * Notes only, and the exception is the point: every other file in this
+     * editor is somebody's source, and ⌘S is where the decision to change one
+     * belongs. A note is scratch paper — and scratch paper you have to remember
+     * to save is scratch paper you lose, which would take the pasted text with
+     * it and make the whole feature something you cannot trust to catch things.
+     */
+    let saveTimer = 0;
+    const autosave = () => {
+      if (!note) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        const view = viewRef.current;
+        if (disposed || !view) return;
+        const text = view.state.doc.toString();
+        if (text === lastLoadedRef.current) return;
+        api.writeFile(absPath, text).then(() => {
+          if (disposed) return;
+          // both, or the refresh below reads the file it just wrote as somebody
+          // else's change and dispatches it back over the cursor
+          dirtyRef.current = false;
+          lastLoadedRef.current = text;
+        });
+      }, 700);
+    };
     // the language sits in a compartment so a mode that has to be fetched can
     // drop in later without rebuilding the editor under the cursor
     const lang = new Compartment();
@@ -73,8 +110,11 @@ export function FileView({
           changeGutter(),
           lang.of(langFor(absPath)),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) dirtyRef.current = true;
+            if (!u.docChanged) return;
+            dirtyRef.current = true;
+            autosave();
           }),
+          ...(note ? [notePaste(note)] : []),
           modClick(
             () => absPath,
             (abs, ln) => onOpenFileRef.current(abs, ln)
@@ -101,6 +141,17 @@ export function FileView({
         ],
       });
       if (line) jumpToLine(viewRef.current, line);
+      // ⌘⌥N means "somewhere to put this", which has to be true of the second
+      // press as much as the first — and the second press opens nothing,
+      // because the tab is already here. So the shortcut asks and this answers;
+      // the jump below is the first press, whose request arrived before there
+      // was anything to receive it.
+      if (note) {
+        goToEnd(viewRef.current);
+        offEnd = onNoteEnd(absPath, () => {
+          if (viewRef.current) goToEnd(viewRef.current);
+        });
+      }
       void readBaseline();
 
       langLater.then(async (ext) => {
@@ -158,13 +209,15 @@ export function FileView({
 
     return () => {
       disposed = true;
+      offEnd?.();
+      window.clearTimeout(saveTimer);
       offSettings();
       window.clearInterval(iv);
       window.clearInterval(baselineIv);
       viewRef.current?.destroy();
       viewRef.current = null;
     };
-  }, [absPath]);
+  }, [absPath, note]);
 
   // search jump on an already-open file
   useEffect(() => {
@@ -172,6 +225,16 @@ export function FileView({
   }, [line]);
 
   return <div className="cm-host" ref={hostRef} />;
+}
+
+/** the cursor after everything already written, where the next paste goes */
+function goToEnd(view: EditorView) {
+  const pos = view.state.doc.length;
+  view.dispatch({
+    selection: { anchor: pos },
+    effects: EditorView.scrollIntoView(pos, { y: "end" }),
+  });
+  view.focus();
 }
 
 function jumpToLine(view: EditorView, line: number) {

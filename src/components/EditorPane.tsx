@@ -12,6 +12,7 @@ import { overrideFor, setLanguageOverride } from "../lib/lang";
 import { pickLanguage } from "../lib/langPick";
 import { FileIconSpan } from "./FileIcon";
 import { memoLabel, memoPaths, type Memos } from "../lib/memos";
+import { isNote } from "../lib/notes";
 import { STATUS_NAME, type GitMark } from "../lib/gitStatus";
 import { useTabReorder } from "../lib/tabReorder";
 import type { Side } from "../lib/layout";
@@ -405,6 +406,10 @@ export function EditorPane({
                   absPath={v.absPath}
                   line={v.line}
                   visible={i === activeView}
+                  // a note is an ordinary file that happens to live in the
+                  // notes folder; the folder is what decides, so one reopened
+                  // from the tree behaves exactly like one ⌘⌥N opened
+                  note={isNote(v.absPath, root) ? root : undefined}
                   onOpenFile={onOpenFile}
                 />
               )}

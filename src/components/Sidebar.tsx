@@ -5,6 +5,8 @@ import { WorktreePanel } from "./WorktreePanel";
 import { FileTree, type Reveal } from "./FileTree";
 import { SearchPanel } from "./SearchPanel";
 import { MemoPanel } from "./MemoPanel";
+import { api } from "../lib/api";
+import { goToNoteEnd } from "../lib/notes";
 import type { Search } from "../lib/search";
 import type { Memos } from "../lib/memos";
 
@@ -50,6 +52,22 @@ const ICONS: Record<SidebarTab, ReactElement> = {
     </svg>
   ),
 };
+
+/* The note, and the only thing in this run that is not a tab.
+ *
+ * A clipboard, because what the button is for is not that a file exists — a
+ * page glyph would say that, and would be the folder above it with lines in it
+ * — but that whatever is on the clipboard has somewhere to land. The clip is
+ * the whole tell at 16px, so it is a closed shape over a board with a gap left
+ * for it rather than a notch in one outline, which closes up at this size. */
+const NOTE = (
+  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5.4 3.6H4.5a1.3 1.3 0 0 0-1.3 1.3v7.4a1.3 1.3 0 0 0 1.3 1.3h7a1.3 1.3 0 0 0 1.3-1.3V4.9a1.3 1.3 0 0 0-1.3-1.3h-.9" />
+    <path d="M5.4 4.5V3.3a.9.9 0 0 1 .9-.9h3.4a.9.9 0 0 1 .9.9v1.2Z" />
+    <path d="M5.7 7.9h4.6" />
+    <path d="M5.7 10.5h3" />
+  </svg>
+);
 
 // a chevron pointing at the edge the panel folds towards, drawn on the
 // same grid as the tabs so the two read as one run
@@ -123,6 +141,15 @@ export function Sidebar({
         ? "ready"
         : "";
 
+  /** Exactly what ⌘⌥N does, cursor included: a button and a shortcut that left
+   *  you in different places would be two features wearing one name. */
+  const openNote = async () => {
+    const abs = await api.noteOpen(project.root).catch(() => null);
+    if (!abs) return;
+    onOpenView({ kind: "file", key: `file:${abs}`, absPath: abs });
+    goToNoteEnd(abs);
+  };
+
   return (
     <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-tabs">
@@ -137,6 +164,14 @@ export function Sidebar({
             {t.id === "memos" && dot && <span className={`memo-tab-dot ${dot}`} />}
           </button>
         ))}
+        {/* Under the tabs, and not one of them: it opens a document rather
+            than swapping the panel, so it never takes the active mark and the
+            panel you were reading stays where it was. Same square and same
+            grid, because it belongs to the run — the difference it has to
+            carry is only that nothing here stays pressed. */}
+        <button className="sidebar-tab" title="paste & auto tidy (⌘⌥N)" onClick={openNote}>
+          {NOTE}
+        </button>
         {collapsed ? (
           <button className="sidebar-fold" title="expand sidebar (⌘B)" onClick={onExpand}>
             {UNFOLD}

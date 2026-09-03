@@ -1,0 +1,46 @@
+/* ===== notes ===== */
+
+/* The mark that holds a paste's place while claude tidies it, and the one left
+   behind when it couldn't be.
+ 
+   Both sit inline in the document, where the text is going to be, because that
+   is the only place the answer is about. Nothing moves when the text lands —
+   the mark is replaced by it — and nothing animates on arrival: a paste that
+   flashed or slid would draw the eye to the one thing that needs no attention,
+   which is the paste having worked. */
+.note-mark {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  user-select: none;
+  vertical-align: baseline;
+}
+
+/* Waiting. The pulse is slow and shallow on purpose: it says the app is still
+   listening without ever being the brightest thing on screen. */
+.note-mark-busy {
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--text-faint) 10%, transparent);
+  animation: note-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes note-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+/* Kept as pasted. Warm rather than red — nothing was lost, and the text it sits
+   after is exactly what was on the clipboard. It takes itself away after a few
+   seconds, which is why it never needs a way to be dismissed. */
+.note-mark-kept {
+  color: var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 12%, transparent);
+}
+
+/* Someone reading with the system asking for less movement gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  .note-mark-busy { animation: none; opacity: 0.7; }
+}

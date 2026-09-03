@@ -268,6 +268,13 @@ export const api = {
   memoDelete: (root: string, id: string) => invoke<void>("memo_delete", { root, id }),
   /** creates the file with its seed if it isn't there yet */
   memoVocabularyPath: (root: string) => invoke<string>("memo_vocabulary_path", { root }),
+  /** the project's scratch note, made on the first ask along with the
+   *  `FORMAT.md` beside it; resolves with its absolute path */
+  noteOpen: (root: string) => invoke<string>("note_open", { root }),
+  /** One pasted passage, tidied. Rejects with the reason for every failure —
+   *  no claude, a timeout, a paste too big — and the caller answers all of
+   *  them the same way, by keeping what was pasted. */
+  noteFormat: (root: string, text: string) => invoke<string>("note_format", { root, text }),
   ptyKillAll: () => invoke<void>("pty_kill_all"),
   /** end every session no restored layout claims — the boot sweep */
   ptyReap: (keep: string[]) => invoke<void>("pty_reap", { keep }),
