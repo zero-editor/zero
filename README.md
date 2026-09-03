@@ -112,7 +112,9 @@ sets one with its state in it (Claude and omp do) and how long the pty has
 been silent where it doesn't — no integration, no cooperation from the agent.
 
 **The terminal is the point.** Full window width by default, splits in any
-direction with draggable dividers, and no furniture: no title, no bar. The
+direction with draggable dividers — a divider brought near another seam
+running the same way takes its line exactly, so a floor and the split beside
+it read as one rule — and no furniture: no title, no bar. The
 split and close buttons appear only when the pointer is in the top fifth of a
 pane, and `terminal: plain` in preferences strips even the card.
 
