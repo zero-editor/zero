@@ -50,19 +50,25 @@ export interface OpenTarget {
   root: string;
 }
 
+/** the coding agents the daemon recognises under a shell */
+export type Agent = "claude" | "codex" | "pi" | "omp";
+
 export interface AgentStat {
   /** the pty id the pane spawned it under. Missing from a daemon older
       than the field, which the app goes on joining across an update. */
   id?: string;
   cwd: string;
   running: boolean;
-  /** a Codex process is present; unlike Claude it has no title state */
-  codex: boolean;
+  /** which agent is running. Missing from a daemon older than the field,
+      which said only whether it was Codex — see `codex`. */
+  agent?: Agent;
+  /** the older daemon's word: a Codex process is present */
+  codex?: boolean;
   quiet_ms: number;
   burst_ms: number;
-  /** claude's own terminal title: true mid-task, false waiting on you,
-      null when no claude title has been seen and only the timing fields
-      are left to guess from */
+  /** the agent's own terminal title: true mid-task, false waiting on you,
+      null when no title with a state in it has been seen and only the
+      timing fields are left to guess from */
   title_working: boolean | null;
 }
 

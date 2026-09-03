@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
 import { getSettings, onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
-import { useCodexPanes } from "../lib/agentStatus";
+import { titleState, useAgentPanes } from "../lib/agentStatus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
 import { pathLinkProvider, pathTextAt, resolveOne } from "../lib/termLinks";
@@ -172,9 +172,10 @@ export function TerminalPanes({
   const [finding, setFinding] = useState(0);
 
   // What the agent in each pane is doing, read the way the daemon reads it
-  // for the tab strip: Claude retitles its terminal with ◐/◑ mid-task and ✳
-  // once it is waiting on you, and xterm hands every pane its own titles —
-  // so this is per pane where the strip's count is per project. `done` is
+  // for the tab strip: Claude and omp retitle their terminal with a spinner
+  // mid-task and a mark of their own once waiting on you, and xterm hands
+  // every pane its own titles — so this is per pane where the strip's count
+  // is per project. `done` is
   // an unread badge, as it is up there: focusing the pane reads it, and it
   // shows only on a pane you are not in. Nothing here is drawn in the
   // default theme; styles/subzero.css is what wears it.
@@ -187,27 +188,29 @@ export function TerminalPanes({
       return next;
     });
   }, []);
-  // Codex panes come from the daemon's poll instead, since Codex never
-  // retitles (see useCodexPanes). While a pane is Codex's the title says
-  // nothing about it — a subcommand retitling the terminal would otherwise
-  // put the lamp out mid-turn — so the title path is gated on that, and
-  // only a change of reading is written, so a pane you have read stays
-  // read through every poll that repeats "done".
-  const codex = useCodexPanes();
-  const codexRef = useRef(codex);
+  // Codex and pi panes come from the daemon's poll instead, since neither
+  // retitles (see useAgentPanes — the same poll says which agent every pane
+  // holds, which is what colours the lamp). While a pane is theirs the title
+  // says nothing about it — a subcommand retitling the terminal would
+  // otherwise put the lamp out mid-turn — so the title path is gated on
+  // that, and only a change of reading is written, so a pane you have read
+  // stays read through every poll that repeats "done".
+  const agents = useAgentPanes();
+  const agentsRef = useRef(agents);
   const onAgent = useCallback(
     (id: string, state: "working" | "done" | null) => {
-      if (codexRef.current[id]) return;
+      if (agentsRef.current[id]?.state) return;
       setState(id, state);
     },
     [setState]
   );
   useEffect(() => {
-    const prev = codexRef.current;
-    codexRef.current = codex;
-    for (const id of Object.keys(prev)) if (!codex[id]) setState(id, null);
-    for (const [id, state] of Object.entries(codex)) if (prev[id] !== state) setState(id, state);
-  }, [codex, setState]);
+    const prev = agentsRef.current;
+    agentsRef.current = agents;
+    for (const [id, p] of Object.entries(prev)) if (p.state && !agents[id]?.state) setState(id, null);
+    for (const [id, p] of Object.entries(agents))
+      if (p.state && prev[id]?.state !== p.state) setState(id, p.state);
+  }, [agents, setState]);
   useEffect(() => {
     const id = tree.focusedId;
     if (id && agent[id] === "done") setAgent((prev) => ({ ...prev, [id]: "seen" }));
@@ -249,7 +252,7 @@ export function TerminalPanes({
           className={`pane-abs term-abs ${termStyle === "plain" ? "plain" : ""} ${
             draggingId === id ? "moving" : ""
           } ${agent[id] === "working" ? "agent-working" : agent[id] === "done" ? "agent-done" : ""} ${
-            codex[id] ? "agent-codex" : ""
+            agents[id] ? `agent-${agents[id].agent}` : ""
           } ${
             // the panes standing in the window's two bottom corners wear
             // its corner there (see .term-abs.corner-bl in terminals.css).
@@ -918,16 +921,8 @@ function TerminalPane({
     };
     ptyBus.onExit(id, () => onExit(id));
 
-    // The same glyphs the daemon keys on (ptyd/server.rs): ✳ is Claude idle
-    // at its prompt, the half-circle family is its spinner. Any other title
-    // — the shell's own, a subcommand's — means no agent to speak of.
-    const titles = term.onTitleChange((title) => {
-      const c = title.trimStart()[0];
-      onAgentRef.current(
-        id,
-        c === "✳" ? "done" : c !== undefined && c >= "◐" && c <= "◓" ? "working" : null
-      );
-    });
+    // the same reading the daemon makes of a title (see titleState)
+    const titles = term.onTitleChange((title) => onAgentRef.current(id, titleState(title)));
 
     api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
       () => {

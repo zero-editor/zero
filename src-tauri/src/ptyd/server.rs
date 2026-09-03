@@ -42,8 +42,8 @@ struct PtySession {
     // when the current run of output began; a run ends after BURST_GAP_MS of
     // silence. Lets a one-off redraw be told apart from sustained work.
     burst_start: Arc<AtomicU64>,
-    // what the terminal title last said about Claude: TITLE_* below
-    claude_title: Arc<AtomicU8>,
+    // what the terminal title last said about the agent: TITLE_* below
+    agent_title: Arc<AtomicU8>,
     /// A headless terminal fed everything this shell prints, so the daemon
     /// knows what the screen *looks like* and not merely what crossed it.
     /// Replaying raw bytes from an arbitrary point cannot work — attach in the
@@ -52,26 +52,36 @@ struct PtySession {
     parser: Arc<Mutex<vt100::Parser>>,
 }
 
-/// No title seen yet, or the last one wasn't Claude's — fall back to guessing
-/// from output activity.
+/// No title seen yet, or the last one carried no agent state — fall back to
+/// guessing from output activity.
 const TITLE_UNKNOWN: u8 = 0;
-/// Claude's title starts with a spinner glyph: mid-task.
+/// The title says the agent is mid-task.
 const TITLE_WORKING: u8 = 1;
-/// Claude's title starts with ✳: waiting on you — finished, or sitting on a
+/// The title says the agent is waiting on you — finished, or sitting on a
 /// permission prompt.
 const TITLE_IDLE: u8 = 2;
 
-/// Reads Claude Code's state out of the terminal titles it sets, which beats
-/// inferring it from output timing: Claude retitles the terminal through
+/// Reads an agent's state out of the terminal titles it sets, which beats
+/// inferring it from output timing: an agent that retitles does so through
 /// OSC 0 the moment it starts and the moment it stops, while its drawn UI can
 /// go quiet mid-task (a silent tool call, a slow API turn) and flicker the
-/// activity heuristic.
+/// activity heuristic. Two agents speak this way:
 ///
-/// Measured against Claude Code 2.1.234: `ESC ] 0 ; <glyph> <topic> BEL`,
+/// Claude Code, measured against 2.1.234: `ESC ] 0 ; <glyph> <topic> BEL`,
 /// where the glyph is ✳ when idle and an animated ◐/◑ while working —
 /// retitled to ✳ during a permission prompt too, which is right, since that
-/// *is* waiting on you. Any other title (the shell's own, say) means Claude
-/// isn't speaking, and the caller falls back to the timing heuristic.
+/// *is* waiting on you.
+///
+/// Oh My Pi (`omp`), measured against 18.1.6: `π <sep> <label>`, where the
+/// separator is a braille spinner frame (⠋⠙⠹…) while working, `>` when it is
+/// your turn and `!` when it is blocked on you — a permission prompt, again.
+/// Its `tui.titleState` setting, on by default, turns that off and leaves
+/// `π: <label>`, which says nothing. Pi itself titles `π - <label>` with no
+/// state at all; its bundled titlebar-spinner extension puts a braille frame
+/// first, so a leading spinner frame counts as working from any agent.
+///
+/// Any other title (the shell's own, say) means no agent is speaking, and the
+/// caller falls back to the timing heuristic.
 struct TitleScanner {
     state: TitleScan,
     buf: Vec<u8>,
@@ -159,19 +169,39 @@ impl TitleScanner {
     }
 
     /// None for an OSC that isn't a title at all (hyperlinks, colors) — those
-    /// say nothing about Claude. A real title that isn't Claude's is
-    /// Some(TITLE_UNKNOWN): the shell has retitled, Claude no longer speaks.
+    /// say nothing about any agent. A real title that carries no state is
+    /// Some(TITLE_UNKNOWN): the shell has retitled, the agent no longer speaks.
     fn classify(&self) -> Option<u8> {
-        // OSC 0 sets icon and title, 1 and 2 each half; Claude uses 0 today
+        // OSC 0 sets icon and title, 1 and 2 each half; both agents use 0 today
         let title = [b"0;".as_slice(), b"1;", b"2;"]
             .iter()
             .find_map(|p| self.buf.strip_prefix(*p))?;
-        Some(match String::from_utf8_lossy(title).chars().next() {
-            Some('✳') => TITLE_IDLE,
-            // the full half-circle family, though only ◐ and ◑ were observed
-            Some('◐'..='◓') => TITLE_WORKING,
+        Some(classify_title(&String::from_utf8_lossy(title)))
+    }
+}
+
+/// The braille patterns block, which is what every spinner drawn from
+/// ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ comes out of.
+fn is_spinner(c: char) -> bool {
+    ('\u{2800}'..='\u{28ff}').contains(&c)
+}
+
+/// What a terminal title says about the agent that set it — see
+/// `TitleScanner` for who says what.
+fn classify_title(title: &str) -> u8 {
+    let mut chars = title.chars();
+    match chars.next() {
+        Some('✳') => TITLE_IDLE,
+        // the full half-circle family, though only ◐ and ◑ were observed
+        Some('◐'..='◓') => TITLE_WORKING,
+        Some(c) if is_spinner(c) => TITLE_WORKING,
+        // omp: the state is the separator after the brand, "π ⠋ label"
+        Some('π') if chars.next() == Some(' ') => match chars.next() {
+            Some('>') | Some('!') => TITLE_IDLE,
+            Some(c) if is_spinner(c) => TITLE_WORKING,
             _ => TITLE_UNKNOWN,
-        })
+        },
+        _ => TITLE_UNKNOWN,
     }
 }
 
@@ -366,20 +396,21 @@ pub struct AgentStat {
     /// can find its row, not only a project its total
     pub id: String,
     pub cwd: String,
-    /// a `claude` or `codex` process is running under this shell
+    /// a coding agent is running under this shell — see `agent`
     pub running: bool,
-    /// Codex does not publish Claude's terminal-title state, so callers use
-    /// the output-activity fallback whenever this is the agent in the pane.
-    pub codex: bool,
+    /// which one: `claude`, `codex`, `pi` or `omp`. Claude and omp publish
+    /// their state in the terminal title; for the other two callers have
+    /// only the output-activity fallback.
+    pub agent: Option<String>,
     /// ms since that shell last printed anything — Claude Code animates while
     /// it works, so silence means it's finished and waiting on you
     pub quiet_ms: u64,
     /// how long the current unbroken run of output has lasted. A redraw
     /// triggered by focus or resize is a blip; real work sustains.
     pub burst_ms: u64,
-    /// what Claude's own terminal title says — Some(true) mid-task,
-    /// Some(false) waiting on you, None when no Claude title has been seen
-    /// and the caller has only quiet_ms/burst_ms to go on
+    /// what the agent's own terminal title says — Some(true) mid-task,
+    /// Some(false) waiting on you, None when no title with a state in it
+    /// has been seen and the caller has only quiet_ms/burst_ms to go on
     pub title_working: Option<bool>,
 }
 
@@ -390,9 +421,14 @@ pub struct AgentStat {
 /// twitching in time with the poll. Out here there is no main thread to
 /// protect and no command slot to park, so it is an ordinary blocking call —
 /// one of the things that got simpler purely by leaving the UI process.
+///
+/// Each child carries the name of the program it is running, read from its
+/// argv rather than its executable: `pi` is a node script and `omp` a bun
+/// one, so their executables are `node` and `bun`, and the name that means
+/// anything is the script's — `/usr/bin/env node /opt/homebrew/bin/pi`.
 fn ps_children() -> HashMap<u32, Vec<(u32, String)>> {
         let out = std::process::Command::new("/bin/ps")
-            .args(["-axo", "pid=,ppid=,comm="])
+            .args(["-ww", "-axo", "pid=,ppid=,command="])
             .output();
         let mut children: HashMap<u32, Vec<(u32, String)>> = HashMap::new();
         if let Ok(out) = out {
@@ -401,32 +437,53 @@ fn ps_children() -> HashMap<u32, Vec<(u32, String)>> {
                 // runs of whitespace — splitn on single chars yields empty
                 // fields here
                 let mut it = line.split_whitespace();
-                let (Some(pid), Some(ppid), Some(comm)) = (it.next(), it.next(), it.next())
-                else {
+                let (Some(pid), Some(ppid)) = (it.next(), it.next()) else {
                     continue;
                 };
                 if let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) {
-                    let name = comm.rsplit('/').next().unwrap_or("").to_string();
-                    children.entry(ppid).or_default().push((pid, name));
+                    children.entry(ppid).or_default().push((pid, program(it)));
                 }
             }
         }
         children
 }
 
-fn agents(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> (bool, bool) {
+/// The name of the program an argv is running: the basename of the first
+/// word that is neither a flag nor an interpreter standing in front of the
+/// script that is the actual program. Empty when there is none.
+fn program<'a>(argv: impl Iterator<Item = &'a str>) -> String {
+    const LAUNCHERS: [&str; 6] = ["env", "node", "bun", "deno", "npx", "bunx"];
+    argv.filter(|w| !w.starts_with('-'))
+        .map(|w| w.rsplit('/').next().unwrap_or(""))
+        .find(|w| !LAUNCHERS.contains(w))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// The coding agent a program name is, if it is one. Codex's binary is
+/// named for its target (`codex-aarch64-apple-darwin`), the others exactly.
+fn agent_of(name: &str) -> Option<&'static str> {
+    match name {
+        "claude" => Some("claude"),
+        n if n.starts_with("codex") => Some("codex"),
+        "pi" => Some("pi"),
+        "omp" => Some("omp"),
+        _ => None,
+    }
+}
+
+/// The first coding agent found anywhere below a shell, walking the
+/// process tree depth-first.
+fn agent(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> Option<&'static str> {
     if depth > 6 {
-        return (false, false);
+        return None;
     }
-    let mut found = (false, false);
     for (cpid, name) in children.get(&pid).into_iter().flatten() {
-        found.0 |= name.starts_with("claude");
-        found.1 |= name.starts_with("codex");
-        let nested = agents(children, *cpid, depth + 1);
-        found.0 |= nested.0;
-        found.1 |= nested.1;
+        if let Some(a) = agent_of(name).or_else(|| agent(children, *cpid, depth + 1)) {
+            return Some(a);
+        }
     }
-    found
+    None
 }
 
 fn status(sessions: &Sessions) -> Vec<AgentStat> {
@@ -439,24 +496,22 @@ fn status(sessions: &Sessions) -> Vec<AgentStat> {
         .iter()
         .map(|(id, s)| {
             let last = s.last_output.load(Ordering::Relaxed);
-            let (claude, codex) = s
-                .shell_pid
-                .map_or((false, false), |p| agents(&children, p, 0));
-            let running = claude || codex;
+            let agent = s.shell_pid.and_then(|p| agent(&children, p, 0));
+            let running = agent.is_some();
             if !running {
                 // don't let a dead session's last title speak for the next
                 // one: a claude that exits mid-work leaves ◐ behind, and a
                 // later launch would wear it until its own first retitle
-                s.claude_title.store(TITLE_UNKNOWN, Ordering::Relaxed);
+                s.agent_title.store(TITLE_UNKNOWN, Ordering::Relaxed);
             }
             AgentStat {
                 id: id.clone(),
                 cwd: s.cwd.clone(),
                 running,
-                codex,
+                agent: agent.map(str::to_string),
                 quiet_ms: now.saturating_sub(last),
                 burst_ms: last.saturating_sub(s.burst_start.load(Ordering::Relaxed)),
-                title_working: match s.claude_title.load(Ordering::Relaxed) {
+                title_working: match s.agent_title.load(Ordering::Relaxed) {
                     TITLE_WORKING => Some(true),
                     TITLE_IDLE => Some(false),
                     _ => None,
@@ -765,11 +820,11 @@ fn spawn_or_attach(
     let last_output = Arc::new(AtomicU64::new(now_ms()));
     let last_input = Arc::new(AtomicU64::new(0));
     let burst_start = Arc::new(AtomicU64::new(now_ms()));
-    let claude_title = Arc::new(AtomicU8::new(TITLE_UNKNOWN));
+    let agent_title = Arc::new(AtomicU8::new(TITLE_UNKNOWN));
     let reader_last = last_output.clone();
     let reader_input = last_input.clone();
     let reader_burst = burst_start.clone();
-    let reader_title = claude_title.clone();
+    let reader_title = agent_title.clone();
     let reader_alive = alive.clone();
     let reader_id = id.clone();
     let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK)));
@@ -832,7 +887,7 @@ fn spawn_or_attach(
             last_output,
             last_input,
             burst_start,
-            claude_title,
+            agent_title,
             parser,
         },
     );
@@ -1236,15 +1291,52 @@ mod tests {
     }
 
     #[test]
+    fn omp_titles_classify() {
+        let mut s = TitleScanner::new();
+        assert_eq!(feed(&mut s, "\x1b]0;π ⠋ fix the bug\x07"), Some(TITLE_WORKING));
+        assert_eq!(feed(&mut s, "\x1b]0;π ⠹ fix the bug\x07"), Some(TITLE_WORKING));
+        assert_eq!(feed(&mut s, "\x1b]0;π > fix the bug\x07"), Some(TITLE_IDLE));
+        // blocked on a permission prompt is waiting on you, as it is for Claude
+        assert_eq!(feed(&mut s, "\x1b]0;π ! fix the bug\x07"), Some(TITLE_IDLE));
+        // no label yet: the state is a trailing separator
+        assert_eq!(feed(&mut s, "\x1b]0;π ⠋\x07"), Some(TITLE_WORKING));
+        assert_eq!(feed(&mut s, "\x1b]0;π >\x07"), Some(TITLE_IDLE));
+        // tui.titleState off, and pi's own static title: nothing to read
+        assert_eq!(feed(&mut s, "\x1b]0;π: fix the bug\x07"), Some(TITLE_UNKNOWN));
+        assert_eq!(feed(&mut s, "\x1b]0;π - zero\x07"), Some(TITLE_UNKNOWN));
+        assert_eq!(feed(&mut s, "\x1b]0;π\x07"), Some(TITLE_UNKNOWN));
+        // pi's titlebar-spinner extension leads with the frame
+        assert_eq!(feed(&mut s, "\x1b]0;⠙ π - zero\x07"), Some(TITLE_WORKING));
+    }
+
+    #[test]
+    fn program_is_the_script_not_the_interpreter() {
+        let p = |s: &str| program(s.split_whitespace());
+        assert_eq!(p("claude"), "claude");
+        assert_eq!(p("/Users/v/.codex/bin/codex-aarch64-apple-darwin"), "codex-aarch64-apple-darwin");
+        assert_eq!(p("/usr/bin/env node /opt/homebrew/bin/pi --help"), "pi");
+        assert_eq!(p("node --no-warnings /opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js"), "cli.js");
+        assert_eq!(p("/usr/bin/env bun /Users/v/.bun/bin/omp"), "omp");
+        assert_eq!(p("/Users/v/.local/bin/omp"), "omp");
+        assert_eq!(p("-zsh"), "");
+        assert_eq!(p(""), "");
+    }
+
+    #[test]
     fn coding_agents_are_found_anywhere_below_the_shell() {
         let children = HashMap::from([
             (1, vec![(2, "zsh".to_string()), (3, "other".to_string())]),
             (2, vec![(4, "codex-aarch64-apple-darwin".to_string())]),
             (3, vec![(5, "claude".to_string())]),
+            (6, vec![(7, "omp".to_string())]),
+            (8, vec![(9, "pi".to_string()), (10, "pip".to_string())]),
         ]);
-        assert_eq!(agents(&children, 1, 0), (true, true));
-        assert_eq!(agents(&children, 2, 0), (false, true));
-        assert_eq!(agents(&children, 99, 0), (false, false));
+        assert_eq!(agent(&children, 1, 0), Some("codex"));
+        assert_eq!(agent(&children, 3, 0), Some("claude"));
+        assert_eq!(agent(&children, 6, 0), Some("omp"));
+        assert_eq!(agent(&children, 8, 0), Some("pi"));
+        assert_eq!(agent(&children, 99, 0), None);
+        assert_eq!(agent_of("pip"), None);
     }
 
     #[test]

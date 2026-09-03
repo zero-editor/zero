@@ -78,6 +78,9 @@ html.subzero {
      the amber is. A pane says which agent it holds by its colour before
      you have read a line of it. */
   --signal-codex: 60, 210, 160;
+  /* pi and omp share a lamp — one lineage, one colour — in the violet-blue
+     of omp's own mark, far enough from the ice's cyan to read as its own. */
+  --signal-pi: 122, 128, 255;
 }
 
 /* Snow. The same window in daylight — white plates on pale ice-grey, ice
@@ -102,6 +105,7 @@ html.subzero.light {
   --ice: 47, 127, 193;
   --signal: 200, 118, 31;
   --signal-codex: 18, 145, 105;
+  --signal-pi: 84, 88, 214;
 }
 
 /* Under glass the scrim keeps the tone: the default theme's alphas, in
@@ -277,13 +281,19 @@ html.subzero .sidebar {
    same edge held steady and a shade brighter, until you go there. The
    glow lives on the slot rather than the card, so it reaches into the gap
    between panes and is not clipped by the card's own overflow. Amber for
-   Claude, green for Codex (Terminals says which); one lamp, two colours. */
+   Claude, green for Codex, violet-blue for pi and omp (Terminals says which);
+   one lamp, three colours. */
 html.subzero .term-abs {
   --lamp: var(--signal);
 }
 
 html.subzero .term-abs.agent-codex {
   --lamp: var(--signal-codex);
+}
+
+html.subzero .term-abs.agent-pi,
+html.subzero .term-abs.agent-omp {
+  --lamp: var(--signal-pi);
 }
 
 html.subzero .term-abs.agent-working::before,
@@ -346,26 +356,46 @@ html.subzero .split-hint::after {
    them. They sat in a capsule at the left for a while, and the capsule was
    one more box on a bar whose job is to name four projects. */
 
-/* the heartbeat, in amber, with more light than the white one had — the
-   one warm thing in the bar, and it can be seen from across the room */
+/* the heartbeat, with more light than the white one had — the one warm
+   thing in the bar, and it can be seen from across the room. It wears the
+   same colour as the pane it speaks for: amber for Claude, and the other
+   lamps for the others (Titlebar names the agent when there is one to name;
+   a project with two kinds at work keeps the amber). The arc's bright tip
+   is a tint of the lamp; Claude's is the hand-picked one it always had. */
+html.subzero .agent-ring {
+  --lamp: var(--signal);
+  --lamp-tip: #ffc98f;
+}
+
+html.subzero .agent-ring.agent-codex {
+  --lamp: var(--signal-codex);
+  --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
+}
+
+html.subzero .agent-ring.agent-pi,
+html.subzero .agent-ring.agent-omp {
+  --lamp: var(--signal-pi);
+  --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
+}
+
 html.subzero .agent-ring::after {
   background: conic-gradient(
     from 0deg,
     transparent 0deg 250deg,
-    rgba(var(--signal), 0.5) 330deg,
-    #ffc98f 358deg,
+    rgba(var(--lamp), 0.5) 330deg,
+    var(--lamp-tip) 358deg,
     transparent 360deg
   );
-  filter: drop-shadow(0 0 3px rgba(var(--signal), 0.8));
+  filter: drop-shadow(0 0 3px rgba(var(--lamp), 0.8));
 }
 
 html.subzero .agent-ring.working::before {
-  border-color: rgba(var(--signal), 0.14);
+  border-color: rgba(var(--lamp), 0.14);
 }
 
 html.subzero .agent-ring.done {
-  border-color: rgb(var(--signal));
-  box-shadow: 0 0 6px 0 rgba(var(--signal), 0.6);
+  border-color: rgb(var(--lamp));
+  box-shadow: 0 0 6px 0 rgba(var(--lamp), 0.6);
 }
 
 /* the bar's buttons take a soft chip under the pointer, so the cluster

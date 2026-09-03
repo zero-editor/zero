@@ -182,7 +182,9 @@ export function Titlebar({
                   );
                 return (
                   <span
-                    className={`agent-ring ${working ? "working" : "done"}`}
+                    // the agent's own colour, where the theme gives it one
+                    // (subzero.css) and where there is one agent to name
+                    className={`agent-ring ${working ? "working" : "done"} ${c?.agent ? `agent-${c.agent}` : ""}`}
                     title={
                       working
                         ? `${working} agent${working === 1 ? "" : "s"} working`

@@ -670,17 +670,22 @@ pub fn cli(kill: bool) -> ! {
                     let cwd = s["cwd"].as_str().unwrap_or("?");
                     let quiet_ms = s["quiet_ms"].as_u64().unwrap_or(0);
                     let quiet = quiet_ms / 1000;
-                    let codex = s["codex"].as_bool() == Some(true);
-                    let agent = if codex { "codex" } else { "claude" };
-                    // Codex never sets Claude's title, so asking the title
-                    // whether it is working would answer "waiting on you" all
-                    // the way through a turn. It gets the same output-activity
-                    // fallback the tab strip gives it, thresholds included —
+                    // a daemon from before rows named their agent said only
+                    // whether it was Codex
+                    let agent = s["agent"].as_str().unwrap_or(match s["codex"].as_bool() {
+                        Some(true) => "codex",
+                        _ => "claude",
+                    });
+                    // Claude and omp say in their own title whether they are
+                    // working. Codex and pi never set one, so asking the title
+                    // would answer "waiting on you" all the way through a
+                    // turn; they get the same output-activity fallback the tab
+                    // strip gives them, thresholds included —
                     // src/lib/agentStatus.ts is where they are explained.
-                    let working = if codex {
-                        quiet_ms < 1500 && s["burst_ms"].as_u64().unwrap_or(0) >= 600
-                    } else {
-                        s["title_working"].as_bool() == Some(true)
+                    let active = quiet_ms < 1500 && s["burst_ms"].as_u64().unwrap_or(0) >= 600;
+                    let working = match agent {
+                        "claude" | "omp" => s["title_working"].as_bool().unwrap_or(active),
+                        _ => active,
                     };
                     let what = match (s["running"].as_bool(), working) {
                         (Some(true), true) => format!("{agent}, working"),
