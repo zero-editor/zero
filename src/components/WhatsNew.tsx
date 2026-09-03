@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { miniMarkdown } from "../lib/miniMarkdown";
-import { releaseNotesBetween, type ReleaseNote } from "../lib/releaseNotes";
+import { markNotesSeen, releaseNotesBetween, type ReleaseNote } from "../lib/releaseNotes";
 
 /**
  * What the staged update is carrying, asked for by clicking the titlebar
@@ -15,6 +15,12 @@ import { releaseNotesBetween, type ReleaseNote } from "../lib/releaseNotes";
  * failed and is being retried. GitHub not answering is worth one quiet
  * line, not a broken dialog — the update itself is already here, and the
  * restart works the same with nothing above it.
+ *
+ * It is also the dialog a launch opens when it finds it is running a version
+ * whose notes were never read — the same notes, minus the decision, since by
+ * then the restart has happened. Whichever of the two gets there first marks
+ * the version read (as soon as notes are on the screen, not when the box is
+ * dismissed), which is what keeps the other one quiet.
  */
 export function WhatsNew({
   from,
@@ -24,10 +30,12 @@ export function WhatsNew({
 }: {
   /** the running version */
   from: string;
-  /** the staged one */
+  /** the staged one — or, after a launch caught up, the one now running */
   to: string;
   onClose: () => void;
-  onRestart: () => void;
+  /** the restart the notes are the reasons for; absent once it has already
+   *  happened, and then the foot is just a way out */
+  onRestart?: () => void;
 }) {
   // null while loading, [] and up once answered, false when GitHub didn't
   const [notes, setNotes] = useState<ReleaseNote[] | false | null>(null);
@@ -35,7 +43,10 @@ export function WhatsNew({
   useEffect(() => {
     let live = true;
     void releaseNotesBetween(from, to).then((got) => {
-      if (live) setNotes(got ?? false);
+      if (!live) return;
+      setNotes(got ?? false);
+      // on the screen is read: the launch after a restart owes nothing more
+      if (got) markNotesSeen(to);
     });
     return () => {
       live = false;
@@ -91,9 +102,15 @@ export function WhatsNew({
           )}
         </div>
         <div className="whats-new-foot">
-          <button className="whats-new-restart" onClick={onRestart}>
-            restart into zero {to}
-          </button>
+          {onRestart ? (
+            <button className="whats-new-restart" onClick={onRestart}>
+              restart into zero {to}
+            </button>
+          ) : (
+            <button className="whats-new-restart" onClick={onClose}>
+              got it
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { identicon, useProjectIcons } from "../lib/projectIcon";
 import { useTabReorder } from "../lib/tabReorder";
 import { useUpdate } from "../lib/update";
 import { WhatsNew } from "./WhatsNew";
+import { arrivalNotesFrom } from "../lib/releaseNotes";
 
 const sameSet = (a: Set<string>, b: Set<string>) =>
   a.size === b.size && [...a].every((v) => b.has(v));
@@ -108,6 +109,25 @@ export function Titlebar({
   // the update pill's dialog — what the staged version is carrying, with the
   // restart at the bottom of it
   const [notesOpen, setNotesOpen] = useState(false);
+
+  /* The same notes from the other side. An update installs on the way out —
+     restart, ⌘Q and reopen, `brew upgrade` — so the reader can perfectly well
+     arrive on a new version having never seen the pill that described it, and
+     by then there is no staged update left for anything to hang off. So the
+     launch asks the question itself: is this newer than the last version whose
+     notes were on screen? Only then, and only once, since opening this marks
+     it read (see releaseNotes.ts) — which is also why reading them at the pill
+     before restarting leaves this silent. */
+  const [arrivedFrom, setArrivedFrom] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void arrivalNotesFrom(__APP_VERSION__).then((from) => {
+      if (live) setArrivedFrom(from);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   return (
     <div className="titlebar" ref={barRef} data-tauri-drag-region>
@@ -332,6 +352,14 @@ export function Titlebar({
           to={ready}
           onClose={() => setNotesOpen(false)}
           onRestart={() => void restart()}
+        />
+      )}
+      {/* the catch-up, and never over the top of the pill's own dialog */}
+      {arrivedFrom && !(notesOpen && ready) && (
+        <WhatsNew
+          from={arrivedFrom}
+          to={__APP_VERSION__}
+          onClose={() => setArrivedFrom(null)}
         />
       )}
     </div>

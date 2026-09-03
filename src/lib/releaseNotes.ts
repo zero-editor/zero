@@ -97,6 +97,59 @@ export function prefetchReleaseNotes(from: string, to: string): void {
   void releaseNotesBetween(from, to);
 }
 
+/* ---------- what has already been read ----------
+
+   The notes are owed at two moments — before a restart, hanging off the
+   staged update, and after one, for the version that turned up — and the
+   reader wants whichever comes first and then neither again. One mark
+   settles it: the newest version whose notes have been on screen. Read them
+   at the pill and the launch that follows has nothing to add; skip the pill
+   and the launch is where they turn up.
+
+   Written the moment notes render rather than when the dialog closes: shown
+   is shown, and quitting with it open is not a reason to show it twice.
+   A window with no localStorage (private, full disk) simply never marks,
+   which costs a repeat rather than an error. */
+const SEEN = "zero-notes-seen";
+
+export function markNotesSeen(version: string): void {
+  try {
+    localStorage.setItem(SEEN, version);
+  } catch {
+    /* nothing to be done, and nothing worth saying */
+  }
+}
+
+/**
+ * The version a launch should show notes *from*, or null when it owes none:
+ * a first run (nothing to catch up on), a version already read, or a GitHub
+ * that didn't answer — which leaves the mark where it is, so the next launch
+ * asks again rather than swallowing the notes for good.
+ *
+ * A jump whose releases all came out empty is marked and passed over: a
+ * dialog with nothing in it is worse than no dialog.
+ */
+export async function arrivalNotesFrom(running: string): Promise<string | null> {
+  let seen: string | null = null;
+  try {
+    seen = localStorage.getItem(SEEN);
+  } catch {
+    return null;
+  }
+  if (!seen) {
+    markNotesSeen(running); // a fresh install has nothing to be caught up on
+    return null;
+  }
+  if (!older(seen, running)) return null;
+  const notes = await releaseNotesBetween(seen, running);
+  if (!notes) return null; // offline: the mark stays, the next launch retries
+  if (!notes.some((n) => n.body)) {
+    markNotesSeen(running);
+    return null;
+  }
+  return seen;
+}
+
 const cache = new Map<string, Promise<ReleaseNote[] | null>>();
 
 async function fetchBetween(from: string, to: string): Promise<ReleaseNote[] | null> {
