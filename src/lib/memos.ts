@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
 import { api, Memo, MemoProbe } from "./api";
 
 /**
@@ -731,12 +730,23 @@ export function useMemos(
   const importMemo = useCallback(
     (into?: string) => {
       void run("import", async () => {
-        const path = await open({
-          multiple: false,
-          directory: false,
-          filters: [{ name: "audio", extensions: AUDIO_EXTENSIONS }],
-          title: into ? "import a follow-up recording" : "import a voice recording",
-        });
+        const title = into ? "import a follow-up recording" : "import a voice recording";
+        // Never the dialog plugin, in any build. Its file panel takes zero
+        // down: macOS 26 hands back a NULL `NSOpenPanel` and objc2 panics on
+        // the NULL rather than returning it, so pressing import was a way to
+        // quit the app — in the dev build and in released 0.37.0 alike, where
+        // it was reported and reproduced.
+        //
+        // Note what is *not* the explanation, because the obvious one is
+        // wrong: this is not about the unbundled binary `tauri dev` runs.
+        // `pickProject` calls the same plugin for a *folder* in the shipped
+        // app and works. The file panel is the one that dies, and until that
+        // is understood it does not get called here.
+        //
+        // osascript is asked for the same panel instead — bundled, and the
+        // route "open project" already takes in dev. `choose file` takes the
+        // extensions the plugin's filters would have.
+        const path = await api.pickFile(title, AUDIO_EXTENSIONS);
         if (typeof path !== "string") return;
         follow(await api.memoImport(root, path, into));
       });
