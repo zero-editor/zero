@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Twenty-nine thousand lines, a 19 MB app. It exists because Cursor was an 860 MB
+Thirty-seven thousand lines, a 20 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -11,8 +11,8 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-29,465 lines of source   (25,281 code, 4,184 CSS)
-    19 MB app bundle            Cursor: 845 MB
+37,121 lines of source   (30,943 code, 6,178 CSS)
+    20 MB app bundle            Cursor: 845 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    594 MB with 4 projects open  Cursor: 1,709 MB
 ```
@@ -26,7 +26,7 @@ boot to reproduce).
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **19 MB** | 845 MB | 44× |
+| App bundle | **20 MB** | 845 MB | 42× |
 | Files in the bundle | **7** | 17,021 | |
 | Shipped JS | **1.5 MB** at startup, 2.8 MB in all | 265 MB in 11,995 files | 180× |
 | Bundled runtime | 0, system WebKit | 257 MB of Electron | |

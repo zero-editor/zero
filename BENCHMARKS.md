@@ -26,7 +26,7 @@ Method    3 launches each, median reported, apps quit between runs;
 
 | | zero | Cursor | |
 |---|---:|---:|---|
-| App bundle | **19 MB** | 845 MB | 44× |
+| App bundle | **20 MB** | 845 MB | 42× |
 | Installer | **8.1 MB** dmg | — | |
 | Files in the bundle | **7** | 17,021 | |
 | Shipped JS | **1.5 MB** loaded, 2.8 MB in all | 265 MB across 11,995 files | 180× |
@@ -242,7 +242,7 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **29,465 lines** (14,046 TS/TSX · 10,427 Rust · 4,184 CSS · 808 Swift) | closed, VS Code fork |
+| Source | **37,121 lines** (17,803 TS/TSX · 12,332 Rust · 6,178 CSS · 808 Swift) | closed, VS Code fork |
 | npm dependencies | **30** direct, 77 in the production tree | — |
 | Rust crates | 492 | — |
 
