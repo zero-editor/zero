@@ -2,7 +2,7 @@
 
 A minimal macOS code editor built around running coding agents.
 
-Thirty-seven thousand lines, a 20 MB app. It exists because Cursor was an 860 MB
+Thirty-eight thousand lines, a 20 MB app. It exists because Cursor was an 860 MB
 window around a terminal running Claude Code, and almost none of the rest of it
 was getting used. So this is the rest of it, removed: projects as tabs, a
 terminal that takes the full width, git worktrees down the side, and an editor
@@ -11,7 +11,7 @@ for when you actually need to read a file.
 Never capitalised. It's `zero`, not Zero.
 
 ```
-37,121 lines of source   (30,943 code, 6,178 CSS)
+38,097 lines of source   (31,854 code, 6,243 CSS)
     20 MB app bundle            Cursor: 845 MB
   0.4 s to a window from cold   Cursor: 8.2 s
    594 MB with 4 projects open  Cursor: 1,709 MB
@@ -100,6 +100,20 @@ disk and frame-rate ones were measured by hand and say how.
 **Projects are tabs.** Each one keeps its own terminals, sidebar and open files,
 and switching between them is a compositor swap — every project stays laid out
 and painted, so nothing re-fits or re-rasterises when you come back to it.
+
+**A project can be several folders.** For a codebase split across repositories
+that aren't next to each other on disk — when they are, open their parent and
+none of this is needed. `+ add folder` under the file tree, or the project
+tab's menu; the tree grows a row per folder and the changes panel names each
+one beside its branch, because three repositories on `main` are otherwise three
+rows reading the same. ⌘P and search span all of them, with the folder's name
+in front of each result. Terminals open in the first folder, which is also the
+one that can't be removed: it is what the project's saved layout, its notes and
+its Linear config are keyed on. A project of one folder looks exactly as it
+always did — no headers, no prefixes — so the structure only shows up when
+there is something to tell apart. Rename the tab from its own menu, since a
+project holding three repositories is otherwise named after whichever one you
+opened first.
 
 **A ring per tab tells you what your coding agent is doing.** A sweeping arc
 while a session is working, a closed circle once it has gone quiet and is
