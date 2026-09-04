@@ -167,6 +167,112 @@ export interface Memo {
   needs_login: boolean;
 }
 
+
+// ─── Linear ──────────────────────────────────────────────────────────────────
+// Mirrors src-tauri/src/linear.rs. The pull request state is Linear's own copy
+// of GitHub's, kept current by its GitHub integration, so a row can say
+// "merged" without this app holding a GitHub credential.
+
+export interface LinearLabel {
+  name: string;
+  color: string;
+}
+
+export interface LinearPr {
+  number: number;
+  url: string;
+  repo: string;
+  /** open | draft | merged | closed */
+  status: string;
+  branch: string;
+  hasConflicts: boolean;
+  targetBranch: string;
+}
+
+/** what the checkout knows, which is the half Linear cannot see */
+export interface LinearLocal {
+  branch: string | null;
+  worktree: string | null;
+  /** that worktree is the one this window has open */
+  current: boolean;
+}
+
+export interface LinearIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+  branchName: string;
+  priority: number;
+  state: string;
+  /** triage | backlog | unstarted | started | completed | canceled */
+  stateType: string;
+  stateColor: string;
+  statePosition: number;
+  assignee: string | null;
+  /** their picture, when set — the two hosts these come from are named in the
+   *  app's img-src, which is the only reason one loads */
+  assigneeAvatar: string | null;
+  /** Linear's own initials for them, for when there's no picture */
+  assigneeInitials: string | null;
+  isMine: boolean;
+  /** the Linear project it belongs to, if any — one of the filter's axes */
+  project: string | null;
+  /** the team's key, another */
+  team: string;
+  labels: LinearLabel[];
+  prs: LinearPr[];
+  local: LinearLocal;
+  updatedAt: string;
+}
+
+/** one connected project, for Preferences to name and undo */
+export interface LinearConnection {
+  root: string;
+  /** the Linear workspace it belongs to, or null when it could not be asked */
+  org: string | null;
+}
+
+export interface LinearComment {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: string;
+}
+
+export interface LinearIssueDetail extends LinearIssue {
+  description: string;
+  createdAt: string;
+  comments: LinearComment[];
+}
+
+export interface LinearViewer {
+  name: string;
+  email: string;
+  org: string;
+  urlKey: string;
+}
+
+export interface LinearComment {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: string;
+}
+
+export interface LinearIssueDetail extends LinearIssue {
+  description: string;
+  createdAt: string;
+  comments: LinearComment[];
+}
+
+export interface LinearViewer {
+  name: string;
+  email: string;
+  org: string;
+  urlKey: string;
+}
+
 export const api = {
   /** print to the stdout of `tauri dev` — the webview console isn't forwarded */
   debugLog: (msg: string) => invoke<void>("debug_log", { msg }),
@@ -177,6 +283,21 @@ export const api = {
   /** tell WindowServer whether this window still needs per-frame blending —
    *  opaque whenever glass is off, see src-tauri/src/opaque.rs */
   setOpaque: (opaque: boolean) => invoke<void>("set_opaque", { opaque }),
+  /* Linear. `root` is always the project the panel belongs to, on every call:
+     the token, the mapping, and the git half of every answer are all per
+     project. A Linear key is scoped to one workspace, so a machine-wide token
+     would mean every project in the app could only ever see one company. */
+  linearConnected: (root: string) => invoke<boolean>("linear_connected", { root }),
+  linearConnect: (root: string, token: string) =>
+    invoke<LinearViewer>("linear_connect", { root, token }),
+  linearDisconnect: (root: string) => invoke<void>("linear_disconnect", { root }),
+  /** the projects holding a token, and the workspace each is connected to */
+  linearConnections: () => invoke<LinearConnection[]>("linear_connections"),
+  linearIssues: (root: string) => invoke<LinearIssue[]>("linear_issues", { root }),
+  linearIssue: (root: string, id: string) =>
+    invoke<LinearIssueDetail>("linear_issue", { root, id }),
+  linearSaveDescription: (root: string, id: string, description: string) =>
+    invoke<void>("linear_save_description", { root, id, description }),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
   addRecent: (path: string) => invoke<void>("add_recent", { path }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),

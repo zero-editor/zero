@@ -29,6 +29,9 @@
 
 /* a footer, mirroring the title's rule at the other end of the box */
 .settings-version {
+  /* held out of the scroller's way: the panes take the slack, this keeps its
+     own height so a long pane can't squeeze it */
+  flex: none;
   padding: 8px 14px;
   border-top: 1px solid var(--border);
   font-family: var(--font-mono);
@@ -91,4 +94,170 @@
   width: 9px;
   height: 9px;
   border-radius: 2px;
+}
+
+/* ── panes ─────────────────────────────────────────────────────────────── */
+
+/* Under the title and on the same hairline, so the two read as one head. The
+   strip paints nothing of its own: only the active tab does, which is the same
+   rule the sidebar's own tabs follow. */
+.settings-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  /* 6px here plus the tab's own 8px lands the first label on the same 14px
+     column every group label and choice below it stands on */
+  padding: 6px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tab {
+  border: 0;
+  background: none;
+  padding: 4px 8px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+  /* the underline is drawn whether the tab is on or not, transparent when it
+     is not, so switching tabs moves nothing */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.settings-tab:hover {
+  color: var(--text-dim);
+}
+
+.settings-tab.on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.settings-panes {
+  /* takes the leftover height and scrolls inside it, so the title, the tabs
+     and the version line stay put while a long pane moves under them.
+     `min-height: 0` because a flex child's default floor is its content, and
+     without it the box grows past its max-height instead of scrolling. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* the compositing hint every scroller under glass needs */
+  transform: translateZ(0);
+}
+
+/* ── a labelled control on one line ────────────────────────────────────── */
+
+/* The group itself has no horizontal padding; each child carries the 14px, the
+   way .settings-label and .settings-choice do. Anything added here has to pay
+   the same 14px or it hangs off the edge the others hold. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+}
+
+.settings-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* a real switch: the track carries the state, the knob carries the motion */
+.settings-toggle {
+  flex: none;
+  position: relative;
+  width: 30px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: var(--bg-field);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+  transition: background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.settings-toggle.on {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.settings-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.14s ease, background 0.14s ease;
+}
+
+.settings-toggle.on .settings-knob {
+  background: #fff;
+  transform: translateX(13px);
+}
+
+/* ── what is connected ─────────────────────────────────────────────────── */
+
+.settings-conns {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.settings-conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+}
+
+/* the project, then the workspace it is connected to: the project is the
+   subject and takes the room, the workspace is the answer to "to what" and
+   stays quiet beside it */
+.settings-conn-org {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.settings-conn-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* the destructive verb stays quiet until you are on it — it is the only
+   button in this overlay that undoes something */
+.settings-conn-x {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 1px 4px;
+  border-radius: var(--panel-radius);
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.settings-conn-x:hover {
+  color: var(--red);
+  background: var(--bg-hover);
+}
+
+/* a line of prose under a control, on the same 14px as everything else */
+.settings-note {
+  padding: 2px 14px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
 }

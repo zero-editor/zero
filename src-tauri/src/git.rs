@@ -111,7 +111,7 @@ fn exec_key_overrides(cwd: &str) -> Arc<Vec<String>> {
 
 /// For commands that run on their own — everything the panel polls. Neutralises
 /// the repository's program-naming config first; see [`EXEC_KEY_SUFFIX`].
-fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
     let overrides = exec_key_overrides(cwd);
     let out = git_base(cwd)
         .args(overrides.iter())

@@ -4,6 +4,7 @@ import { DiffView } from "./DiffView";
 import { ImageDiffView } from "./ImageDiffView";
 import { FileView } from "./FileView";
 import { ImageView } from "./ImageView";
+import { IssueView } from "./IssueView";
 import { MemoThread } from "./MemoThread";
 import { NewFileView } from "./NewFileView";
 import { isImage } from "../lib/imageFile";
@@ -17,6 +18,15 @@ import { STATUS_NAME, type GitMark } from "../lib/gitStatus";
 import { useTabReorder } from "../lib/tabReorder";
 import type { Side } from "../lib/layout";
 
+/** The same Linear mark the rail wears, at tab size, so a tab and the panel
+ *  that opened it are visibly the same thing. Padded out to match the 81% the
+ *  seti icons beside it occupy — see the note in Sidebar.tsx. */
+const ISSUE_GLYPH = (
+  <svg viewBox="-2.8 -2.8 29.6 29.6" width="12" height="12" fill="currentColor">
+    <path d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z" />
+  </svg>
+);
+
 function viewLabel(v: View, memos: Memos): string {
   if (v.kind === "new") return v.name;
   // The memo's own title, live: a merge renames it, and the tab is where that
@@ -28,6 +38,10 @@ function viewLabel(v: View, memos: Memos): string {
       memos.memos.find((m) => m.id === v.id),
       v.id,
     );
+  // The identifier alone. The title is the tab's tooltip and the view's own
+  // heading; a tab strip full of "adapt-1: Kraken funding read 404s, so…" is a
+  // tab strip you can't scan.
+  if (v.kind === "issue") return v.identifier;
   const p = v.kind === "diff" ? v.relPath : v.absPath;
   return p.split("/").pop() ?? p;
 }
@@ -37,19 +51,23 @@ function viewAbs(v: View, root: string): string {
   // a thread is a reading of a file, and this is the file — which is worth
   // saying in the one line of chrome that says where you are
   if (v.kind === "memo") return memoPaths(root, v.id).md;
+  // Not a path at all. The breadcrumb wants something to say and the issue's
+  // identifier is what it is called everywhere else; `viewFile` below is what
+  // stops anything trying to open it.
+  if (v.kind === "issue") return v.identifier;
   return v.kind === "diff" ? `${v.worktree}/${v.relPath}` : v.absPath;
 }
 
 /** the file a view is of, and null for the one kind that isn't on disk yet —
  *  an untitled buffer has a name but nowhere to be revealed */
 function viewFile(v: View, root: string): string | null {
-  return v.kind === "new" ? null : viewAbs(v, root);
+  return v.kind === "new" || v.kind === "issue" ? null : viewAbs(v, root);
 }
 
 // path shown in the breadcrumb: relative to the project when it lives inside it
 function viewPath(v: View, root: string): string {
   const abs = viewAbs(v, root);
-  if (v.kind === "new") return abs;
+  if (v.kind === "new" || v.kind === "issue") return abs;
   if (abs.startsWith(root + "/")) return abs.slice(root.length + 1);
   // A linked worktree sits beside the project rather than inside it, so the
   // rule above misses it and the whole home path comes back — half of which is
@@ -294,8 +312,17 @@ export function EditorPane({
               >
                 {/* the file's own icon, from the same seti set the tree uses.
                     Taken from the path rather than the label because a memo's
-                    label is its title — the path is what names a file there. */}
-                <FileIconSpan name={viewPath(v, root).split("/").pop() ?? ""} />
+                    label is its title — the path is what names a file there.
+                    An issue has no path and no file type, and the seti set
+                    answers a name it doesn't know with a plain page — which on
+                    this tab would read as "a file we couldn't identify" rather
+                    than "not a file". So it gets the rail's own issues glyph,
+                    which is the one mark in the app that already means this. */}
+                {v.kind === "issue" ? (
+                  <span className="file-icon issue-tab-icon">{ISSUE_GLYPH}</span>
+                ) : (
+                  <FileIconSpan name={viewPath(v, root).split("/").pop() ?? ""} />
+                )}
                 <span className={`editor-tab-label ${mark ? `git-${mark.mark}` : ""}`}>
                   {viewLabel(v, memos)}
                 </span>
@@ -380,6 +407,13 @@ export function EditorPane({
                     visible={i === activeView}
                   />
                 )
+              ) : v.kind === "issue" ? (
+                <IssueView
+                  root={root}
+                  id={v.id}
+                  identifier={v.identifier}
+                  visible={i === activeView}
+                />
               ) : v.kind === "memo" ? (
                 <MemoThread
                   root={root}

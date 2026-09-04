@@ -5110,6 +5110,8 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "portable-pty",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",

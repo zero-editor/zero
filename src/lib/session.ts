@@ -156,6 +156,8 @@ function validViews(v: unknown): View[] {
     // a memo thread is an id and the project it was stored under; whether that
     // memo still exists is the thread's own business, and it says so quietly
     if (view.kind === "memo") return typeof view.id === "string";
+    if (view.kind === "issue")
+      return typeof view.id === "string" && typeof view.identifier === "string";
     return false;
   });
 }
@@ -189,6 +191,7 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
       p.sidebarTab === "files" ||
       p.sidebarTab === "scm" ||
       p.sidebarTab === "search" ||
+      p.sidebarTab === "issues" ||
       p.sidebarTab === "memos"
         ? p.sidebarTab
         : undefined,

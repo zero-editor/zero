@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
+import { IssuesPanel } from "./IssuesPanel";
 import { WorktreePanel } from "./WorktreePanel";
 import { FileTree, type Reveal } from "./FileTree";
 import { SearchPanel } from "./SearchPanel";
@@ -9,8 +10,9 @@ import { api } from "../lib/api";
 import { goToNoteEnd } from "../lib/notes";
 import type { Search } from "../lib/search";
 import type { Memos } from "../lib/memos";
+import { useSettings } from "../lib/settings";
 
-export type SidebarTab = "scm" | "files" | "search" | "memos";
+export type SidebarTab = "scm" | "files" | "search" | "issues" | "memos";
 
 // activity-bar glyphs, drawn to the same 16px / 1.2-stroke grid
 const ICONS: Record<SidebarTab, ReactElement> = {
@@ -38,6 +40,23 @@ const ICONS: Record<SidebarTab, ReactElement> = {
     <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2">
       <circle cx="7" cy="7" r="4.2" />
       <path d="M10.1 10.1 13.5 13.5" strokeLinecap="round" />
+    </svg>
+  ),
+  // Linear's own logomark, not a glyph of our own. Every other icon in this
+  // run says what its panel *shows*; this one says where the contents come
+  // from, because that is the thing worth knowing about a panel whose rows are
+  // somebody else's records and whose state lives on their server.
+  //
+  // It is the only filled mark in a run of stroked ones, and that is inherent
+  // to the logo rather than a decision available to us. What is a decision is
+  // the size: the drawn glyphs occupy about 81% of their 16px box, and this
+  // mark fills its own viewBox edge to edge, so the box is padded out to
+  // 29.6 units to land the two at the same visual weight. It takes
+  // `currentColor` like the rest, so it dims and lights with its neighbours
+  // rather than sitting in brand purple while they respond to hover.
+  issues: (
+    <svg viewBox="-2.8 -2.8 29.6 29.6" width="16" height="16" fill="currentColor">
+      <path d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z" />
     </svg>
   ),
   // capsule, cradle, stem — no base foot, and no waveform bars, which would
@@ -87,8 +106,14 @@ const TABS: { id: SidebarTab; title: string }[] = [
   { id: "files", title: "files (⌘⇧E)" },
   { id: "search", title: "search (⌘⇧F)" },
   { id: "scm", title: "changes (⌃⇧G)" },
+  { id: "issues", title: "issues (⌃⇧I)" },
   { id: "memos", title: "memos (⌘⇧M)" },
 ];
+
+/** The rail, minus anything switched off in Preferences. Filtered rather than
+ *  hidden with CSS so the tabs keep dividing the strip evenly between however
+ *  many there are. */
+const railTabs = (linear: boolean) => TABS.filter((t) => t.id !== "issues" || linear);
 
 export function Sidebar({
   project,
@@ -133,6 +158,8 @@ export function Sidebar({
   // looking at it, and this dot is all of it — no titlebar presence, no
   // notifications, no sound. Red beats everything because a live mic may never
   // be invisible; then work in progress; then a memo that came back unread.
+  const linear = useSettings().linear;
+
   const dot = memos.recording
     ? "rec"
     : memos.working
@@ -153,7 +180,7 @@ export function Sidebar({
   return (
     <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-tabs">
-        {TABS.map((t) => (
+        {railTabs(linear).map((t) => (
           <button
             key={t.id}
             className={`sidebar-tab ${tab === t.id ? "active" : ""}`}
@@ -211,6 +238,14 @@ export function Sidebar({
             search={search}
             onOpenView={onOpenView}
             onRevealInTree={onRevealInTree}
+          />
+        )}
+        {linear && tab === "issues" && (
+          <IssuesPanel
+            project={project}
+            active={active && tab === "issues" && !collapsed}
+            activeKey={activeKey}
+            onOpenView={onOpenView}
           />
         )}
         {tab === "memos" && (

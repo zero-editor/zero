@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { api, type LinearConnection } from "../lib/api";
 import { EDITOR_THEME_CHOICES } from "../lib/cmTheme";
 import { updateSettings, useSettings } from "../lib/settings";
 import { FIELDS } from "../lib/settings";
@@ -23,6 +24,21 @@ const THEME_CHOICES: { id: Theme; label: string; swatch: string[] }[] = [
  */
 export function Settings({ onClose }: { onClose: () => void }) {
   const settings = useSettings();
+  const [pane, setPane] = useState<"appearance" | "integrations">("appearance");
+  // Which projects hold a Linear token. Read here rather than passed in: this
+  // overlay belongs to the app, not to a project, so "what is connected" is a
+  // list rather than a single yes or no.
+  const [connections, setConnections] = useState<LinearConnection[]>([]);
+  const refreshConnections = useCallback(
+    () => void api.linearConnections().then(setConnections).catch(() => setConnections([])),
+    [],
+  );
+  useEffect(refreshConnections, [refreshConnections]);
+  // The Linear group below is a switch and nothing more. A key is scoped to
+  // one workspace and this overlay is one for the whole app, so a token in
+  // here could only ever connect every project to the same company — which is
+  // why the token lives in the Issues panel, per project, and only the "is
+  // this integration on at all" question lives here.
 
   // capture phase: while the overlay is up it is the topmost layer, and ⎋
   // belongs to it — not to quick open under it, not to a memo recording
@@ -41,6 +57,24 @@ export function Settings({ onClose }: { onClose: () => void }) {
     <div className="quick-backdrop" onMouseDown={onClose}>
       <div className="settings-box" onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-title">preferences</div>
+        {/* Two panes, because the second one isn't about how the app looks.
+            Grouping integrations under "appearance" would have been the kind
+            of tidy that makes a thing harder to find. */}
+        <div className="settings-tabs">
+          {(["appearance", "integrations"] as const).map((t) => (
+            <button
+              key={t}
+              className={`settings-tab ${pane === t ? "on" : ""}`}
+              onClick={() => setPane(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="settings-panes">
+        {pane === "appearance" && (
+          <>
         <div className="settings-group">
           <div className="settings-label">theme</div>
           {/* a theme brings its terminal style with it: subzero is drawn for
@@ -192,6 +226,56 @@ export function Settings({ onClose }: { onClose: () => void }) {
               </button>
             );
           })}
+        </div>
+          </>
+        )}
+
+        {pane === "integrations" && (
+          <div className="settings-group">
+            <div className="settings-row">
+              <span className="settings-row-name">Linear</span>
+              <button
+                role="switch"
+                aria-checked={settings.linear}
+                className={`settings-toggle ${settings.linear ? "on" : ""}`}
+                title={settings.linear ? "on — the Issues tab is in the sidebar" : "off"}
+                onClick={() => updateSettings({ linear: !settings.linear })}
+              >
+                <span className="settings-knob" />
+              </button>
+            </div>
+
+            {settings.linear && connections.length > 0 && (
+              <div className="settings-conns">
+                {connections.map((c) => (
+                  <div className="settings-conn" key={c.root}>
+                    <span className="settings-conn-name" title={c.root}>
+                      {c.root.split("/").pop()}
+                    </span>
+                    {/* which workspace that project's key belongs to — the
+                        other half of "connected", and the thing you would
+                        otherwise have to disconnect to find out */}
+                    {c.org && <span className="settings-conn-org">{c.org}</span>}
+                    <button
+                      className="settings-conn-x"
+                      title={`disconnect ${c.root}`}
+                      onClick={() => {
+                        void api.linearDisconnect(c.root).then(refreshConnections);
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {settings.linear && !connections.length && (
+              <div className="settings-note">
+                No project connected yet. Open the Issues tab in one and paste a key.
+              </div>
+            )}
+          </div>
+        )}
         </div>
         {/* the other half of where a version belongs: the launcher is where
             you see it, this is where you go to look it up */}

@@ -32,6 +32,18 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-liquid-glass = "0.1"
 vt100 = "0.16.2"
 
+# Already in the tree: tauri-plugin-updater depends on the same reqwest 0.13
+# and supplies the rustls stack (ring, via `rustls-no-provider`). Asking for
+# a TLS feature here would pull a *second* crypto backend — aws-lc-sys, plus
+# quinn for an HTTP/3 nothing uses — so this asks only for `json` and shares
+# what is already compiled.
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+# reqwest above is built `rustls-no-provider`, which is a *runtime* contract:
+# the client panics on construction unless a crypto provider was installed
+# first. Naming rustls here is what lets `linear.rs` install ring's — see the
+# `wire` test, which is the only thing that catches getting this wrong.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
 # WKWebView renders at 60fps even on a 120Hz ProMotion panel; unlocking it
 # means talking to WebKit's private feature flags directly (see high_refresh.rs)
 [target.'cfg(target_os = "macos")'.dependencies]

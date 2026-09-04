@@ -15,6 +15,7 @@
 @import "./styles/sidebar.css";
 @import "./styles/resizers.css";
 @import "./styles/worktree.css";
+@import "./styles/issues.css";
 @import "./styles/image-view.css";
 @import "./styles/search.css";
 @import "./styles/quick-open.css";

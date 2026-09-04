@@ -1,6 +1,7 @@
 mod cli;
 mod files;
 mod git;
+mod linear;
 mod links;
 #[cfg(target_os = "macos")]
 mod high_refresh;
@@ -216,6 +217,13 @@ pub fn run() {
             git::git_commit,
             git::git_push,
             git::git_branch_info,
+            linear::linear_connected,
+            linear::linear_connect,
+            linear::linear_disconnect,
+            linear::linear_connections,
+            linear::linear_issues,
+            linear::linear_issue,
+            linear::linear_save_description,
             git::git_head_file,
             git::git_index_file,
             git::git_show_binary,

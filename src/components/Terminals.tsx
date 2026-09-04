@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/api";
 import { getSettings, onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
+import { forgetTerm, setFocusedTerm } from "../lib/termFocus";
 import { titleState, useAgentPanes } from "../lib/agentStatus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
@@ -226,6 +227,13 @@ export function TerminalPanes({
     setFinding(0);
   }, [tree.focusedId]);
 
+  // Remembered for the things that send text to a terminal from somewhere
+  // else — an issue's "send to terminal" is a click in the editor, which takes
+  // the focus off the pane it is about to write to. See lib/termFocus.ts.
+  useEffect(() => {
+    setFocusedTerm(tree.focusedId);
+  }, [tree.focusedId]);
+
   // ⌘F, but only when the keyboard is already the terminal's — the editor's
   // ⌘F is CodeMirror's and never passes through here. Listening on the window
   // rather than the pane because xterm's textarea answers keydowns itself.
@@ -341,7 +349,14 @@ export function TerminalPanes({
             focused={tree.focusedId === id}
             active={active && rect !== null}
             onFocus={tree.setFocused}
-            onExit={tree.removePane}
+            onExit={(paneId) => {
+              // so a closed pane is never the target of a later "send to
+              // terminal" — targetTerm() also checks the DOM, but forgetting
+              // here means the answer is right in the instant between the pty
+              // exiting and React unmounting its pane
+              forgetTerm(paneId);
+              tree.removePane(paneId);
+            }}
             onOpenFile={onOpenFile}
             onAgent={onAgent}
           />

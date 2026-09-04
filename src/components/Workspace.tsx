@@ -31,6 +31,7 @@ import { flushSync } from "react-dom";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
 import { onProjectOpen } from "../lib/openBus";
+import { getSettings } from "../lib/settings";
 import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
 import { useSearch } from "../lib/search";
@@ -62,7 +63,12 @@ export type View =
   // reachable — ⌥ on the row opens the raw as a file view, and the breadcrumb
   // over the thread opens the document — which is what keeps this a reading of
   // a memo rather than a second place it lives.
-  | { kind: "memo"; key: string; id: string };
+  | { kind: "memo"; key: string; id: string }
+  // A Linear issue, read where the code is. `identifier` rides along with the
+  // uuid the API wants because the tab has to be able to say ECL-99 before the
+  // fetch that would tell it that comes back — a tab restored from a session
+  // draws before the network does.
+  | { kind: "issue"; key: string; id: string; identifier: string };
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
@@ -807,6 +813,15 @@ export const Workspace = memo(function Workspace({
         e.preventDefault();
         showSidebar();
         setSidebarTab("scm");
+      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === "i") {
+        // ⌃⇧I rather than ⌘⇧I: the ⌘ pair is the webview's own inspector, and
+        // taking it would mean giving up devtools in the editor being built.
+        // Silent when the integration is off, rather than opening a tab that
+        // isn't in the rail.
+        if (!getSettings().linear) return;
+        e.preventDefault();
+        showSidebar();
+        setSidebarTab("issues");
       } else if (meta && e.shiftKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
         showSidebar();

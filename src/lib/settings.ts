@@ -61,6 +61,15 @@ export interface Settings {
    *  someone working on zero, not on their memo; the files are written either
    *  way, so turning it on later shows the past too. */
   developer: boolean;
+  /** Whether the Issues tab is in the activity rail at all.
+   *
+   *  A per-app switch rather than per-project, because what it turns off is a
+   *  tab in the rail, and the rail is the same in every project. A project
+   *  that doesn't use Linear already shows nothing but its connect screen —
+   *  this is for someone who doesn't use Linear anywhere and would rather not
+   *  carry the icon. Connecting and disconnecting stay per project, in the
+   *  panel, because a token is a project's own. */
+  linear: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -72,6 +81,7 @@ const DEFAULTS: Settings = {
   termStyle: "panel",
   langOverrides: {},
   developer: false,
+  linear: true,
 };
 
 // The stored blob survives across versions of zero, so anything unrecognised
@@ -99,6 +109,7 @@ function parse(raw: string | null): Settings {
       : DEFAULTS.termStyle,
     langOverrides: sanitizeOverrides(blob.langOverrides),
     developer: typeof blob.developer === "boolean" ? blob.developer : DEFAULTS.developer,
+    linear: typeof blob.linear === "boolean" ? blob.linear : DEFAULTS.linear,
   };
 }
 

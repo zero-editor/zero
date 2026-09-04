@@ -1,0 +1,689 @@
+
+
+
+
+.li-group {
+  margin-bottom: 10px;
+}
+
+.li-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 10px 4px 8px;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.li-head:hover {
+  background: var(--bg-raised);
+}
+
+.li-head-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.li-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+/* The search bar itself is the search tab's — see IssuesPanel.tsx. The one
+   thing that panel has and this one doesn't is a reason for the chevron to
+   report state: there, it either shows replace or doesn't; here, it can be
+   hiding filters that are actively cutting the list down, and a fold that
+   hides a filter without saying so is how you end up staring at four rows
+   wondering where the rest went. */
+.search-expand.on {
+  color: var(--accent);
+}
+
+/* Under the search field and inside its column, so its left edge is the
+   field's left edge without a number here having to match one over there. */
+.li-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 6px;
+}
+
+.li-axis-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.li-axis-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A filter option. No count, no fill, no box — the name, and a tick when it is
+   on. The tick's space is held whether or not it is drawn, so switching one on
+   doesn't shunt the names sideways. */
+.li-opt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  border-radius: var(--panel-radius);
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+
+.li-opt:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.li-opt.on {
+  color: var(--accent);
+}
+
+.li-opt-tick {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 9px;
+  opacity: 0;
+}
+
+.li-opt.on .li-opt-tick {
+  opacity: 1;
+}
+
+.li-opt-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── a row ─────────────────────────────────────────────────────────────── */
+
+.li-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px 2px 20px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.li-row:hover {
+  background: var(--bg-hover);
+}
+
+.li-row.active {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+/* the part of the row that opens the issue — everything except the marks and
+   the avatar, which are their own destinations */
+.li-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* urgency, first thing in the row and the first thing read */
+.li-pri {
+  flex: none;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.li-pri svg {
+  display: block;
+}
+
+/* unprioritised is drawn, not omitted: the column has to hold its width or
+   every identifier below an urgent row would step left */
+.li-pri.none {
+  color: var(--text-faint);
+}
+
+.li-pri.urgent {
+  color: var(--red);
+}
+
+.li-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.li-dot.sm {
+  width: 6px;
+  height: 6px;
+}
+
+/* the assignee, at the row's far end the way Linear puts it. A tinted disc
+   under muted text rather than a filled badge — at this size a solid fill
+   would be the loudest thing in a panel whose subject is the titles. */
+.li-who {
+  flex: none;
+  display: flex;
+  object-fit: cover;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* nobody assigned: the space is still spoken for, so the discs stay in one
+   line down the right edge rather than stepping in and out */
+.li-who.empty {
+  background: none;
+}
+
+.li-id {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.li-row.active .li-id {
+  color: var(--text-dim);
+}
+
+.li-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Fixed width whether or not it holds anything, so a row that gains a branch
+   or a PR doesn't shove its own title sideways as the panel refreshes. */
+/* Sized to its contents, and absent entirely when there are none. The
+   reserved width this used to have was cutting every title in the panel short
+   to leave room for marks that were almost never there. */
+.li-marks {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-faint);
+}
+
+.li-mark {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+button.li-mark {
+  cursor: pointer;
+}
+
+button.li-mark:hover {
+  filter: brightness(1.35);
+}
+
+.li-mark svg {
+  display: block;
+}
+
+/* the worktree this window is looking at, which is the one row in the panel
+   that is about *now* rather than about the repository */
+.li-mark.here {
+  color: var(--accent);
+}
+
+.li-pr-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.li-mark.pr.open {
+  color: var(--green);
+}
+
+.li-mark.pr.draft {
+  color: var(--text-faint);
+}
+
+.li-mark.pr.merged {
+  color: var(--accent);
+}
+
+.li-mark.pr.closed {
+  color: var(--red);
+}
+
+/* ── the empty / setup states ──────────────────────────────────────────── */
+
+.li-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.li-empty p {
+  margin: 0 0 10px;
+}
+
+/* the three steps to a key. Numbers rather than bullets because they are an
+   order, and tight because they are the shortest path to a working panel. */
+.li-steps {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.li-steps li {
+  margin-bottom: 1px;
+}
+
+/* a link inside a sentence. Underlined on hover only, like every other place
+   in the app that opens a browser. */
+.li-inline {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.li-inline:hover {
+  text-decoration: underline;
+}
+
+.li-token {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--bg-field);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.li-token:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.li-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.li-btn,
+.iv-btn {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.li-btn:hover:not(:disabled),
+.iv-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.li-btn:disabled,
+.iv-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.li-btn.flat,
+.iv-btn.flat {
+  border-color: transparent;
+  background: none;
+  color: var(--text-dim);
+}
+
+/* a heading over one axis of the picker. Bare small caps on the field, no
+   rule and no fill: the axes are a list of lists, not four panels. */
+.li-axis {
+  margin: 10px 0 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+
+
+
+
+/* an axis with nothing in it yet. Says why rather than vanishing, because a
+   section that hides when empty reads as a missing feature. */
+.li-axis-empty {
+  margin: 0 0 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+
+
+/* ── the issue tab ─────────────────────────────────────────────────────── */
+
+.issue-view {
+  height: 100%;
+  overflow-y: auto;
+  /* the compositing hint every scroller under glass needs */
+  transform: translateZ(0);
+  padding: 18px 26px 40px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.iv-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.iv-gap {
+  flex: 1;
+}
+
+.iv-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.iv-id {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.iv-id:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.iv-state {
+  color: var(--text);
+}
+
+.iv-sep,
+.iv-dim {
+  color: var(--text-faint);
+}
+
+.iv-title {
+  margin: 6px 0 12px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.iv-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.iv-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+
+/* One cell, two labels, one on top of the other: the button is always as wide
+   as the wider of them, so confirming a send moves nothing. Grid rather than
+   absolute positioning because a grid cell still contributes its size, which
+   is the whole trick. */
+.iv-send {
+  display: grid;
+  place-items: center;
+}
+
+.iv-send-face {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.12s ease;
+}
+
+.iv-send-face.tick {
+  opacity: 0;
+  color: var(--green);
+}
+
+/* Both faces stay in the cell and only their opacity changes, so the two
+   crossfade rather than one snapping out as the other fades in — and the
+   button keeps the width of the wider one throughout. `visibility` would hide
+   the outgoing face instantly and lose the fade it is transitioning. */
+.iv-send.sent .iv-send-face:not(.tick) {
+  opacity: 0;
+}
+
+.iv-send.sent .iv-send-face.tick {
+  opacity: 1;
+}
+
+.iv-send-face svg {
+  display: block;
+}
+
+.iv-comment {
+  margin-bottom: 16px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.iv-comment-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.iv-who {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.iv-foot {
+  margin-top: 26px;
+  font-size: 11px;
+}
+
+/* ── rendered markdown ─────────────────────────────────────────────────── */
+
+.iv-md h1,
+.iv-md h2,
+.iv-md h3 {
+  margin: 18px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.iv-md p {
+  margin: 0 0 10px;
+}
+
+.iv-md ul,
+.iv-md ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.iv-md li {
+  margin-bottom: 2px;
+}
+
+.iv-md code {
+  padding: 1px 4px;
+  border-radius: var(--panel-radius);
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.iv-md a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.iv-md a:hover {
+  text-decoration: underline;
+}
+
+.iv-md blockquote {
+  margin: 0 0 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-faint);
+}
+
+.iv-md .md-code {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border-radius: var(--panel-radius);
+  background: var(--bg-raised);
+  /* a wide line scrolls inside its own block rather than widening the tab */
+  overflow-x: auto;
+}
+
+.iv-md .md-code code {
+  padding: 0;
+  background: none;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.iv-md .md-table {
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 12px;
+  /* tables in issue descriptions are usually numbers, and a wide one must not
+     widen the tab either — the wrapper is the table's own overflow */
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.iv-md .md-table th,
+.iv-md .md-table td {
+  padding: 3px 10px 3px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.iv-md .md-table th {
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+/* ── the description editor ────────────────────────────────────────────── */
+
+.iv-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.iv-cm {
+  min-height: 220px;
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+}
+
+.iv-cm .cm-editor {
+  height: 100%;
+}
+
+.iv-edit-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iv-hint {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+
+
+/* the issue tab's mark. The seti icons are characters with their own colour;
+   this is a drawn glyph, so it takes the tab's colour and inherits the dimming
+   an inactive tab already applies to its label. */
+.issue-tab-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+}
+
+.issue-tab-icon svg {
+  display: block;
+}

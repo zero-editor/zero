@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 /**
  * Enough Markdown to read a memo by, and not one construct more.
@@ -16,12 +16,55 @@ import type { ReactNode } from "react";
  * largest thing in the app by weight. It also never touches `innerHTML` — every
  * node here is a React element with text children, so the escaping isn't a step
  * that could be forgotten, it's the only thing that can happen.
+ *
+ * The three opt-ins are what keeps that default honest rather than merely
+ * stubborn. A memo is transcribed speech: a line of pipes there is far likelier
+ * to be somebody saying the word than a table nobody spoke, and drawing one
+ * would be this file guessing at what a person meant. A Linear issue is typed
+ * by a developer into a box that advertises Markdown, so its fences, tables and
+ * links are exactly what they look like and rendering them flat is the only
+ * wrong answer. Same renderer, two audiences, and the difference between them
+ * is three booleans the caller passes rather than a judgement made here. With
+ * `opts` left off nothing behaves differently than it did before they existed,
+ * which is the promise the memo half is owed.
  */
+
+export type MdOptions = { code?: boolean; tables?: boolean; links?: boolean };
+
+/** the memo, and the default: everything below asks `opts.x` and gets nothing */
+const PLAIN: MdOptions = {};
 
 /** `**bold**`, `*italic*`, `` `code` `` — split on, so the text between the
  *  matches survives as itself. The double-star alternative comes first, or
  *  `**a**` is read as an italic `*a*` wearing extra stars. */
 const INLINE = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+
+/** the same three, plus `[text](url)` and a bare url. Written out again rather
+ *  than assembled from pieces, so that the flags-off path runs the exact regex
+ *  it always ran — "a link in a memo stays `[text](url)`" is a promise about
+ *  literal text, and a promise about literal text is the easiest kind to break
+ *  by refactoring. The link alternative sits ahead of the bare-url one: at a
+ *  `[` only the first can match, so a titled link is one match rather than a
+ *  stray bracket standing next to a url. The bare url may not end on sentence
+ *  punctuation, which is how "see https://x.com." keeps its full stop out of
+ *  the href without any of this needing to know about sentences.
+ *
+ *  The label is capped at 200 characters, which is a performance bound and not
+ *  a taste one: unbounded, every `[` in a line starts a scan to the end of it
+ *  looking for a `]`, and a line of nothing but brackets — an unfenced json
+ *  array, a paste gone wrong — costs the square of its length. Measured, 20k
+ *  brackets took 185ms of the render thread that way and 8ms with the cap. No
+ *  real link label is longer, and one that is stays text.
+ *
+ *  The leading `!` is matched *into* the link alternative on purpose, so that
+ *  an image is one part rather than a `!` standing next to a link. Without it
+ *  `![alt](url)` renders as a stray exclamation mark followed by a working
+ *  anchor — which is worse than the flags-off behaviour it replaced, because
+ *  it looks like a link that is merely broken. Linear descriptions carry
+ *  pasted screenshots, and their urls are authenticated uploads an `<img>`
+ *  could not load anyway, so an image stays the literal text it always was. */
+const INLINE_LINKED =
+  /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|!?\[[^\]\n]{0,200}\]\([^()\s]*\)|https?:\/\/[^\s<>()[\]"']*[^\s<>()[\]"'.,;:!?])/g;
 
 const HEADING = /^(#{1,3})\s+(.*)$/;
 const RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
@@ -29,9 +72,23 @@ const QUOTE = /^\s*>\s?(.*)$/;
 const BULLET = /^(\s*)[-*]\s+(.*)$/;
 const NUMBER = /^(\s*)\d+[.)]\s+(.*)$/;
 
-function inline(text: string): ReactNode[] {
+const MD_LINK = /^\[([^\]\n]*)\]\(([^()\s]*)\)$/;
+const BARE_URL = /^https?:\/\//i;
+
+/** The whole allowlist, and the one place in this file where being wrong is a
+ *  security bug rather than an ugly line. So it is a positive match on the
+ *  three schemes that are safe to hand an `href`, not a list of the bad ones —
+ *  a blocklist has to think of `javascript:`, and of `data:`, and of whatever
+ *  the next one turns out to be, and it only has to forget once. Anything else
+ *  isn't a broken link; it isn't a link, and renders as the text it was. */
+const SAFE = /^(?:https?:\/\/|mailto:)/i;
+
+const FENCE = /^\s*(`{3,}|~{3,})\s*(\S*)/;
+const DELIM = /^:?-+:?$/;
+
+function inline(text: string, opts: MdOptions = PLAIN): ReactNode[] {
   return text
-    .split(INLINE)
+    .split(opts.links ? INLINE_LINKED : INLINE)
     .filter(Boolean)
     .map((part, i) => {
       if (part.length > 4 && part.startsWith("**") && part.endsWith("**"))
@@ -40,6 +97,28 @@ function inline(text: string): ReactNode[] {
         return <code key={i}>{part.slice(1, -1)}</code>;
       if (part.length > 2 && part.startsWith("*") && part.endsWith("*"))
         return <em key={i}>{part.slice(1, -1)}</em>;
+      if (opts.links) {
+        // an image: matched here only so that it arrives whole, and then left
+        // exactly as it was written — see the note above INLINE_LINKED
+        if (part.startsWith("![")) return part;
+        const link = MD_LINK.exec(part);
+        if (link) {
+          if (!SAFE.test(link[2])) return part;
+          // the label is parsed with links switched back off: its own text can
+          // hold a bare url, and an `<a>` inside an `<a>` is not a thing
+          return (
+            <a key={i} href={link[2]}>
+              {inline(link[1], { ...opts, links: false })}
+            </a>
+          );
+        }
+        if (BARE_URL.test(part))
+          return (
+            <a key={i} href={part}>
+              {part}
+            </a>
+          );
+      }
       return part;
     });
 }
@@ -54,13 +133,74 @@ function item(line: string) {
   return { deep: m[1].length >= 2, ordered: !bullet, text: m[2] };
 }
 
-const opensSomethingElse = (line: string) =>
-  HEADING.test(line) || RULE.test(line) || QUOTE.test(line) || item(line) !== null;
+/** `| a | b |` → `["a", "b"]`. The outer pipes are optional in the format and
+ *  shed here either way, and a `\|` is a pipe someone wanted inside a cell
+ *  rather than a boundary between two.
+ *
+ *  Walked a character at a time instead of split on a lookbehind, which is what
+ *  this wanted to be: esbuild can't lower `(?<!\\)` into anything older, so it
+ *  rewrites the literal as a `new RegExp` — one built afresh on every cell of
+ *  every row, and still a runtime throw on any engine that lacks the feature.
+ *  A loop is cheaper than that and can't be lowered into a surprise. */
+function cells(line: string): string[] {
+  const body = line.trim();
+  const out: string[] = [];
+  let cell = "";
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i++;
+    } else if (body[i] === "|") {
+      out.push(cell);
+      cell = "";
+    } else cell += body[i];
+  }
+  out.push(cell);
+  // the pipes on the ends are optional, so drop the empty cells they leave —
+  // and only those, or a row that genuinely ends in an empty cell loses it
+  if (out.length > 1 && body.startsWith("|") && !out[0].trim()) out.shift();
+  if (out.length > 1 && body.endsWith("|") && !out[out.length - 1].trim()) out.pop();
+  return out.map((c) => c.trim());
+}
+
+/** Header and delimiter, or nothing. The delimiter row is the whole test: it is
+ *  what separates a table from a paragraph that happens to mention pipes, and
+ *  it has to have a cell for every header cell — that count is the format's own
+ *  rule, and keeping it is what lets prose full of pipes stay prose. */
+function header(lines: string[], i: number): [string[], string[]] | null {
+  if (i + 1 >= lines.length || !lines[i].includes("|")) return null;
+  const head = cells(lines[i]);
+  const rule = cells(lines[i + 1]);
+  if (rule.length !== head.length || !rule.every((cell) => DELIM.test(cell)))
+    return null;
+  return [head, rule];
+}
+
+/** Whether line `i` starts a block of its own, which is the question a running
+ *  paragraph asks about every line it is about to swallow. The two opt-in
+ *  blocks have to be in here as well as in the loop below, or a fence one line
+ *  under a sentence is read as more sentence. */
+function opens(lines: string[], i: number, opts: MdOptions) {
+  const line = lines[i];
+  return (
+    HEADING.test(line) ||
+    RULE.test(line) ||
+    QUOTE.test(line) ||
+    item(line) !== null ||
+    (!!opts.code && FENCE.test(line)) ||
+    (!!opts.tables && header(lines, i) !== null)
+  );
+}
 
 /** One list, from `from` to wherever it stops, and the line it stopped on.
  *  Indented items belong to the item above them; a second level of indent is
  *  folded into the first, because a memo that needs three is a document. */
-function list(lines: string[], from: number, key: number): [ReactNode, number] {
+function list(
+  lines: string[],
+  from: number,
+  key: number,
+  opts: MdOptions,
+): [ReactNode, number] {
   const top = item(lines[from])!;
   const rows: { text: string; kids: string[] }[] = [];
   let i = from;
@@ -78,13 +218,13 @@ function list(lines: string[], from: number, key: number): [ReactNode, number] {
     <Tag key={key}>
       {rows.map((row, n) => (
         <li key={n}>
-          {inline(row.text)}
+          {inline(row.text, opts)}
           {/* a nested list is drawn as a list; which kind it was is a
               distinction one level down doesn't earn */}
           {row.kids.length > 0 && (
             <ul>
               {row.kids.map((kid, j) => (
-                <li key={j}>{inline(kid)}</li>
+                <li key={j}>{inline(kid, opts)}</li>
               ))}
             </ul>
           )}
@@ -95,8 +235,93 @@ function list(lines: string[], from: number, key: number): [ReactNode, number] {
   ];
 }
 
+/** One fenced block, taken verbatim. Nothing inside is markdown — that is the
+ *  entire point of having asked for a fence — so the lines go in as they are,
+ *  blanks included, and the info string becomes `data-lang` on the `<pre>` for
+ *  whatever the stylesheet wants to do with the name of a language. A fence
+ *  nobody closed runs to the end of the document rather than being dropped:
+ *  half a code block on screen beats a paragraph that silently vanished. */
+function fence(lines: string[], from: number, key: number): [ReactNode, number] {
+  const open = FENCE.exec(lines[from])!;
+  // it closes on its own mark, at least as long as it opened and alone on the
+  // line — so a run of backticks inside a tilde fence is content, not an end
+  const closed = new RegExp(`^\\s*[${open[1][0]}]{${open[1].length},}\\s*$`);
+  const body: string[] = [];
+  let i = from + 1;
+  while (i < lines.length && !closed.test(lines[i])) {
+    body.push(lines[i]);
+    i++;
+  }
+  return [
+    <pre className="md-code" data-lang={open[2] || undefined} key={key}>
+      <code>{body.join("\n")}</code>
+    </pre>,
+    Math.min(i + 1, lines.length),
+  ];
+}
+
+/** One pipe table. The delimiter row is read twice — once by `header` to decide
+ *  this is a table at all, and once here for the alignments it also carries. */
+function table(
+  lines: string[],
+  from: number,
+  key: number,
+  opts: MdOptions,
+): [ReactNode, number] {
+  const [head, rule] = header(lines, from)!;
+  const align: CSSProperties["textAlign"][] = rule.map((cell) =>
+    cell.startsWith(":") && cell.endsWith(":")
+      ? "center"
+      : cell.endsWith(":")
+        ? "right"
+        : cell.startsWith(":")
+          ? "left"
+          : undefined,
+  );
+  const at = (n: number) => (align[n] ? { textAlign: align[n] } : undefined);
+
+  const rows: string[][] = [];
+  let i = from + 2;
+  while (i < lines.length && lines[i].trim() && lines[i].includes("|")) {
+    const row = cells(lines[i]);
+    // a hand-written table is ragged more often than not, and a missing cell is
+    // not worth refusing to draw the table over: short rows gain empty cells,
+    // long ones lose the ones the header has no column for
+    rows.push(head.map((_, n) => row[n] ?? ""));
+    i++;
+  }
+
+  return [
+    <table className="md-table" key={key}>
+      <thead>
+        <tr>
+          {head.map((cell, n) => (
+            <th key={n} style={at(n)}>
+              {inline(cell, opts)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      {rows.length > 0 && (
+        <tbody>
+          {rows.map((row, r) => (
+            <tr key={r}>
+              {row.map((cell, n) => (
+                <td key={n} style={at(n)}>
+                  {inline(cell, opts)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      )}
+    </table>,
+    i,
+  ];
+}
+
 /** The blocks of one document, ready to drop into a container. */
-export function miniMarkdown(text: string): ReactNode[] {
+export function miniMarkdown(text: string, opts: MdOptions = PLAIN): ReactNode[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const out: ReactNode[] = [];
   let i = 0;
@@ -108,10 +333,25 @@ export function miniMarkdown(text: string): ReactNode[] {
       continue;
     }
 
+    // the two opt-ins go first because both are recognised by a line the rest
+    // of this loop would otherwise read as prose
+    if (opts.code && FENCE.test(line)) {
+      const [node, next] = fence(lines, i, out.length);
+      out.push(node);
+      i = next;
+      continue;
+    }
+    if (opts.tables && header(lines, i)) {
+      const [node, next] = table(lines, i, out.length, opts);
+      out.push(node);
+      i = next;
+      continue;
+    }
+
     const heading = HEADING.exec(line);
     if (heading) {
       const Tag = (["h1", "h2", "h3"] as const)[heading[1].length - 1];
-      out.push(<Tag key={out.length}>{inline(heading[2].trim())}</Tag>);
+      out.push(<Tag key={out.length}>{inline(heading[2].trim(), opts)}</Tag>);
       i++;
     } else if (RULE.test(line)) {
       out.push(<hr key={out.length} />);
@@ -124,9 +364,11 @@ export function miniMarkdown(text: string): ReactNode[] {
         said.push(quoted[1]);
         i++;
       }
-      out.push(<blockquote key={out.length}>{inline(said.join(" "))}</blockquote>);
+      out.push(
+        <blockquote key={out.length}>{inline(said.join(" "), opts)}</blockquote>,
+      );
     } else if (item(line)) {
-      const [node, next] = list(lines, i, out.length);
+      const [node, next] = list(lines, i, out.length, opts);
       out.push(node);
       i = next;
     } else {
@@ -134,11 +376,11 @@ export function miniMarkdown(text: string): ReactNode[] {
       // the start of something — which is what makes an unfenced anything
       // degrade into readable prose rather than swallow the rest of the memo
       const para: string[] = [];
-      while (i < lines.length && lines[i].trim() && !opensSomethingElse(lines[i])) {
+      while (i < lines.length && lines[i].trim() && !opens(lines, i, opts)) {
         para.push(lines[i].trim());
         i++;
       }
-      out.push(<p key={out.length}>{inline(para.join(" "))}</p>);
+      out.push(<p key={out.length}>{inline(para.join(" "), opts)}</p>);
     }
   }
   return out;
