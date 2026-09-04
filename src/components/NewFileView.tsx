@@ -3,6 +3,7 @@ import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { editorTheme } from "../lib/cmTheme";
+import { message } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 
 /**
@@ -31,10 +32,15 @@ export function NewFileView({ root, onSaved }: { root: string; onSaved: (absPath
             run: (v) => {
               // not the dialog plugin's save(), for the reason every other
               // panel in zero avoids it — see `pick_directory`
-              api.pickSavePath("Save file", root, "").then((path) => {
-                if (!path) return;
-                api.writeFile(path, v.state.doc.toString()).then(() => savedRef.current(path));
-              });
+              api.pickSavePath("Save file", root, "").then(
+                (path) => {
+                  if (!path) return;
+                  api.writeFile(path, v.state.doc.toString()).then(() => savedRef.current(path));
+                },
+                // the panel refusing to open is a failure now rather than a
+                // panic (see panel.rs) — the buffer is untouched either way
+                (e) => void message(String(e), { title: "Save file", kind: "error" })
+              );
               return true;
             },
           },

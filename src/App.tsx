@@ -274,7 +274,13 @@ export default function App() {
   // too, which is what the `+` in the titlebar was doing. See `pick_directory`
   // for what is and isn't known about why.
   const pickProject = useCallback(async () => {
-    const dir = await api.pickDirectory("Open project");
+    // The panel can now fail rather than panic (see panel.rs), and a picker
+    // that quietly does nothing is the one outcome worse than the crash was
+    // for working out what happened. Both of these say so and carry on.
+    const dir = await api.pickDirectory("Open project").catch((e) => {
+      void message(String(e), { title: "Open project", kind: "error" });
+      return null;
+    });
     if (typeof dir === "string") openProject(dir);
   }, [openProject]);
 
@@ -305,7 +311,10 @@ export default function App() {
 
   const pickFolder = useCallback(
     async (idx: number) => {
-      const dir = await api.pickDirectory("Add folder to project");
+      const dir = await api.pickDirectory("Add folder to project").catch((e) => {
+        void message(String(e), { title: "Add folder", kind: "error" });
+        return null;
+      });
       if (typeof dir === "string") addFolder(idx, dir);
     },
     [addFolder]

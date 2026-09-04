@@ -75,7 +75,11 @@ pub async fn run(
     }
     let handle = ns as usize;
 
-    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
+    // `Result`, not `Option`, because there are now two ways to come back with
+    // no path: the person closed the sheet, and the sheet never opened. The
+    // first is a decision and the second is a failure, and a picker that
+    // silently does nothing is the worse of the two to debug.
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Option<String>, String>>(1);
     app.run_on_main_thread(move || unsafe { present(handle, &title, kind, tx) })
         .map_err(|e| e.to_string())?;
 
@@ -83,7 +87,7 @@ pub async fn run(
     // on a blocking thread rather than on the async runtime's. A send that
     // never comes — the completion dropped without firing — reads as a cancel,
     // which is the harmless way to be wrong about it.
-    Ok(crate::git::blocking(move || rx.recv().unwrap_or(None)).await)
+    crate::git::blocking(move || rx.recv().unwrap_or(Ok(None))).await
 }
 
 /// `NSString` from a Rust string. Interior NUL is the one input `CString`
@@ -106,14 +110,34 @@ unsafe fn string(ns: &AnyObject) -> Option<String> {
 
 /// Build the panel and hang it off the window. Returns immediately — the sheet
 /// is not modal to us, and the answer arrives in the completion handler.
-unsafe fn present(handle: usize, title: &str, kind: Kind, tx: SyncSender<Option<String>>) {
+unsafe fn present(
+    handle: usize,
+    title: &str,
+    kind: Kind,
+    tx: SyncSender<Result<Option<String>, String>>,
+) {
     let window: *mut AnyObject = handle as *mut AnyObject;
 
     let saving = matches!(kind, Kind::Save { .. });
-    let panel: Retained<AnyObject> = if saving {
+    // `Option`, and this is the whole point of the file rather than a detail
+    // of it: a non-optional `Retained` panics when the message returns nil,
+    // and a panic on the main thread takes the process. This is the same
+    // failure the header is about — nil found in an ObjC path, app gone — one
+    // message earlier than the `URL` that used to do it.
+    //
+    // `+[NSOpenPanel openPanel]` returns nil when the open-and-save panel
+    // service is not there to answer: the line before the crash is always
+    // AppKit reporting that it could not reach `com.apple.view-bridge`. It is
+    // transient — the next press opens a panel — which is exactly why it must
+    // not be fatal, and why the message says to try again.
+    let panel: Option<Retained<AnyObject>> = if saving {
         msg_send![class!(NSSavePanel), savePanel]
     } else {
         msg_send![class!(NSOpenPanel), openPanel]
+    };
+    let Some(panel) = panel else {
+        let _ = tx.send(Err("macOS did not open the file panel. Try again.".into()));
+        return;
     };
 
     if let Some(msg) = nsstring(title) {
@@ -196,7 +220,7 @@ unsafe fn present(handle: usize, title: &str, kind: Kind, tx: SyncSender<Option<
                 }
             }
         }
-        let _ = tx.send(picked);
+        let _ = tx.send(Ok(picked));
     });
 
     let _: () = msg_send![
