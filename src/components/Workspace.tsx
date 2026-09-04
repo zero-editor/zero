@@ -31,7 +31,7 @@ import { flushSync } from "react-dom";
 import { moveItem, movedIndex } from "../lib/tabReorder";
 import { onPathMoved, under } from "../lib/fileEvents";
 import { onProjectOpen } from "../lib/openBus";
-import { getSettings } from "../lib/settings";
+import { getSettings, useSettings } from "../lib/settings";
 import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
 import { useSearch } from "../lib/search";
@@ -243,8 +243,12 @@ export const Workspace = memo(function Workspace({
   const search = useSearch(folders(project));
   // up here for the same reason, plus one of its own: the rail's dot is drawn
   // by a tab you aren't on, about a recording that outlives every panel
+  // Which of the optional halves of the app this window has — the rail is
+  // built from it, and so is what the two shortcuts below do.
+  const { memos: memosOn, linear: linearOn } = useSettings();
   const memos = useMemos(
     project.root,
+    memosOn,
     active && sidebarVisible && sidebarTab === "memos",
     // a memo recorded here lands in the editor the moment it comes back ready,
     // as the same thread its row opens
@@ -611,6 +615,51 @@ export const Workspace = memo(function Workspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docPanes, tree.root, tree.removeEditorPane]);
 
+  /**
+   * Switching a half of the app off in Preferences takes its tabs with it.
+   *
+   * A memo thread is the only view here that isn't a file: it draws its title,
+   * its status and its record button from the live list `useMemos` stops
+   * keeping, so one left open would be a tab of a document nothing is reading
+   * any more. They close rather than freeze, and they are *not* pushed onto
+   * the reopen stack — ⌘⇧T is for tabs you closed, and these are tabs the app
+   * took. The files stay where they are; switching memos back on and clicking
+   * the row opens the same thread again.
+   *
+   * The rail is filtered in the sidebar, but the *selected* tab lives here, and
+   * a session can restore one that no longer exists — memos switched off in a
+   * project that was last looked at through them, or the issues tab of an
+   * install that has never turned Linear on.
+   */
+  useEffect(() => {
+    if (memosOn) return;
+    // the reopen stack too, or ⌘⇧T would put back the one kind of tab that
+    // can no longer draw itself
+    closedRef.current = closedRef.current.filter((c) => c.view.kind !== "memo");
+    setDocPanes((prev) => {
+      let changed = false;
+      const out: Record<string, DocPane> = {};
+      for (const [pid, dp] of Object.entries(prev)) {
+        const views = dp.views.filter((v) => v.kind !== "memo");
+        if (views.length === dp.views.length) {
+          out[pid] = dp;
+          continue;
+        }
+        changed = true;
+        out[pid] = {
+          views,
+          activeView: Math.min(dp.activeView, Math.max(views.length - 1, 0)),
+        };
+      }
+      return changed ? out : prev;
+    });
+  }, [memosOn]);
+
+  useEffect(() => {
+    if ((sidebarTab === "memos" && !memosOn) || (sidebarTab === "issues" && !linearOn))
+      setSidebarTab("files");
+  }, [sidebarTab, memosOn, linearOn]);
+
   // Closed tabs, newest last, with the slot — and now the pane — each one
   // held. Kept in a ref rather than in state: nothing renders from it, and a
   // stack that triggered a re-render on every close would re-render the whole
@@ -842,6 +891,9 @@ export const Workspace = memo(function Workspace({
         showSidebar();
         setSidebarTab("issues");
       } else if (meta && e.shiftKey && e.key.toLowerCase() === "m") {
+        // silent when memos are off, for the reason the issues branch above
+        // is: a shortcut that opened a tab the rail doesn't have
+        if (!getSettings().memos) return;
         e.preventDefault();
         showSidebar();
         setSidebarTab("memos");
@@ -858,6 +910,11 @@ export const Workspace = memo(function Workspace({
         // `code` and not `key`, like the Backquote and Backslash branches: ⌥N
         // is a dead key for the tilde, so `e.key` here is "Dead" and matching
         // on "n" would never fire.
+        //
+        // Off, this press does nothing rather than falling through to ⌘N: the
+        // two are different documents, and a shortcut that quietly opened the
+        // other one would be worse than a shortcut that did nothing.
+        if (!getSettings().notes) return;
         e.preventDefault();
         void api.noteOpen(project.root).then((abs) => {
           openView({ kind: "file", key: `file:${abs}`, absPath: abs });

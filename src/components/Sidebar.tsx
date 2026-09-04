@@ -10,7 +10,8 @@ import { api } from "../lib/api";
 import { goToNoteEnd } from "../lib/notes";
 import type { Search } from "../lib/search";
 import type { Memos } from "../lib/memos";
-import { useSettings } from "../lib/settings";
+import { updateSettings, useSettings } from "../lib/settings";
+import type { Settings } from "../lib/settings";
 import { folders } from "../lib/folders";
 import { contextMenu } from "../lib/contextMenu";
 
@@ -115,7 +116,20 @@ const TABS: { id: SidebarTab; title: string }[] = [
 /** The rail, minus anything switched off in Preferences. Filtered rather than
  *  hidden with CSS so the tabs keep dividing the strip evenly between however
  *  many there are. */
-const railTabs = (linear: boolean) => TABS.filter((t) => t.id !== "issues" || linear);
+const railTabs = (on: { linear: boolean; memos: boolean }) =>
+  TABS.filter((t) => (t.id !== "issues" || on.linear) && (t.id !== "memos" || on.memos));
+
+/** The rail's own way to switch one of these off, on the icon itself.
+ *
+ *  Preferences is where they all live and where they come back from, but the
+ *  moment you want an icon gone is the moment you are looking at it — and a
+ *  right-click there is a shorter sentence than ⌘, and a pane. Only the
+ *  optional ones appear here; the tabs that are the editor have nothing to
+ *  offer a right-click, and `files` answers with something else entirely. */
+const TURN_OFF: Partial<Record<SidebarTab, { text: string; patch: Partial<Settings> }>> = {
+  issues: { text: "Turn Off Linear", patch: { linear: false } },
+  memos: { text: "Turn Off Voice Memos", patch: { memos: false } },
+};
 
 export function Sidebar({
   project,
@@ -165,12 +179,13 @@ export function Sidebar({
    *  buttons, whose terminals the workspace owns */
   onOpenTerminalOn: (boot: string) => void;
 }) {
+  // which of the optional three this rail has any icons for
+  const { linear, memos: memosOn, notes: notesOn } = useSettings();
+
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
   // notifications, no sound. Red beats everything because a live mic may never
   // be invisible; then work in progress; then a memo that came back unread.
-  const linear = useSettings().linear;
-
   const dot = memos.recording
     ? "rec"
     : memos.working
@@ -191,24 +206,26 @@ export function Sidebar({
   return (
     <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-tabs">
-        {railTabs(linear).map((t) => (
+        {railTabs({ linear, memos: memosOn }).map((t) => (
           <button
             key={t.id}
             className={`sidebar-tab ${tab === t.id ? "active" : ""}`}
             title={t.title}
             onClick={() => onTab(t.id)}
-            // The files icon is the one rail button that stands for a thing
-            // rather than a view — it is the project's folders — so it is the
-            // one that answers a right-click. The other tabs have nothing to
-            // offer that clicking them doesn't already do.
-            onContextMenu={
-              t.id === "files"
-                ? (e) => {
-                    onTab("files");
-                    contextMenu(e, [{ text: "Add Folder to Project…", run: onAddFolder }]);
-                  }
-                : undefined
-            }
+            // Two kinds of right-click, and no third: the files icon stands
+            // for a thing rather than a view — it is the project's folders —
+            // and the optional tabs offer the way out of being in the rail at
+            // all. `scm` and `search` have nothing to say that clicking them
+            // doesn't already do, and get the webview's own menu.
+            onContextMenu={(e) => {
+              if (t.id === "files") {
+                onTab("files");
+                contextMenu(e, [{ text: "Add Folder to Project…", run: onAddFolder }]);
+                return;
+              }
+              const off = TURN_OFF[t.id];
+              if (off) contextMenu(e, [{ text: off.text, run: () => updateSettings(off.patch) }]);
+            }}
           >
             {ICONS[t.id]}
             {t.id === "memos" && dot && <span className={`memo-tab-dot ${dot}`} />}
@@ -219,9 +236,20 @@ export function Sidebar({
             panel you were reading stays where it was. Same square and same
             grid, because it belongs to the run — the difference it has to
             carry is only that nothing here stays pressed. */}
-        <button className="sidebar-tab" title="paste & auto tidy (⌘⌥N)" onClick={openNote}>
-          {NOTE}
-        </button>
+        {notesOn && (
+          <button
+            className="sidebar-tab"
+            title="paste & auto tidy (⌘⌥N)"
+            onClick={openNote}
+            onContextMenu={(e) =>
+              contextMenu(e, [
+                { text: "Turn Off Notes", run: () => updateSettings({ notes: false }) },
+              ])
+            }
+          >
+            {NOTE}
+          </button>
+        )}
         {collapsed ? (
           <button className="sidebar-fold" title="expand sidebar (⌘B)" onClick={onExpand}>
             {UNFOLD}
@@ -274,7 +302,7 @@ export function Sidebar({
             onOpenTerminalOn={onOpenTerminalOn}
           />
         )}
-        {tab === "memos" && (
+        {memosOn && tab === "memos" && (
           <MemoPanel
             root={project.root}
             memos={memos}

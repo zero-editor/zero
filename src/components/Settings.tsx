@@ -14,6 +14,43 @@ const THEME_CHOICES: { id: Theme; label: string; swatch: string[] }[] = [
 ];
 
 /**
+ * One extension, on or off.
+ *
+ * A switch rather than the two-button `settings-choice` rows the appearance
+ * pane is made of, and the difference is what the control is being asked: a
+ * theme is a choice between things that all exist, and this is whether a thing
+ * exists at all. `hint` is what the tooltip says while it is on — the sentence
+ * that names what you would lose by pressing it.
+ */
+function Switch({
+  name,
+  hint,
+  on,
+  set,
+}: {
+  name: string;
+  hint: string;
+  on: boolean;
+  set: (on: boolean) => void;
+}) {
+  return (
+    <div className="settings-row">
+      <span className="settings-row-name">{name}</span>
+      <button
+        role="switch"
+        aria-checked={on}
+        aria-label={name}
+        className={`settings-toggle ${on ? "on" : ""}`}
+        title={on ? hint : "off"}
+        onClick={() => set(!on)}
+      >
+        <span className="settings-knob" />
+      </button>
+    </div>
+  );
+}
+
+/**
  * App settings, ⌘, — one overlay for the whole app, not per project. The
  * shape is a labelled group per setting so the next one is an append, not a
  * redesign.
@@ -24,7 +61,7 @@ const THEME_CHOICES: { id: Theme; label: string; swatch: string[] }[] = [
  */
 export function Settings({ onClose }: { onClose: () => void }) {
   const settings = useSettings();
-  const [pane, setPane] = useState<"appearance" | "integrations">("appearance");
+  const [pane, setPane] = useState<"appearance" | "extensions">("appearance");
   // Which projects hold a Linear token. Read here rather than passed in: this
   // overlay belongs to the app, not to a project, so "what is connected" is a
   // list rather than a single yes or no.
@@ -58,10 +95,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
       <div className="settings-box" onMouseDown={(e) => e.stopPropagation()}>
         <div className="settings-title">preferences</div>
         {/* Two panes, because the second one isn't about how the app looks.
-            Grouping integrations under "appearance" would have been the kind
-            of tidy that makes a thing harder to find. */}
+            Grouping these under "appearance" would have been the kind of tidy
+            that makes a thing harder to find.
+            "extensions" rather than "integrations": two of the three switches
+            here are zero's own — the mic and the note — and calling those an
+            integration would say they talk to something. What the three have
+            in common is that the app is whole without them. */}
         <div className="settings-tabs">
-          {(["appearance", "integrations"] as const).map((t) => (
+          {(["appearance", "extensions"] as const).map((t) => (
             <button
               key={t}
               className={`settings-tab ${pane === t ? "on" : ""}`}
@@ -230,20 +271,34 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </>
         )}
 
-        {pane === "integrations" && (
+        {pane === "extensions" && (
           <div className="settings-group">
-            <div className="settings-row">
-              <span className="settings-row-name">Linear</span>
-              <button
-                role="switch"
-                aria-checked={settings.linear}
-                className={`settings-toggle ${settings.linear ? "on" : ""}`}
-                title={settings.linear ? "on — the Issues tab is in the sidebar" : "off"}
-                onClick={() => updateSettings({ linear: !settings.linear })}
-              >
-                <span className="settings-knob" />
-              </button>
-            </div>
+            {/* zero's own two first and the outside one last, which is also
+                the only one with anything underneath it */}
+            <Switch
+              name="Voice memos"
+              on={settings.memos}
+              hint="on — the mic is in the sidebar"
+              set={(memos) => updateSettings({ memos })}
+            />
+            <Switch
+              name="Notes"
+              on={settings.notes}
+              hint="on — ⌘⌥N opens this project's note"
+              set={(notes) => updateSettings({ notes })}
+            />
+            <Switch
+              name="Linear"
+              on={settings.linear}
+              hint="on — the Issues tab is in the sidebar"
+              set={(linear) => updateSettings({ linear })}
+            />
+            {(!settings.memos || !settings.notes) && (
+              <div className="settings-note">
+                Nothing was deleted. Recordings, transcripts and notes stay in the project;
+                switching one back on shows every one of them again.
+              </div>
+            )}
 
             {settings.linear && connections.length > 0 && (
               <div className="settings-conns">

@@ -528,7 +528,14 @@ export interface Memos {
   refresh: () => void;
 }
 
-/** `viewing` = the memos tab is on screen for this project, which is what reads
+/** `enabled` = the feature is switched on in Preferences. Off is not a hidden
+ *  panel: nothing below subscribes, nothing lists, and the hook returns the
+ *  same shape saying there is nothing here — so a project with memos off pays
+ *  neither the `memo_list` it opens with nor the listener behind it. It stays
+ *  a hook either way, because a hook that isn't called is a hook that can't be
+ *  turned back on without remounting the workspace under it.
+ *
+ *  `viewing` = the memos tab is on screen for this project, which is what reads
  *  the badge. It is not what keeps anything alive: the pipeline is Rust's.
  *  `onReady` is handed the id of a memo recorded here the moment it finishes,
  *  so the workspace can open its thread — the ramble ends in reading. The id
@@ -536,6 +543,7 @@ export interface Memos {
  *  files it reads are its own business. */
 export function useMemos(
   root: string,
+  enabled: boolean,
   viewing: boolean,
   onReady?: (id: string) => void,
   onSignIn?: () => void
@@ -607,11 +615,22 @@ export function useMemos(
   // every cold open to answer a question only the panel's body asks is launch
   // time spent on a tab that may never be looked at. So it waits for the tab.
   useEffect(() => {
+    if (!enabled) {
+      // Switched off. The list goes, and so does the recording if this project
+      // is the one holding the mic: a live microphone behind a switch that
+      // says off is the one outcome this must not have, and there is nowhere
+      // left to show a red dot. It is thrown away rather than finished,
+      // because the pipeline it would run into is the part being turned off.
+      setMemos([]);
+      follow(null);
+      if (holder?.root === root) void api.memoRecordCancel().catch(() => {});
+      return;
+    }
     void list(true);
-  }, [list]);
+  }, [list, enabled, root, follow]);
 
   useEffect(() => {
-    if (!viewing || probe) return;
+    if (!enabled || !viewing || probe) return;
     let live = true;
     probeOnce().then((p) => {
       if (live) setProbe(p);
@@ -619,9 +638,10 @@ export function useMemos(
     return () => {
       live = false;
     };
-  }, [viewing, probe]);
+  }, [enabled, viewing, probe]);
 
   useEffect(() => {
+    if (!enabled) return;
     ensureStarted();
     const sink: Sink = {
       update: (m) => {
@@ -659,18 +679,19 @@ export function useMemos(
     return () => {
       if (sinks.get(root) === sink) sinks.delete(root);
     };
-  }, [root, mark, list, follow]);
+  }, [enabled, root, mark, list, follow]);
 
   // Who holds the mic is module state rather than React's, so a change there
   // has to re-render the panels it wasn't addressed to.
   const [, sync] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     const w = () => sync((n) => n + 1);
     watchers.add(w);
     return () => {
       watchers.delete(w);
     };
-  }, []);
+  }, [enabled]);
 
   // Looking at the tab reads the badge — including memos that land while you're
   // already there. Keyed on the ids rather than the array so that a re-render

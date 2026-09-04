@@ -13,6 +13,7 @@ import { overrideFor, setLanguageOverride } from "../lib/lang";
 import { pickLanguage } from "../lib/langPick";
 import { FileIconSpan } from "./FileIcon";
 import { memoLabel, memoPaths, type Memos } from "../lib/memos";
+import { useSettings } from "../lib/settings";
 import { isNote } from "../lib/notes";
 import { STATUS_NAME, type GitMark } from "../lib/gitStatus";
 import { useTabReorder } from "../lib/tabReorder";
@@ -182,6 +183,9 @@ export function EditorPane({
     start: startDrag,
     shift,
   } = useTabReorder(".editor-tab", onReorder);
+
+  // whether a file in `.zero/notes/` is still a note — see the FileView below
+  const notesOn = useSettings().notes;
 
   /**
    * A tab's menu: what to do with the tab, then what to do with its file.
@@ -446,8 +450,10 @@ export function EditorPane({
                   visible={i === activeView}
                   // a note is an ordinary file that happens to live in the
                   // notes folder; the folder is what decides, so one reopened
-                  // from the tree behaves exactly like one ⌘⌥N opened
-                  note={isNote(v.absPath, root) ? root : undefined}
+                  // from the tree behaves exactly like one ⌘⌥N opened — and
+                  // with notes switched off it is only the ordinary file,
+                  // still openable, still saveable, pasting into it verbatim
+                  note={notesOn && isNote(v.absPath, root) ? root : undefined}
                   onOpenFile={onOpenFile}
                 />
               )}

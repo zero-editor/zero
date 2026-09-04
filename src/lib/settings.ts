@@ -70,6 +70,26 @@ export interface Settings {
    *  carry the icon. Connecting and disconnecting stay per project, in the
    *  panel, because a token is a project's own. */
   linear: boolean;
+  /** Whether voice memos exist in this app: the mic in the rail, ⌘⇧M, the
+   *  keys that only answer mid-recording, and the threads a memo opens as.
+   *
+   *  Off does more than hide, which is the difference between this and the
+   *  three switches around it: `useMemos` isn't run at all, so a project pays
+   *  neither the `memo_list` at open nor the event listener behind it, and any
+   *  memo thread that was open closes with the switch — a thread draws its
+   *  title and its record button from that live list, and one without it would
+   *  be a tab of a document nothing is keeping up to date. The recordings and
+   *  their transcripts are files and are never touched: turning it back on
+   *  shows every one of them. */
+  memos: boolean;
+  /** Whether the project's scratch note exists: the clipboard button under the
+   *  rail, ⌘⌥N, and the one thing a note does that a file doesn't — tidying
+   *  what you paste into it.
+   *
+   *  Off leaves `.zero/notes/` exactly where it is, and the notes in it stay
+   *  ordinary markdown files the tree can still open. What they lose is the
+   *  paste, which is the feature; the folder is only where it lives. */
+  notes: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -81,7 +101,12 @@ const DEFAULTS: Settings = {
   termStyle: "panel",
   langOverrides: {},
   developer: false,
-  linear: true,
+  // off, because it is somebody else's product: a new install shouldn't carry
+  // an icon for a service its owner may not use. `parse` keeps it on for
+  // anyone who already had it — see there.
+  linear: false,
+  memos: true,
+  notes: true,
 };
 
 // The stored blob survives across versions of zero, so anything unrecognised
@@ -109,7 +134,14 @@ function parse(raw: string | null): Settings {
       : DEFAULTS.termStyle,
     langOverrides: sanitizeOverrides(blob.langOverrides),
     developer: typeof blob.developer === "boolean" ? blob.developer : DEFAULTS.developer,
-    linear: typeof blob.linear === "boolean" ? blob.linear : DEFAULTS.linear,
+    // The one field that doesn't fall back to its default. A stored blob with
+    // no `linear` in it was written by a version where the Issues tab was
+    // unconditional, so its owner has been looking at that tab all along —
+    // and taking a tab away from someone using it is not a default's job.
+    // Only an install with nothing stored at all is new enough to be asked.
+    linear: typeof blob.linear === "boolean" ? blob.linear : true,
+    memos: typeof blob.memos === "boolean" ? blob.memos : DEFAULTS.memos,
+    notes: typeof blob.notes === "boolean" ? blob.notes : DEFAULTS.notes,
   };
 }
 

@@ -202,6 +202,16 @@ is pruned by deleting its line.
 The transcriber is new in macOS 26 and there is no second one to fall back to,
 so **memos need macOS 26**. Nothing else in zero does.
 
+**Three parts of the app are optional.** Voice memos, the scratch note and the
+Linear panel each have a switch in Preferences → extensions, and a right-click
+on their icon in the activity rail turns that one off from where you are
+already looking. Off is more than a hidden icon for the first of them: a
+project with memos off never lists them and never listens for one, and any
+memo thread that was open closes with the switch. Nothing on disk is touched
+either way — the recordings, the transcripts and the notes stay in the project,
+and switching one back on shows every one of them. Linear starts off, because
+it is somebody else's product; the other two start on.
+
 **⌘P goes to a file.** Fuzzy, over everything git will admit to — tracked files
 plus anything new that isn't ignored — so `wsp` finds `components/Workspace.tsx`
 and `node_modules` never appears.
