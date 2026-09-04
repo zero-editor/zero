@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
-import { save } from "@tauri-apps/plugin-dialog";
 import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
 
@@ -30,7 +29,9 @@ export function NewFileView({ root, onSaved }: { root: string; onSaved: (absPath
           {
             key: "Mod-s",
             run: (v) => {
-              save({ defaultPath: root, title: "Save file" }).then((path) => {
+              // not the dialog plugin's save(), for the reason every other
+              // panel in zero avoids it — see `pick_directory`
+              api.pickSavePath("Save file", root, "").then((path) => {
                 if (!path) return;
                 api.writeFile(path, v.state.doc.toString()).then(() => savedRef.current(path));
               });

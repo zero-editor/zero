@@ -124,79 +124,47 @@ pub fn watch(app: tauri::AppHandle) {
     });
 }
 
-/// The folder picker, asked for by a process that is allowed to open one.
-///
-/// `NSOpenPanel` is hosted out of process, and macOS 26 refuses that
-/// connection to an executable that isn't inside an `.app` bundle — which is
-/// precisely what `tauri dev` runs. The panel comes back NULL, objc2 panics on
-/// it, and the window goes with it: in this repository "open project" has been
-/// a way to quit the dev build, and nothing about the failure says so.
-///
-/// osascript *is* bundled, and `choose folder` is the same AppKit panel, so
-/// asking it instead costs one subprocess and works. Only the dev build takes
-/// this route — a bundled zero has no reason to.
-#[tauri::command]
-pub async fn pick_directory(title: String) -> Result<Option<String>, String> {
-    // the prompt is ours, but it is still going into a script: a quote in it
-    // would end the string and everything after it would be AppleScript
-    let prompt = title.replace(['"', '\\', '\n'], " ");
-    let out = std::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(format!("POSIX path of (choose folder with prompt \"{prompt}\")"))
-        .output()
-        .map_err(|e| e.to_string())?;
 
-    // cancelling is -128 and is not a failure to report, and telling it apart
-    // from a real error would only change a message nobody sees
-    if !out.status.success() {
-        return Ok(None);
-    }
-    // `POSIX path of` ends a directory with a slash; every root elsewhere in
-    // zero is stored without one, and the same project under two spellings is
-    // two tabs
-    let dir = String::from_utf8_lossy(&out.stdout).trim().trim_end_matches('/').to_string();
-    Ok((!dir.is_empty()).then_some(dir))
+/* ---------- the panels ----------
+
+   Three commands, one implementation, and none of them touch tauri's dialog
+   plugin: it panics on a nil URL and takes the window with it. `panel.rs` has
+   the whole story — what the bug is, why the first way around it was osascript
+   and why that stopped being good enough. */
+
+/// The folder picker: opening a project, and adding a folder to one.
+#[tauri::command]
+pub async fn pick_directory(app: tauri::AppHandle, title: String) -> Result<Option<String>, String> {
+    let dir = crate::panel::run(&app, title, crate::panel::Kind::Directory).await?;
+    // Every root elsewhere in zero is stored without a trailing slash, and the
+    // same project under two spellings is two tabs. AppKit doesn't add one,
+    // but the osascript panel this replaces did, and the invariant is worth
+    // keeping where it can be seen.
+    Ok(dir.map(|d| d.trim_end_matches('/').to_string()).filter(|d| !d.is_empty()))
 }
 
-/// The file picker, and unlike `pick_directory` this one is not dev-only.
-///
-/// The same NULL `NSOpenPanel` and the same objc2 panic on it — but the file
-/// panel dies in the *shipped* app too, where importing a voice memo quit
-/// zero for anyone who tried it in 0.37.0. So nothing calls the plugin for a
-/// file, in any build.
-///
-/// What is not the explanation: being unbundled. `pick_directory` exists
-/// because macOS 26 refuses the out-of-process panel to a binary outside an
-/// `.app`, and that really is dev-only — the bundled app opens a folder panel
-/// through the plugin every time someone opens a project. Whatever kills the
-/// file panel is something else, and unproven; this routes around it rather
-/// than claiming to understand it.
-///
-/// `extensions` narrows it the way the plugin's filters do. AppleScript's
-/// `of type` takes bare extensions as well as UTIs, and an empty list means
-/// no filter rather than nothing selectable.
+/// The file picker. `extensions` narrows it the way the plugin's filters did.
 #[tauri::command]
-pub async fn pick_file(title: String, extensions: Vec<String>) -> Result<Option<String>, String> {
-    // as in `pick_directory`, everything interpolated is going into a script
-    let clean = |s: &str| s.replace(['"', '\\', '\n'], " ");
-    let prompt = clean(&title);
-    let of_type = if extensions.is_empty() {
-        String::new()
-    } else {
-        let list =
-            extensions.iter().map(|e| format!("\"{}\"", clean(e))).collect::<Vec<_>>().join(", ");
-        format!(" of type {{{list}}}")
-    };
-    let out = std::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(format!("POSIX path of (choose file with prompt \"{prompt}\"{of_type})"))
-        .output()
-        .map_err(|e| e.to_string())?;
+pub async fn pick_file(
+    app: tauri::AppHandle,
+    title: String,
+    extensions: Vec<String>,
+) -> Result<Option<String>, String> {
+    crate::panel::run(&app, title, crate::panel::Kind::File { extensions }).await
+}
 
-    // cancelling is -128, and is a decision rather than something to report
-    if !out.status.success() {
-        return Ok(None);
-    }
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    Ok((!path.is_empty()).then_some(path))
+/// Where to save a new file — `NSSavePanel`, reached by ⌘N then ⌘S.
+///
+/// It went through the plugin until now, and nobody had reported it. Two of
+/// the three panels turned out to crash, each looking fine until someone used
+/// it, and the commit that fixed one of them left the other — so this one is
+/// moved on the same principle rather than on a report.
+#[tauri::command]
+pub async fn pick_save_path(
+    app: tauri::AppHandle,
+    title: String,
+    directory: String,
+    name: String,
+) -> Result<Option<String>, String> {
+    crate::panel::run(&app, title, crate::panel::Kind::Save { directory, name }).await
 }

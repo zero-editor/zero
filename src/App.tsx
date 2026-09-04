@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api";
@@ -230,15 +229,14 @@ export default function App() {
     };
   }, [openPaths]);
 
-  // Two pickers for one gesture, and only because of where they run: the dev
-  // build is an unbundled binary, which macOS 26 will not open an NSOpenPanel
-  // for, and tauri's dialog plugin panics on the NULL rather than returning
-  // it — "open project" quit zero. The shipped app is bundled and uses the
-  // real thing; dev asks osascript, which is bundled, for the same panel.
+  // Never through the dialog plugin, in any build. macOS 26 hands it a NULL
+  // NSOpenPanel and objc2 panics on it rather than returning it, which takes
+  // the window with it — "open project" is a way to quit zero. The dev build
+  // has always failed this way and routed around it; the shipped app does it
+  // too, which is what the `+` in the titlebar was doing. See `pick_directory`
+  // for what is and isn't known about why.
   const pickProject = useCallback(async () => {
-    const dir = import.meta.env.DEV
-      ? await api.pickDirectory("Open project")
-      : await open({ directory: true, multiple: false, title: "Open project" });
+    const dir = await api.pickDirectory("Open project");
     if (typeof dir === "string") openProject(dir);
   }, [openProject]);
 

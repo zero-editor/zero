@@ -357,11 +357,14 @@ export const api = {
     invoke<ArrayBuffer>("git_show_binary", { worktree, rev, path }),
   gitBaseline: (path: string) => invoke<Baseline>("git_baseline", { path }),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
-  /** the folder picker the dev build has to use — see `pick_directory` */
+  /* The three panels, none of which go through tauri's dialog plugin in any
+     build: it panics on the NULL macOS 26 hands back and takes the window with
+     it. See `pick_directory` for what is known and what isn't. */
   pickDirectory: (title: string) => invoke<string | null>("pick_directory", { title }),
-  /** the file picker the dev build has to use, for the same reason */
   pickFile: (title: string, extensions: string[]) =>
     invoke<string | null>("pick_file", { title, extensions }),
+  pickSavePath: (title: string, directory: string, name: string) =>
+    invoke<string | null>("pick_save_path", { title, directory, name }),
   /** what each path is and which project it belongs to; missing paths dropped */
   classifyOpens: (paths: string[]) => invoke<OpenTarget[]>("classify_opens", { paths }),
   /** drain the files macOS has handed over since the last drain */

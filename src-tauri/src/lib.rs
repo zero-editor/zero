@@ -9,6 +9,10 @@ mod memos;
 mod notes;
 mod opaque;
 mod opens;
+// macOS-only by nature: it is AppKit panels, and the objc2 crates it needs are
+// target-gated in Cargo.toml
+#[cfg(target_os = "macos")]
+mod panel;
 mod pty;
 mod ptyd;
 mod recents;
@@ -205,6 +209,7 @@ pub fn run() {
             session::session_save,
             cli::pick_directory,
             cli::pick_file,
+            cli::pick_save_path,
             opens::classify_opens,
             opens::take_open_paths,
             git::git_worktrees,
