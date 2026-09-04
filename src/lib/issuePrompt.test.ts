@@ -6,6 +6,7 @@ import {
   ISSUES,
   bootCommand,
   composeIssuePrompt,
+  inlineCommand,
   issuePromptOf,
   composePrompt,
   defaultPrompt,
@@ -92,9 +93,9 @@ is(
 // composition
 
 is(
-  "the placeholder becomes identifiers and titles",
+  "the placeholder becomes identifiers and titles, one per line",
   composePrompt(`do it:\n\n${ISSUES}`, rows),
-  `do it:\n\nECL-12 "Fix the login redirect"; ECL-14 "It's \"quoted\""`,
+  `do it:\n\nECL-12 "Fix the login redirect"\nECL-14 "It's \"quoted\""`,
 );
 is(
   "a template with the placeholder edited away still names its issues",
@@ -130,12 +131,29 @@ is("and a reset — stored as empty — means it too", issuePromptOf(""), DEFAUL
 is("an edited one is kept", issuePromptOf("just do it"), "just do it");
 
 // ---------------------------------------------------------------------------
-// the shell. An apostrophe in an issue title is ordinary — "It's broken" — and
-// an unescaped one closes the string and hands the rest of the prompt to the
-// shell as commands. This is the assertion the file exists for.
+// the command line. The prompt lives in a file now, so what the shell carries
+// is a path — the reason being that it used to carry the prompt, and a triage
+// run over six issues was two thousand characters echoed above a session about
+// to print the same text again.
 
-const cmd = bootCommand(composePrompt(ISSUES, rows));
-is("the command opens a quoted string", cmd.startsWith("claude '"), true);
+is(
+  "the boot command reads the prompt out of its file",
+  bootCommand("/w/.zero/prompts/triage.txt"),
+  `claude "$(cat '/w/.zero/prompts/triage.txt')"`,
+);
+is(
+  "and quotes the path, since a project can live under a space",
+  bootCommand("/My Projects/x/.zero/prompts/ecl-12.txt"),
+  `claude "$(cat '/My Projects/x/.zero/prompts/ecl-12.txt')"`,
+);
+
+// The fallback, for when the file cannot be written: a read-only checkout
+// should cost a tidy command line, not the button. Its escaping is the part
+// that bites — apostrophes in issue titles are ordinary, and an unescaped one
+// ends the string and hands the rest of the prompt to the shell as commands.
+
+const cmd = inlineCommand(composePrompt(ISSUES, rows));
+is("the inline command opens a quoted string", cmd.startsWith("claude '"), true);
 is("and closes it", cmd.endsWith("'"), true);
 is(
   "every quote inside is escaped, so the string never ends early",
@@ -143,8 +161,8 @@ is(
   false,
 );
 is(
-  "the command is one line, so no shell answers it with a continuation prompt",
-  bootCommand("a\n\nb  c"),
+  "and it is one line, so no shell answers it with a continuation prompt",
+  inlineCommand("a\n\nb  c"),
   "claude 'a b c'",
 );
 

@@ -369,6 +369,17 @@ export function TerminalPanes({
 /** breathing room around a terminal, before the sub-row remainder is added */
 
 // Dark Modern (VS Code / Cursor) — panel bg + default terminal ANSI palette
+/** How long the shell has to go quiet before a pane's boot command is typed
+ *  into it. It is a settle window rather than a delay: the clock restarts on
+ *  every chunk, so a prompt that takes a second to draw is waited out and a
+ *  fast one costs this much. See `holdBoot`. */
+const BOOT_SETTLE_MS = 90;
+
+/** …and how long to wait when the shell says nothing at all. A prompt is
+ *  output, so this is only reached by a shell that prints none — at which
+ *  point typing the command blind beats never running it. */
+const BOOT_SILENT_MS = 1200;
+
 const TERM_THEME = {
   background: "#181818",
   foreground: "#cccccc",
@@ -895,6 +906,41 @@ function TerminalPane({
     // awaited spawn resolves, and there is no replay
     const decoder = { current: null as null | TextDecoder };
 
+    /**
+     * The command this pane was opened to run, if it was opened to run one:
+     * typed rather than executed behind the scenes, so it lands in the user's
+     * own shell, in front of them, editable and re-runnable.
+     *
+     * **Held until the shell has drawn its prompt.** A write that arrives
+     * while the pty exists but the shell has not yet taken it over is echoed
+     * twice — once by the tty's line discipline, on a bare line with nothing
+     * in front of it, and again by the shell's own line editor when it starts
+     * reading and redraws what it found waiting in the buffer. The pane opened
+     * with the same command printed above itself, which for a `claude "$(cat
+     * …)"` is two wrapped lines of noise before anything has happened.
+     *
+     * Output arriving *is* the prompt being drawn, so the wait is for output
+     * to stop rather than for a fixed delay: a slow `.zshrc` pushes it out on
+     * its own, and a fast shell costs 90ms. The longer window is the fallback
+     * for a shell that prints no prompt at all — rare, and never writing the
+     * command would be the worse way to be wrong about it.
+     */
+    let boot: string | null = takeBoot(id) ?? null;
+    let bootTimer: number | null = null;
+    const sendBoot = () => {
+      bootTimer = null;
+      const cmd = boot;
+      boot = null;
+      if (cmd) api.ptyWrite(id, `${cmd}\r`).catch(() => {});
+    };
+    /** (re)start the settle window — more output means the prompt is still
+     *  arriving, so the command waits for the end of it */
+    const holdBoot = (ms: number) => {
+      if (boot === null) return;
+      if (bootTimer !== null) window.clearTimeout(bootTimer);
+      bootTimer = window.setTimeout(sendBoot, ms);
+    };
+
     // Writes are coalesced, and the honest reason is the unfocused case. The
     // cost of a streaming pane is per frame, not per hertz — a Claude session
     // renders at only 4–16fps (measured, onRender) and still bills ~25% of a
@@ -922,6 +968,7 @@ function TerminalPane({
     // price. 1fps there; the switch back flushes instantly (below), so the
     // pane is current by the time it can be seen.
     ptyBus.onOutput(id, (bytes) => {
+      holdBoot(BOOT_SETTLE_MS);
       pending.push(bytes);
       if (flushTimer !== null) return;
       const frame = !activeRef.current ? 1000 : document.hasFocus() ? 33 : 250;
@@ -941,14 +988,12 @@ function TerminalPane({
 
     api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
       () => {
-        // the command this pane was opened to run, if it was opened to run
-        // one: typed rather than executed behind the scenes, so it lands in
-        // the user's own shell, in front of them, editable and re-runnable
-        const boot = takeBoot(id);
-        if (!boot) return;
-        api.ptyWrite(id, `${boot}\r`).catch(() => {});
+        // Only if nothing has been heard yet: output already arriving means
+        // the shell is up and its own settle window is the better clock.
+        if (bootTimer === null) holdBoot(BOOT_SILENT_MS);
       },
       (e) => {
+        boot = null;
         term.write(`\r\n\x1b[31mzero: failed to start shell: ${e}\x1b[0m\r\n`);
       }
     );
@@ -1087,6 +1132,7 @@ function TerminalPane({
       observer.disconnect();
       window.clearTimeout(resizeTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
+      if (bootTimer !== null) window.clearTimeout(bootTimer);
       window.cancelAnimationFrame(resizeRaf);
       window.cancelAnimationFrame(sizeRaf);
       smooth.dispose();

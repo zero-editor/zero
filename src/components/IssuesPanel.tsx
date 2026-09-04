@@ -19,10 +19,11 @@ import {
   ISSUE,
   ISSUES,
   bootCommand,
-  issuePromptOf,
   composeIssuePrompt,
   composePrompt,
   defaultPrompt,
+  inlineCommand,
+  issuePromptOf,
   pasteKeys,
 } from "../lib/issuePrompt";
 
@@ -353,7 +354,7 @@ function IssueRow({
           in the avatar's place while you hover, and the avatar steps aside;
           who it is assigned to is in the row's own tooltip, and the layout
           does not move. */}
-      <button className="li-start" title={`start ${issue.identifier} in a new terminal`} onClick={onStart} onContextMenu={onStartMenu}>
+      <button className="li-play" title={`start ${issue.identifier} in a new terminal`} onClick={onStart} onContextMenu={onStartMenu}>
         {RUN}
       </button>
     </div>
@@ -721,13 +722,27 @@ export function IssuesPanel({
 
   const promptFor = (g: Group) => prompts[g.title] ?? defaultPrompt(g.title, g.stateType);
 
+  /**
+   * Open a terminal on a prompt — via a file, so the shell carries a path
+   * rather than the prompt itself.
+   *
+   * `name` becomes the filename, so the command in the scrollback still says
+   * which button ran it and re-running is the same line. A failure to write
+   * falls back to the prompt inline: a read-only checkout should cost a tidy
+   * command line, not the button.
+   */
+  const launch = async (name: string, prompt: string) => {
+    const path = await api.linearPromptFile(root, name, prompt).catch(() => null);
+    onOpenTerminalOn(path ? bootCommand(path) : inlineCommand(prompt));
+  };
+
   /** A fresh session, every time — never a paste into whatever is focused.
    *  The status poll cannot tell a Claude waiting at its prompt from one
    *  waiting on a permission dialog (see agentStatus), and a whole triage
    *  instruction typed into a yes/no dialog is a bad afternoon. A run this
    *  size also wants its own scrollback. Pasting is still on the menu, where
    *  choosing it is the person saying they know which session they mean. */
-  const runGroup = (g: Group) => onOpenTerminalOn(bootCommand(composePrompt(promptFor(g), g.rows)));
+  const runGroup = (g: Group) => void launch(g.title, composePrompt(promptFor(g), g.rows));
 
   /** Into a session already going, for when the context is loaded and starting
    *  over would be the expensive part. Not submitted — same rule as the issue
@@ -762,7 +777,7 @@ export function IssuesPanel({
   /* ---------- the same three verbs, for one row ---------- */
 
   const runIssue = (i: LinearIssue) =>
-    onOpenTerminalOn(bootCommand(composeIssuePrompt(issuePrompt, i)));
+    void launch(i.identifier, composeIssuePrompt(issuePrompt, i));
 
   const pasteIssue = (i: LinearIssue) => {
     const term = targetTerm();
@@ -943,7 +958,9 @@ export function IssuesPanel({
         <div className="li-group" key={g.title}>
           {/* Two buttons, not one with a button in it: the header folds the
               group and the play runs it, and nesting the second inside the
-              first is invalid and behaves like it. The row is what hovers. */}
+              first is invalid and behaves like it. The play sits over the
+              count the way a row's sits over its avatar — the row is what
+              hovers, and nothing moves when it does. */}
           <div className="li-head-row">
             <button
               className="li-head"
@@ -961,7 +978,7 @@ export function IssuesPanel({
               <span className="li-count">{g.rows.length}</span>
             </button>
             <button
-              className="li-run"
+              className="li-play"
               title={`run this prompt on the ${g.rows.length} issue${
                 g.rows.length > 1 ? "s" : ""
               } shown — right-click to edit it`}
@@ -988,7 +1005,7 @@ export function IssuesPanel({
                 // an emptied box means "back to the default", and running is
                 // then running that rather than running nothing
                 const eff = body.trim() || defaultPrompt(g.title, g.stateType);
-                onOpenTerminalOn(bootCommand(composePrompt(eff, g.rows)));
+                void launch(g.title, composePrompt(eff, g.rows));
               }}
             />
           )}
@@ -1023,7 +1040,7 @@ export function IssuesPanel({
                     onRun={(body) => {
                       saveIssuePrompt(body);
                       const eff = body.trim() || DEFAULT_ISSUE_PROMPT;
-                      onOpenTerminalOn(bootCommand(composeIssuePrompt(eff, i)));
+                      void launch(i.identifier, composeIssuePrompt(eff, i));
                     }}
                   />
                 )}

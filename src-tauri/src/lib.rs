@@ -229,6 +229,7 @@ pub fn run() {
             linear::linear_issues,
             linear::linear_issue,
             linear::linear_save_description,
+            linear::linear_prompt_file,
             git::git_head_file,
             git::git_index_file,
             git::git_show_binary,

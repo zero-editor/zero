@@ -313,6 +313,10 @@ export const api = {
     invoke<LinearIssueDetail>("linear_issue", { root, id }),
   linearSaveDescription: (root: string, id: string, description: string) =>
     invoke<void>("linear_save_description", { root, id, description }),
+  /** park a run button's prompt in `.zero/prompts/<name>.txt` and say where —
+   *  so the shell carries a path instead of two thousand characters */
+  linearPromptFile: (root: string, name: string, body: string) =>
+    invoke<string>("linear_prompt_file", { root, name, body }),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
   addRecent: (path: string, name?: string, folders?: string[]) =>
     invoke<void>("add_recent", { path, name, folders }),

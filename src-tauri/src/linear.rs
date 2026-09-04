@@ -725,6 +725,60 @@ pub async fn linear_issue(app: tauri::AppHandle, root: String, id: String) -> Re
     })
 }
 
+/// A filename from a state's name or an issue's identifier — `[a-z0-9-]` and
+/// nothing else, which is also what makes it safe: a group called `../../etc`
+/// comes out `etc`, so nothing here can be talked into writing outside the
+/// directory below.
+fn slug(s: &str) -> String {
+    let mut out = String::new();
+    let mut dash = false;
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !dash && !out.is_empty() {
+            out.push('-');
+            dash = true;
+        }
+    }
+    out.truncate(60);
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        out.push_str("prompt");
+    }
+    out
+}
+
+/// Park a run button's prompt in a file, and say where it went.
+///
+/// **This exists to keep the prompt off the command line.** The prompt used to
+/// be the argument, and a triage run over six issues was two thousand
+/// characters typed into the shell — which the shell then echoed, wrapped over
+/// a dozen lines, immediately above the session that was about to print the
+/// same text again in its own input box. The same prompt, twice, before any
+/// work started. `claude "$(cat …)"` is one short line instead.
+///
+/// Named after the group or the issue rather than given a unique id, so the
+/// command in the scrollback still says what it is going to run, re-running it
+/// is the same line, and the directory holds one file per button instead of one
+/// per press.
+///
+/// It goes in `.zero/`, which is where notes and memos already live and which
+/// is expected to be ignored by the repository holding it.
+#[tauri::command]
+pub async fn linear_prompt_file(root: String, name: String, body: String) -> Result<String, String> {
+    crate::git::blocking(move || {
+        let dir = std::path::Path::new(&root).join(".zero").join("prompts");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("{}.txt", slug(&name)));
+        std::fs::write(&path, body).map_err(|e| e.to_string())?;
+        Ok(path.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn linear_save_description(
     app: tauri::AppHandle,
@@ -932,5 +986,16 @@ mod conn_tests {
         assert_eq!(c.org.as_deref(), Some("Ecliptica"));
         let back = serde_json::to_string(&c).unwrap();
         assert!(back.contains("Ecliptica"), "{back}");
+    }
+
+    #[test]
+    fn slug_is_a_filename_and_nothing_else() {
+        assert_eq!(slug("In Review"), "in-review");
+        assert_eq!(slug("ECL-102"), "ecl-102");
+        // the reason it is a whitelist rather than an escape: no separator and
+        // no dot survives, so no name can point outside the prompts directory
+        assert_eq!(slug("../../etc/passwd"), "etc-passwd");
+        assert_eq!(slug("///"), "prompt");
+        assert!(slug(&"x".repeat(200)).len() <= 60);
     }
 }

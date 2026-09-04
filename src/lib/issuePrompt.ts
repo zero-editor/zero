@@ -120,7 +120,10 @@ const line = (i: LinearIssue) => `${i.identifier} "${i.title}"`;
  * be a way to silently remove the subject.
  */
 export function composePrompt(template: string, rows: LinearIssue[]): string {
-  const list = rows.map(line).join("; ");
+  // One per line. They used to be joined with "; " because the whole prompt had
+  // to survive as a single shell word; now that it lives in a file, a list of
+  // six issues can look like a list of six issues.
+  const list = rows.map(line).join("\n");
   const body = template.trim();
   return body.includes(ISSUES) ? body.split(ISSUES).join(list) : `${body}\n\n${list}`;
 }
@@ -155,22 +158,42 @@ export function composeIssuePrompt(template: string, issue: LinearIssue): string
 const quoted = (s: string) => `'${s.split("'").join(`'\\''`)}'`;
 
 /**
- * The command a new terminal is opened on.
+ * The command a new terminal is opened on — `claude` reading the prompt out of
+ * a file rather than carrying it as an argument.
  *
- * **One line, so the newlines go.** A quoted multi-line string is valid in
- * every shell here and looks it: zsh answers each embedded newline with a
- * `quote>` continuation prompt, so a five-line prompt lands as five lines of
- * shell bookkeeping above the session it started. The paragraph breaks are
- * doing nothing for the agent that a space doesn't, and the boot command is
- * meant to be readable in the scrollback — it is typed rather than run behind
- * the scenes precisely so it can be read and run again (see Terminals.tsx).
+ * **The prompt is not on the command line, and that is the whole point.** It
+ * used to be, and a triage run over six issues was two thousand characters
+ * typed into the shell, which the shell then echoed wrapped over a dozen lines,
+ * directly above the session about to render the same text again in its own
+ * input box. One prompt, printed twice, before anything happened. This is one
+ * short line, and it still says what it is going to run because the file is
+ * named after the group or the issue.
+ *
+ * `"$(cat …)"` rather than `$(cat …)`: the double quotes are what stop the
+ * shell splitting the prompt into one argument per word. Understood by zsh,
+ * bash and fish alike.
  *
  * The prompt goes as an argument rather than being typed into a running
  * `claude`, which would be a race against its own startup: the TUI takes the
  * terminal over some milliseconds after the shell hands it off, and keystrokes
  * that arrive during that are swallowed, or worse, half-swallowed.
  */
-export function bootCommand(prompt: string): string {
+export function bootCommand(promptPath: string): string {
+  return `claude "$(cat ${quoted(promptPath)})"`;
+}
+
+/**
+ * The same thing with the prompt inline — what runs when the file could not be
+ * written.
+ *
+ * Kept as a fallback rather than as an error, because a file is a nicety and
+ * the button working is not: a read-only checkout should cost you a tidy
+ * command line, not the feature. This is the form the app shipped with in
+ * 0.40.0, so the escaping below is load-bearing in exactly the way it was —
+ * `'\''` for the apostrophes issue titles are full of — and one line, since a
+ * quoted newline makes zsh answer with a `quote>` continuation.
+ */
+export function inlineCommand(prompt: string): string {
   return `claude ${quoted(prompt.replace(/\s+/g, " ").trim())}`;
 }
 

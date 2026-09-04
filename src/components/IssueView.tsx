@@ -7,7 +7,7 @@ import { miniMarkdown } from "../lib/miniMarkdown";
 import { editorTheme } from "../lib/cmTheme";
 import { focusTerm, targetTerm } from "../lib/termFocus";
 import { projectSession } from "../lib/session";
-import { bootCommand, composeIssuePrompt, issuePromptOf } from "../lib/issuePrompt";
+import { bootCommand, composeIssuePrompt, inlineCommand, issuePromptOf } from "../lib/issuePrompt";
 
 /** Linear descriptions are written in a browser, where fences, tables and
  *  links all render — so unlike a voice memo, this text needs the parts
@@ -278,10 +278,14 @@ export function IssueView({
    * it can be edited from any row in the panel, so a view opened this morning
    * must not still be running this morning's copy of it.
    */
-  const startWork = () => {
+  const startWork = async () => {
     if (!issue) return;
     const template = issuePromptOf(projectSession(root).linearIssuePrompt);
-    onOpenTerminalOn(bootCommand(composeIssuePrompt(template, issue)));
+    const prompt = composeIssuePrompt(template, issue);
+    // the same file the panel's buttons write, named the same way, so the two
+    // never leave two prompts on disk for one issue
+    const path = await api.linearPromptFile(root, issue.identifier, prompt).catch(() => null);
+    onOpenTerminalOn(path ? bootCommand(path) : inlineCommand(prompt));
   };
 
   // Long enough to be read as an answer to the click, short enough that the
@@ -343,7 +347,7 @@ export function IssueView({
         <button
           className="iv-btn flat"
           title={`start ${issue.identifier} in a new terminal — the same prompt its row runs`}
-          onClick={startWork}
+          onClick={() => void startWork()}
         >
           Start
         </button>

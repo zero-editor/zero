@@ -34,6 +34,7 @@
   font-size: 11px;
   font-weight: 400;
   color: var(--text-faint);
+  transition: opacity 90ms ease-out;
 }
 
 /* The search bar itself is the search tab's — see IssuesPanel.tsx. The one
@@ -698,56 +699,68 @@ button.li-mark:hover {
   display: block;
 }
 
-/* ─── the run button on a state group ─────────────────────────────────────────
-   A prompt per group, run in a Claude session — see lib/issuePrompt.ts. The
-   header was one button and is now two side by side, so the fold and the run
-   are separately clickable without nesting one inside the other. */
+/* ─── the play buttons ────────────────────────────────────────────────────────
+   One control, two places: on a state group's header and on an issue row. Both
+   sit *over* the number or the avatar that was there, rather than beside it —
+   the panel is ~180px wide at its default and a column of its own would come
+   out of every title, permanently, for a button only ever wanted on the thing
+   under the pointer. Nothing reflows on hover; the metadata steps aside and
+   the button takes its place. */
 
 .li-head-row {
+  position: relative;
   display: flex;
   align-items: center;
 }
 
-/* the fold keeps the whole width it had; the play sits in the padding the
-   header already ends with, so nothing about the title or count moves */
+/* the header keeps the whole width, and ends where a row ends, so its count
+   and the rows' avatars line up down the same right edge */
 .li-head-row .li-head {
   flex: 1;
   min-width: 0;
-  padding-right: 2px;
+  padding-right: 8px;
 }
 
 .li-head-row:hover .li-head {
   background: var(--bg-raised);
 }
 
-/* Reserved, not conjured. The play holds its space at all times and only
-   fades in, because a control that appears on hover reflows the count beside
-   it — and a number that shifts when the pointer crosses it is the one thing
-   a list of counts must not do. */
-.li-run {
+.li-play {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin-right: 6px;
-  flex: none;
   padding: 0;
   border: 0;
   border-radius: 4px;
-  background: none;
+  background: var(--bg-raised);
   color: var(--text-faint);
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 90ms ease-out;
 }
 
-.li-head-row:hover .li-run,
-.li-run:focus-visible {
+.li-head-row:hover .li-play,
+.li-row:hover .li-play,
+.li-play:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.li-run:hover {
+/* what each one displaces, on its way in. The count and the avatar are both
+   still in the row's tooltip, and neither is what you are reaching for. */
+.li-head-row:hover .li-count,
+.li-row:hover .li-who {
+  opacity: 0;
+}
+
+.li-play:hover {
   background: var(--bg-hover);
   color: var(--accent);
 }
@@ -819,47 +832,3 @@ button.li-mark:hover {
   color: var(--accent);
 }
 
-/* ─── start work on one issue ──────────────────────────────────────────────
-   The row's own play, in the avatar's place. Absolute rather than another
-   flex child: a column of its own would come out of every title in the panel
-   for a control only ever wanted on the row under the pointer, and the rows
-   are ~180px wide to begin with. Nothing reflows — the button is over the
-   avatar, not beside it, and the avatar fades as it arrives. */
-
-.li-start {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: var(--bg-raised);
-  color: var(--text-faint);
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 90ms ease-out;
-}
-
-.li-row:hover .li-start,
-.li-start:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* out of the way of the button that has taken its place — the row's tooltip
-   still says who it is assigned to */
-.li-row:hover .li-who {
-  opacity: 0;
-}
-
-.li-start:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
-}
