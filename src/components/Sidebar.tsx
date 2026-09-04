@@ -134,6 +134,7 @@ export function Sidebar({
   onExpand,
   onAddFolder,
   onRemoveFolder,
+  onOpenTerminalOn,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -160,6 +161,9 @@ export function Sidebar({
   /** put another folder in this project — the picker lives up in App */
   onAddFolder: () => void;
   onRemoveFolder: (dir: string) => void;
+  /** open a terminal already running a command — the issues panel's run
+   *  buttons, whose terminals the workspace owns */
+  onOpenTerminalOn: (boot: string) => void;
 }) {
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
@@ -267,6 +271,7 @@ export function Sidebar({
             active={active && tab === "issues" && !collapsed}
             activeKey={activeKey}
             onOpenView={onOpenView}
+            onOpenTerminalOn={onOpenTerminalOn}
           />
         )}
         {tab === "memos" && (

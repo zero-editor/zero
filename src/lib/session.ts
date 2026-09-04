@@ -64,6 +64,15 @@ export interface ProjectSession {
   docPanes: Record<string, DocPane>;
   /** the pane an open lands in */
   activePane: string;
+  /** what the Issues panel's run buttons say, by the state group they sit on —
+   *  only the ones edited away from their default, which is why a fresh project
+   *  has none. Per project because the assignees and repositories a prompt
+   *  names belong to the workspace its token opens, the same way the token
+   *  itself does. */
+  linearPrompts: Record<string, string>;
+  /** what an issue row's own run button says — one template for every row, so
+   *  a string rather than a map. Absent until edited, same as the above. */
+  linearIssuePrompt: string;
 }
 
 interface Session {
@@ -179,6 +188,18 @@ function validDocPanes(v: unknown): Record<string, DocPane> | undefined {
   return out;
 }
 
+/** The run buttons' prompts. Both halves are the user's own text — a state's
+ *  name on one side, whatever they typed on the other — so there is nothing to
+ *  check beyond the shape, and an entry that isn't two strings is dropped. */
+function validPrompts(v: unknown): Record<string, string> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [state, body] of Object.entries(v as Record<string, unknown>)) {
+    if (state && typeof body === "string") out[state] = body;
+  }
+  return out;
+}
+
 function validProjectSession(v: unknown): Partial<ProjectSession> {
   if (!v || typeof v !== "object") return {};
   const p = v as Partial<ProjectSession>;
@@ -208,6 +229,9 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
         : 0,
     docPanes: validDocPanes(p.docPanes),
     activePane: typeof p.activePane === "string" ? p.activePane : undefined,
+    linearPrompts: validPrompts(p.linearPrompts),
+    linearIssuePrompt:
+      typeof p.linearIssuePrompt === "string" ? p.linearIssuePrompt : undefined,
   };
 }
 

@@ -145,6 +145,7 @@ export function EditorPane({
   root,
   gitMarks,
   memos,
+  onOpenTerminalOn,
 }: {
   views: View[];
   activeView: number;
@@ -169,6 +170,8 @@ export function EditorPane({
   /** absolute path → how it differs from HEAD, for the git tint a tab wears
    *  the way Cursor's do — built by the workspace off the shared sweep */
   gitMarks: Map<string, { mark: GitMark; letter: string }>;
+  /** open a terminal already running a command — an issue tab's start button */
+  onOpenTerminalOn: (boot: string) => void;
   /** this project's memos — a memo tab reads its title, its status and its
    *  record button off the same object the panel does */
   memos: Memos;
@@ -413,6 +416,7 @@ export function EditorPane({
                   id={v.id}
                   identifier={v.identifier}
                   visible={i === activeView}
+                  onOpenTerminalOn={onOpenTerminalOn}
                 />
               ) : v.kind === "memo" ? (
                 <MemoThread

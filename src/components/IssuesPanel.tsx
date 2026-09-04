@@ -1,9 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { api, type LinearCycle, type LinearIssue } from "../lib/api";
 import { Chevron } from "./Chevron";
 import { contextMenu } from "../lib/contextMenu";
+import { projectSession, saveProject } from "../lib/session";
+import { focusTerm, targetTerm } from "../lib/termFocus";
+import {
+  DEFAULT_ISSUE_PROMPT,
+  ISSUE,
+  ISSUES,
+  bootCommand,
+  issuePromptOf,
+  composeIssuePrompt,
+  composePrompt,
+  defaultPrompt,
+  pasteKeys,
+} from "../lib/issuePrompt";
 
 /** How often the list is refetched while you're looking at it. A Linear query
  *  is one request of a few kilobytes against a 2500/hour budget, so this could
@@ -57,6 +78,9 @@ function group(issues: LinearIssue[]) {
     )
     .map((g) => ({
       title: g.title,
+      /** the group's kind, kept for the run button: what a state is *for* is
+       *  what its default prompt is written against */
+      stateType: g.first.stateType,
       // By urgency, which is what a person means: urgent, high, medium, low,
       // then everything unprioritised. Ties break on most recently touched.
       rows: g.rows.sort(
@@ -123,6 +147,17 @@ const PR_TONE: Record<string, string> = {
 const TICK = (
   <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3.4 8.6 6.4 11.6 12.6 5.2" />
+  </svg>
+);
+
+/** play: the run button on a state group. A triangle rather than a spark or a
+ *  robot, because what the button promises is "this runs now" — which agent it
+ *  reaches is the terminal's business, and the prompt it runs is right there to
+ *  be read. Filled, uniquely among these: the others describe a row, this one
+ *  does something to it, and an outline at 12px reads as another status mark. */
+const RUN = (
+  <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
+    <path d="M5.4 3.5a.6.6 0 0 1 .92-.5l6.1 4.2a.6.6 0 0 1 0 1l-6.1 4.3a.6.6 0 0 1-.92-.5V3.5Z" />
   </svg>
 );
 
@@ -223,10 +258,15 @@ function IssueRow({
   issue,
   activeKey,
   onOpen,
+  onStart,
+  onStartMenu,
 }: {
   issue: LinearIssue;
   activeKey: string | null;
   onOpen: (i: LinearIssue) => void;
+  /** start work on this one in a fresh session */
+  onStart: () => void;
+  onStartMenu: (e: MouseEvent) => void;
 }) {
   const pr = issue.prs[0];
   const local = issue.local;
@@ -306,6 +346,16 @@ function IssueRow({
       {/* Fixed width whether or not anyone is assigned, so the avatars line up
           down the right edge instead of stepping in and out with each row. */}
       <Assignee issue={issue} />
+      {/* Over the avatar rather than beside it. The row is ~180px in a default
+          sidebar and every pixel of it is spoken for — a button that took its
+          own column would come out of the title, on every row, for a control
+          that is only ever wanted on the one you are pointing at. So it sits
+          in the avatar's place while you hover, and the avatar steps aside;
+          who it is assigned to is in the row's own tooltip, and the layout
+          does not move. */}
+      <button className="li-start" title={`start ${issue.identifier} in a new terminal`} onClick={onStart} onContextMenu={onStartMenu}>
+        {RUN}
+      </button>
     </div>
   );
 }
@@ -313,6 +363,12 @@ function IssueRow({
 // ─── the panel ───────────────────────────────────────────────────────────────
 
 type Gate = "loading" | "no-token" | "ready";
+
+/** Which prompt box is open. A group's is that group's alone; an issue's is
+ *  the one template every row shares, opened under whichever row asked for it
+ *  — so the note in the box has to say that it is shared, or editing it from
+ *  one row reads as editing that row. */
+type Editing = { kind: "group"; title: string } | { kind: "issue"; id: string };
 
 /** The axes you can narrow by. Not a scope stored anywhere and not a query
  *  sent anywhere: the panel already holds every issue in the window, so a
@@ -425,16 +481,92 @@ function FilterGroup({
   );
 }
 
+/**
+ * A prompt open for editing — a state group's, or the one every issue row runs.
+ *
+ * In the panel rather than in Preferences, under the thing it belongs to. What
+ * you are editing is a sentence about issues you are looking at, and `note` is
+ * load-bearing: it says what the placeholder is about to become. For a group
+ * that is a count, and it is the *filtered* count, which is how the filter
+ * became half the feature. In a settings dialog neither could be shown.
+ *
+ * The note comes from the caller because the two subjects differ in a way no
+ * flag would capture: a group's box is that group's, while a row's box is one
+ * template shared by every row, opened under whichever one asked. Saying so is
+ * the note's job, and getting it wrong would read as editing one issue.
+ *
+ * Empty means default. A prompt you have blanked is one you have no opinion
+ * about any more, and the alternative — a saved empty string that quietly
+ * neuters the button — has no use worth the confusion.
+ */
+function PromptEditor({
+  value,
+  note,
+  onChange,
+  onCancel,
+  onSave,
+  onRun,
+}: {
+  value: string;
+  /** what the placeholder becomes, in the caller's own words */
+  note: ReactNode;
+  onChange: (v: string) => void;
+  onCancel: () => void;
+  onSave: (body: string) => void;
+  onRun: (body: string) => void;
+}) {
+  return (
+    <div className="li-prompt">
+      <textarea
+        className="li-prompt-box"
+        value={value}
+        autoFocus
+        spellCheck={false}
+        rows={9}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onCancel();
+          } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            onRun(value);
+          }
+        }}
+      />
+      {/* Stacked, not a footer row. This is a sidebar: at its default width
+          there is room for a line of small text or for three buttons, never
+          for both, and side by side the note wrapped to five lines while the
+          buttons ran off the edge. */}
+      <p className="li-prompt-note">{note}</p>
+      <div className="li-prompt-acts">
+        <button className="li-btn flat" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="li-btn" onClick={() => onSave(value)}>
+          Save
+        </button>
+        <button className="li-btn go" onClick={() => onRun(value)} title="save and run · ⌘⏎">
+          Run
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function IssuesPanel({
   project,
   active,
   activeKey,
   onOpenView,
+  onOpenTerminalOn,
 }: {
   project: Project;
   active: boolean;
   activeKey: string | null;
   onOpenView: (v: View) => void;
+  /** open a terminal already running a command — the workspace owns them */
+  onOpenTerminalOn: (boot: string) => void;
 }) {
   const root = project.root;
   const [gate, setGate] = useState<Gate>("loading");
@@ -446,6 +578,20 @@ export function IssuesPanel({
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const [filtering, setFiltering] = useState(false);
   const [token, setToken] = useState("");
+  /** the run buttons' prompts, by state group — only the edited ones, so a
+   *  group missing from here is one still running its default */
+  const [prompts, setPrompts] = useState<Record<string, string>>(
+    () => projectSession(root).linearPrompts ?? {},
+  );
+  /** the row's own run button, one template for every issue in the panel */
+  const [issuePrompt, setIssuePrompt] = useState<string>(
+    () => issuePromptOf(projectSession(root).linearIssuePrompt),
+  );
+  /** which prompt is open for editing — a state group's, or the shared one an
+   *  issue row runs. One at a time, so the panel never has two boxes open
+   *  disagreeing about which is the prompt you are looking at. */
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [draft, setDraft] = useState("");
   const live = useRef(true);
 
   useEffect(() => {
@@ -563,6 +709,110 @@ export function IssuesPanel({
   const shown = issues.filter((i) => matches(i, filter, query.trim().toLowerCase()));
   const groups = group(shown);
   const active_n = filterCount(filter);
+
+  /* ---------- the run buttons ----------
+     Everything below works on `g.rows`, which is the *filtered* list — so the
+     filter is half the feature rather than something the button ignores.
+     "Review what's in review and assigned to me" is the assignee axis and this
+     button, and no prompt had to know the word "me" for it to work. The
+     tooltip and the editor both say "shown" for that reason. */
+
+  type Group = (typeof groups)[number];
+
+  const promptFor = (g: Group) => prompts[g.title] ?? defaultPrompt(g.title, g.stateType);
+
+  /** A fresh session, every time — never a paste into whatever is focused.
+   *  The status poll cannot tell a Claude waiting at its prompt from one
+   *  waiting on a permission dialog (see agentStatus), and a whole triage
+   *  instruction typed into a yes/no dialog is a bad afternoon. A run this
+   *  size also wants its own scrollback. Pasting is still on the menu, where
+   *  choosing it is the person saying they know which session they mean. */
+  const runGroup = (g: Group) => onOpenTerminalOn(bootCommand(composePrompt(promptFor(g), g.rows)));
+
+  /** Into a session already going, for when the context is loaded and starting
+   *  over would be the expensive part. Not submitted — same rule as the issue
+   *  view's send button: the last word before an agent starts belongs to the
+   *  person. */
+  const pasteGroup = (g: Group) => {
+    const term = targetTerm();
+    if (!term) return;
+    api
+      .ptyWrite(term, pasteKeys(composePrompt(promptFor(g), g.rows)))
+      .then(() => focusTerm(term))
+      .catch(() => {});
+  };
+
+  const editGroup = (g: Group) => {
+    setDraft(promptFor(g));
+    setEditing({ kind: "group", title: g.title });
+  };
+
+  /** Back to no entry at all rather than to a copy of today's default: a group
+   *  running the default should keep running it when the default changes. */
+  const savePrompt = (g: Group, body: string) => {
+    const next = { ...prompts };
+    const clean = body.trim();
+    if (!clean || clean === defaultPrompt(g.title, g.stateType).trim()) delete next[g.title];
+    else next[g.title] = clean;
+    setPrompts(next);
+    saveProject(root, { linearPrompts: next });
+    setEditing(null);
+  };
+
+  /* ---------- the same three verbs, for one row ---------- */
+
+  const runIssue = (i: LinearIssue) =>
+    onOpenTerminalOn(bootCommand(composeIssuePrompt(issuePrompt, i)));
+
+  const pasteIssue = (i: LinearIssue) => {
+    const term = targetTerm();
+    if (!term) return;
+    api
+      .ptyWrite(term, pasteKeys(composeIssuePrompt(issuePrompt, i)))
+      .then(() => focusTerm(term))
+      .catch(() => {});
+  };
+
+  /** Back to the default on empty, the same way a group's does. */
+  const saveIssuePrompt = (body: string) => {
+    const clean = body.trim() || DEFAULT_ISSUE_PROMPT;
+    setIssuePrompt(clean);
+    saveProject(root, { linearIssuePrompt: clean === DEFAULT_ISSUE_PROMPT ? "" : clean });
+    setEditing(null);
+  };
+
+  const issueMenu = (e: MouseEvent, i: LinearIssue) =>
+    contextMenu(e, [
+      { text: "Start in New Terminal", run: () => runIssue(i) },
+      // not "Paste into Terminal": the issue view has a button of that name
+      // which pastes a reference, and this pastes a whole instruction
+      { text: "Paste Start Prompt", run: () => pasteIssue(i), enabled: !!targetTerm() },
+      "sep",
+      {
+        text: "Edit Start Prompt…",
+        run: () => {
+          setDraft(issuePrompt);
+          setEditing({ kind: "issue", id: i.id });
+        },
+      },
+      issuePrompt !== DEFAULT_ISSUE_PROMPT && {
+        text: "Reset to Default",
+        run: () => saveIssuePrompt(""),
+      },
+    ]);
+
+  const runMenu = (e: MouseEvent, g: Group) =>
+    contextMenu(e, [
+      { text: "Run in New Terminal", run: () => runGroup(g) },
+      { text: "Paste into Terminal", run: () => pasteGroup(g), enabled: !!targetTerm() },
+      "sep",
+      { text: "Edit Prompt…", run: () => editGroup(g) },
+      prompts[g.title] !== undefined && {
+        text: "Reset to Default",
+        run: () => savePrompt(g, ""),
+      },
+    ]);
+
   const toggle = (axis: keyof Filter) => (v: string) =>
     setFilter((f) => ({
       ...f,
@@ -691,36 +941,93 @@ export function IssuesPanel({
 
       {groups.map((g) => (
         <div className="li-group" key={g.title}>
-          <button
-            className="li-head"
-            onClick={() =>
-              setShut((s) => {
-                const n = new Set(s);
-                if (n.has(g.title)) n.delete(g.title);
-                else n.add(g.title);
-                return n;
-              })
-            }
-          >
-            <Chevron open={!shut.has(g.title)} />
-            <span className="li-head-title">{g.title}</span>
-            <span className="li-count">{g.rows.length}</span>
-          </button>
+          {/* Two buttons, not one with a button in it: the header folds the
+              group and the play runs it, and nesting the second inside the
+              first is invalid and behaves like it. The row is what hovers. */}
+          <div className="li-head-row">
+            <button
+              className="li-head"
+              onClick={() =>
+                setShut((s) => {
+                  const n = new Set(s);
+                  if (n.has(g.title)) n.delete(g.title);
+                  else n.add(g.title);
+                  return n;
+                })
+              }
+            >
+              <Chevron open={!shut.has(g.title)} />
+              <span className="li-head-title">{g.title}</span>
+              <span className="li-count">{g.rows.length}</span>
+            </button>
+            <button
+              className="li-run"
+              title={`run this prompt on the ${g.rows.length} issue${
+                g.rows.length > 1 ? "s" : ""
+              } shown — right-click to edit it`}
+              onClick={() => runGroup(g)}
+              onContextMenu={(e) => runMenu(e, g)}
+            >
+              {RUN}
+            </button>
+          </div>
+          {editing?.kind === "group" && editing.title === g.title && (
+            <PromptEditor
+              value={draft}
+              note={
+                <>
+                  <code>{ISSUES}</code> becomes {g.rows.length} shown
+                  {prompts[g.title] === undefined ? " · default" : ""}
+                </>
+              }
+              onChange={setDraft}
+              onCancel={() => setEditing(null)}
+              onSave={(body) => savePrompt(g, body)}
+              onRun={(body) => {
+                savePrompt(g, body);
+                // an emptied box means "back to the default", and running is
+                // then running that rather than running nothing
+                const eff = body.trim() || defaultPrompt(g.title, g.stateType);
+                onOpenTerminalOn(bootCommand(composePrompt(eff, g.rows)));
+              }}
+            />
+          )}
           {!shut.has(g.title) &&
             g.rows.map((i) => (
-              <IssueRow
-                key={i.id}
-                issue={i}
-                activeKey={activeKey}
-                onOpen={(x) =>
-                  onOpenView({
-                    kind: "issue",
-                    key: `issue:${x.id}`,
-                    id: x.id,
-                    identifier: x.identifier,
-                  })
-                }
-              />
+              <Fragment key={i.id}>
+                <IssueRow
+                  issue={i}
+                  activeKey={activeKey}
+                  onOpen={(x) =>
+                    onOpenView({
+                      kind: "issue",
+                      key: `issue:${x.id}`,
+                      id: x.id,
+                      identifier: x.identifier,
+                    })
+                  }
+                  onStart={() => runIssue(i)}
+                  onStartMenu={(e) => issueMenu(e, i)}
+                />
+                {editing?.kind === "issue" && editing.id === i.id && (
+                  <PromptEditor
+                    value={draft}
+                    note={
+                      <>
+                        <code>{ISSUE}</code> becomes {i.identifier} · one prompt for every issue
+                      </>
+                    }
+                    onChange={setDraft}
+                    onCancel={() => setEditing(null)}
+                    onSave={saveIssuePrompt}
+                    onRun={(body) => {
+                      saveIssuePrompt(body);
+                      const eff = body.trim() || DEFAULT_ISSUE_PROMPT;
+                      onOpenTerminalOn(bootCommand(composeIssuePrompt(eff, i)));
+                    }}
+                  />
+                )}
+              </Fragment>
             ))}
         </div>
       ))}

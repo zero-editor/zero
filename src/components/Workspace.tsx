@@ -257,6 +257,18 @@ export const Workspace = memo(function Workspace({
     }
   );
 
+  /** A terminal opened to run something — the Issues panel's run buttons, and
+   *  the login fix above, are the two things in the app that start a session
+   *  rather than joining one. The terminals belong to this component, so the
+   *  panels that want one ask for it rather than reaching into the tree. */
+  const openTerminalOn = useCallback(
+    (boot: string) => {
+      setTerminalVisible(true);
+      tree.newTerminal(boot);
+    },
+    [tree.newTerminal]
+  );
+
   // everything this project should look like next launch. The store debounces,
   // so a divider drag firing this per mousemove costs one write at the end.
   useEffect(() => {
@@ -1570,6 +1582,7 @@ export const Workspace = memo(function Workspace({
             onExpand={showSidebar}
             onAddFolder={onAddFolder}
             onRemoveFolder={onRemoveFolder}
+            onOpenTerminalOn={openTerminalOn}
           />
         </div>
       )}
@@ -1611,6 +1624,9 @@ export const Workspace = memo(function Workspace({
             onRevealInTree={revealInTree}
             root={project.root}
             gitMarks={tabMarks}
+            // an issue tab can start work on itself, the way its row in the
+            // sidebar can — same prompt, same terminals
+            onOpenTerminalOn={openTerminalOn}
             // a memo tab draws its own live title and records its own
             // follow-ups, both of which are this object
             memos={memos}

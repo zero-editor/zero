@@ -124,6 +124,7 @@
 /* ── a row ─────────────────────────────────────────────────────────────── */
 
 .li-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -695,4 +696,170 @@ button.li-mark:hover {
 
 .issue-tab-icon svg {
   display: block;
+}
+
+/* ─── the run button on a state group ─────────────────────────────────────────
+   A prompt per group, run in a Claude session — see lib/issuePrompt.ts. The
+   header was one button and is now two side by side, so the fold and the run
+   are separately clickable without nesting one inside the other. */
+
+.li-head-row {
+  display: flex;
+  align-items: center;
+}
+
+/* the fold keeps the whole width it had; the play sits in the padding the
+   header already ends with, so nothing about the title or count moves */
+.li-head-row .li-head {
+  flex: 1;
+  min-width: 0;
+  padding-right: 2px;
+}
+
+.li-head-row:hover .li-head {
+  background: var(--bg-raised);
+}
+
+/* Reserved, not conjured. The play holds its space at all times and only
+   fades in, because a control that appears on hover reflows the count beside
+   it — and a number that shifts when the pointer crosses it is the one thing
+   a list of counts must not do. */
+.li-run {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.li-head-row:hover .li-run,
+.li-run:focus-visible {
+  opacity: 1;
+}
+
+.li-run:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* ─── the prompt, open for editing ─────────────────────────────────────────
+   Everything here is shaped by the one fact about where it lives: a sidebar
+   is narrow, and its width is the user's to change. So nothing sits beside
+   anything else, and nothing assumes a minimum. */
+
+.li-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 5px 10px 10px;
+}
+
+/* Prose, so the app's own font rather than the mono one this started in.
+   A prompt is English — at this width a monospace face fits about twenty
+   characters to a line, which turned five sentences into a ragged column and
+   was most of why the box read as cramped. `--font-mono` is still right for
+   the token in the note below, which really is a literal. */
+.li-prompt-box {
+  width: 100%;
+  min-height: 150px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--bg-field);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.li-prompt-box:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Its own line, full width — the count is the thing you are deciding about
+   and it should never be the part that gets squeezed. */
+.li-prompt-note {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+.li-prompt-note code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+/* Right-aligned under the box, and allowed to wrap: the sidebar can be
+   dragged narrower than three buttons, and stacking is a worse look than
+   overflowing is a bug. */
+.li-prompt-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* the one that starts something, marked the way the panel marks anything
+   live — a border and a word, no fill */
+.li-btn.go {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ─── start work on one issue ──────────────────────────────────────────────
+   The row's own play, in the avatar's place. Absolute rather than another
+   flex child: a column of its own would come out of every title in the panel
+   for a control only ever wanted on the row under the pointer, and the rows
+   are ~180px wide to begin with. Nothing reflows — the button is over the
+   avatar, not beside it, and the avatar fades as it arrives. */
+
+.li-start {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease-out;
+}
+
+.li-row:hover .li-start,
+.li-start:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* out of the way of the button that has taken its place — the row's tooltip
+   still says who it is assigned to */
+.li-row:hover .li-who {
+  opacity: 0;
+}
+
+.li-start:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
 }

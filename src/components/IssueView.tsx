@@ -6,6 +6,8 @@ import { api, type LinearIssueDetail } from "../lib/api";
 import { miniMarkdown } from "../lib/miniMarkdown";
 import { editorTheme } from "../lib/cmTheme";
 import { focusTerm, targetTerm } from "../lib/termFocus";
+import { projectSession } from "../lib/session";
+import { bootCommand, composeIssuePrompt, issuePromptOf } from "../lib/issuePrompt";
 
 /** Linear descriptions are written in a browser, where fences, tables and
  *  links all render — so unlike a voice memo, this text needs the parts
@@ -149,11 +151,14 @@ export function IssueView({
   id,
   identifier,
   visible,
+  onOpenTerminalOn,
 }: {
   root: string;
   id: string;
   identifier: string;
   visible: boolean;
+  /** open a terminal already running a command — the start button below */
+  onOpenTerminalOn: (boot: string) => void;
 }) {
   const [issue, setIssue] = useState<LinearIssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -259,6 +264,26 @@ export function IssueView({
       .catch((e) => setSendError(String(e)));
   };
 
+  /**
+   * Start work on this issue, in a session of its own.
+   *
+   * The other half of the button above, and deliberately not a variant of it:
+   * that one sends a *noun* — the identifier and a link — into a conversation
+   * that is already going, so you can write your own sentence around it. This
+   * one sends a verb, and it needs a session with nothing else in it. Both are
+   * worth having, and folding either into the other loses a real use.
+   *
+   * The prompt is the same one the sidebar's rows run, read from the store
+   * **at click time rather than at mount**: it is one template per project and
+   * it can be edited from any row in the panel, so a view opened this morning
+   * must not still be running this morning's copy of it.
+   */
+  const startWork = () => {
+    if (!issue) return;
+    const template = issuePromptOf(projectSession(root).linearIssuePrompt);
+    onOpenTerminalOn(bootCommand(composeIssuePrompt(template, issue)));
+  };
+
   // Long enough to be read as an answer to the click, short enough that the
   // button is back to saying what it does before you next look at it.
   useEffect(() => {
@@ -315,6 +340,13 @@ export function IssueView({
             wide as the wider of the two and swapping them moves nothing. The
             alternative — measuring the idle width and pinning it — is the same
             idea with a number in it that goes stale when the font changes. */}
+        <button
+          className="iv-btn flat"
+          title={`start ${issue.identifier} in a new terminal — the same prompt its row runs`}
+          onClick={startWork}
+        >
+          Start
+        </button>
         <button
           className={`iv-btn flat iv-send ${sent ? "sent" : ""}`}
           title="the identifier, title and link — hold ⌥ to send the description too"
