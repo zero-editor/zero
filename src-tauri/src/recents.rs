@@ -7,6 +7,17 @@ use tauri::Manager;
 pub struct RecentProject {
     pub path: String,
     pub name: String,
+    /// The folders beyond `path`, for a project split across repositories.
+    ///
+    /// `default` because every recents.json written before this field existed
+    /// is missing it, and a recents list that failed to parse would be a
+    /// launcher with nothing on it.
+    ///
+    /// The session file is what restores a project you never closed; this is
+    /// what restores one you did. Without it, reopening a three-folder project
+    /// from the launcher would quietly hand back one folder.
+    #[serde(default)]
+    pub folders: Vec<String>,
 }
 
 fn store_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -57,17 +68,27 @@ pub fn existing_dirs(paths: Vec<String>) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn add_recent(app: tauri::AppHandle, path: String) -> Result<(), String> {
+pub fn add_recent(
+    app: tauri::AppHandle,
+    path: String,
+    name: Option<String>,
+    folders: Option<Vec<String>>,
+) -> Result<(), String> {
     if !is_main_worktree(&path) {
         return Err("not a main git worktree".into());
     }
-    let name = PathBuf::from(&path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.clone());
+    // The name is the project's own once it has been renamed, and the folder's
+    // otherwise — a project called something else in the tab strip and its
+    // directory name in the launcher would be two names for one thing.
+    let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
+        PathBuf::from(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone())
+    });
     let mut list = load(&app);
     list.retain(|r| r.path != path);
-    list.insert(0, RecentProject { path, name });
+    list.insert(0, RecentProject { path, name, folders: folders.unwrap_or_default() });
     list.truncate(30);
     save(&app, &list)
 }

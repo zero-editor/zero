@@ -4,6 +4,8 @@ import type { ResolvedPath } from "./termLinks";
 export interface RecentProject {
   path: string;
   name: string;
+  /** the folders beyond `path` — empty for a project that is just the one */
+  folders: string[];
 }
 
 export interface Worktree {
@@ -312,7 +314,8 @@ export const api = {
   linearSaveDescription: (root: string, id: string, description: string) =>
     invoke<void>("linear_save_description", { root, id, description }),
   getRecents: () => invoke<RecentProject[]>("get_recents"),
-  addRecent: (path: string) => invoke<void>("add_recent", { path }),
+  addRecent: (path: string, name?: string, folders?: string[]) =>
+    invoke<void>("add_recent", { path, name, folders }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   existingDirs: (paths: string[]) => invoke<string[]>("existing_dirs", { paths }),
   /* The window's layout, held as a file by the Rust side rather than in

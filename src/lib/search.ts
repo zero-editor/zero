@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ReplaceTarget, SearchQuery, SearchResult } from "./api";
+import { labels } from "./folders";
 
 /**
  * The search panel's state, held by the workspace rather than the panel.
@@ -62,9 +63,22 @@ export interface Search {
   focusNonce: number;
   focus: (withReplace?: boolean) => void;
   replace: (targets: ReplaceTarget[]) => Promise<void>;
+  /**
+   * A result row's path made absolute.
+   *
+   * Rows are no longer relative to one folder: with several, each carries the
+   * label of the folder it came from, and only this knows how to undo that.
+   * The panel asks rather than joining strings itself, which is also what
+   * keeps it from having to know how many folders there are.
+   */
+  abs: (path: string) => string;
+  /** the folder a row belongs to — what its file menu treats as the project */
+  owner: (path: string) => string;
 }
 
-export function useSearch(root: string): Search {
+export function useSearch(roots: string[]): Search {
+  // `roots` is a new array each render; its contents almost never change
+  const key = roots.join("\n");
   const [params, setParams] = useState<SearchParams>(BLANK);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,6 +109,10 @@ export function useSearch(root: string): Search {
   // the newest request is allowed to write, which also covers the case where
   // clearing the box would otherwise be overwritten by an in-flight result.
   const seq = useRef(0);
+  /** result row → the folder it came from and its path inside it. Rebuilt with
+   *  every result, and the only thing that can turn a shown path back into a
+   *  real one once the rows carry folder labels. */
+  const homes = useRef(new Map<string, { root: string; rel: string }>());
   const run = useCallback(
     async (q: SearchQuery) => {
       const mine = ++seq.current;
@@ -105,14 +123,49 @@ export function useSearch(root: string): Search {
         return;
       }
       setBusy(true);
+      // One search per folder, run together. Each is its own ripgrep-shaped
+      // sweep of its own tree, and merging afterwards keeps the Rust side
+      // knowing nothing about projects that hold more than one.
+      const mineRoots = key ? key.split("\n") : [];
+      const names = labels(mineRoots);
+      const multi = mineRoots.length > 1;
       try {
-        const r = await api.searchProject(root, q);
+        const parts = await Promise.all(
+          mineRoots.map((r, i) =>
+            api
+              .searchProject(r, q)
+              .then((res) => ({ root: r, name: names[i], res, error: null as string | null }))
+              // a folder that can't be searched — moved, or not readable — is
+              // one folder's answer, not the whole search's
+              .catch((e) => ({ root: r, name: names[i], res: null, error: String(e) }))
+          )
+        );
         if (seq.current !== mine) return;
-        setResult(r);
+
+        const home = new Map<string, { root: string; rel: string }>();
+        const merged: SearchResult = { files: [], matches: 0, truncated: false };
+        for (const p of parts) {
+          if (!p.res) continue;
+          for (const f of p.res.files) {
+            const shown = multi ? `${p.name}/${f.path}` : f.path;
+            home.set(shown, { root: p.root, rel: f.path });
+            merged.files.push({ ...f, path: shown });
+          }
+          merged.matches += p.res.matches;
+          merged.truncated ||= p.res.truncated;
+        }
+        homes.current = home;
+        setResult(merged);
         // each result decides its own starting fold, so a narrowing query opens
         // back up on its own instead of staying shut from the wide one before it
-        setCollapsed(r.matches > AUTO_COLLAPSE ? new Set(r.files.map((f) => f.path)) : new Set());
-        setError(null);
+        setCollapsed(
+          merged.matches > AUTO_COLLAPSE ? new Set(merged.files.map((f) => f.path)) : new Set()
+        );
+        // every folder failing is a failed search; some of them failing is a
+        // shorter list, and saying so above the results people can see would be
+        // louder than it is worth
+        const failed = parts.filter((p) => p.error);
+        setError(failed.length === parts.length ? failed[0].error : null);
       } catch (e) {
         if (seq.current !== mine) return;
         setResult(null);
@@ -121,7 +174,7 @@ export function useSearch(root: string): Search {
         if (seq.current === mine) setBusy(false);
       }
     },
-    [root]
+    [key]
   );
 
   // destructured so the effect depends on the five fields that change a search
@@ -137,8 +190,22 @@ export function useSearch(root: string): Search {
   const replace = useCallback(
     async (targets: ReplaceTarget[]) => {
       const q = queryOf(params);
+      // Targets name shown paths, and a replace runs against one folder — so
+      // they are sorted back into the folders they came from and each folder
+      // is asked separately. Grouped rather than done one file at a time: a
+      // replace-all across a repository is one call, as it always was.
+      const byRoot = new Map<string, ReplaceTarget[]>();
+      for (const t of targets) {
+        const at = homes.current.get(t.path);
+        if (!at) continue;
+        const list = byRoot.get(at.root) ?? [];
+        list.push({ ...t, path: at.rel });
+        byRoot.set(at.root, list);
+      }
       try {
-        await api.replaceMatches(root, q, params.replacement, targets);
+        await Promise.all(
+          [...byRoot].map(([r, list]) => api.replaceMatches(r, q, params.replacement, list))
+        );
       } catch (e) {
         setError(String(e));
         return;
@@ -147,7 +214,17 @@ export function useSearch(root: string): Search {
       // the next result should describe, and it just changed
       await run(q);
     },
-    [params, root, run]
+    [params, run]
+  );
+
+  const abs = useCallback((path: string) => {
+    const at = homes.current.get(path);
+    return at ? `${at.root}/${at.rel}` : path;
+  }, []);
+
+  const owner = useCallback(
+    (path: string) => homes.current.get(path)?.root ?? (key ? key.split("\n")[0] : ""),
+    [key]
   );
 
   return {
@@ -165,5 +242,7 @@ export function useSearch(root: string): Search {
     focusNonce,
     focus,
     replace,
+    abs,
+    owner,
   };
 }

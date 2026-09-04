@@ -35,6 +35,7 @@ import { getSettings } from "../lib/settings";
 import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
 import { useSearch } from "../lib/search";
+import { folders } from "../lib/folders";
 import { useMemos } from "../lib/memos";
 import { api } from "../lib/api";
 import { goToNoteEnd } from "../lib/notes";
@@ -134,6 +135,8 @@ export const Workspace = memo(function Workspace({
   locked,
   lastClosedProject,
   onReopenProject,
+  onAddFolder,
+  onRemoveFolder,
 }: {
   project: Project;
   active: boolean;
@@ -145,6 +148,10 @@ export const Workspace = memo(function Workspace({
    *  null if none is — what ⌘⇧T weighs this project's closed tabs against */
   lastClosedProject: number | null;
   onReopenProject: () => void;
+  /** the project's folders are App's state, so both of these go straight
+   *  back up — the workspace only passes them to the sidebar */
+  onAddFolder: () => void;
+  onRemoveFolder: (dir: string) => void;
 }) {
   // last session's layout for this project. Read once: the component is keyed
   // by root, so a mount is always a project arriving, never one changing.
@@ -233,7 +240,7 @@ export const Workspace = memo(function Workspace({
   const paneDocs = (id: string): DocPane => docPanes[id] ?? { views: [], activeView: 0 };
   // held here rather than in the panel so a result list survives a look at the
   // file tree — the sidebar renders one tab at a time
-  const search = useSearch(project.root);
+  const search = useSearch(folders(project));
   // up here for the same reason, plus one of its own: the rail's dot is drawn
   // by a tab you aren't on, about a recording that outlives every panel
   const memos = useMemos(
@@ -1561,6 +1568,8 @@ export const Workspace = memo(function Workspace({
             onRevealInTree={revealInTree}
             onCollapse={foldSidebar}
             onExpand={showSidebar}
+            onAddFolder={onAddFolder}
+            onRemoveFolder={onRemoveFolder}
           />
         </div>
       )}
@@ -1632,11 +1641,11 @@ export const Workspace = memo(function Workspace({
       {splitHint && <div className={`split-hint ${splitHint.side}`} style={paneStyle(splitHint.rect)} />}
       {quickOpen && (
         <QuickOpen
-          root={project.root}
+          roots={folders(project)}
           onClose={() => setQuickOpen(false)}
-          onPick={(rel) => {
+          onPick={(abs) => {
             setQuickOpen(false);
-            openView({ kind: "file", key: `file:${project.root}/${rel}`, absPath: `${project.root}/${rel}` });
+            openView({ kind: "file", key: `file:${abs}`, absPath: abs });
           }}
         />
       )}

@@ -3,6 +3,10 @@ import { api, FileChange, Worktree } from "./api";
 
 export interface WorktreeChanges extends Worktree {
   changes: FileChange[];
+  /** which of the project's folders this worktree was found from. Set only by
+   *  `useGitStatusMany`, where several folders' worktrees share one list and
+   *  "the main worktree" is no longer a question with one answer. */
+  owner?: string;
 }
 
 export interface GitSnapshot {
@@ -152,6 +156,61 @@ export function useGitStatus(root: string, active: boolean): GitSnapshot {
   }, [root, active]);
 
   return snapshots.get(root) ?? EMPTY;
+}
+
+/**
+ * The same, for a project holding more than one folder.
+ *
+ * Each folder keeps its own sweep — its own timer, its own duty cycle, its own
+ * cached snapshot — and this only joins the answers. A monorepo next to a
+ * two-file repo would otherwise pace them both at the slow one's rate, and a
+ * folder shown in two projects would be swept twice.
+ *
+ * Order is the folders' own, and inside a folder whatever `sweep` sorted: main
+ * worktree first, then by branch. So the panel's groups follow the tree's, and
+ * neither reshuffles when a branch is created.
+ */
+export function useGitStatusMany(roots: string[], active: boolean): GitSnapshot {
+  const [, bump] = useState(0);
+  // the array identity changes every render; its contents rarely do
+  const key = roots.join("\n");
+
+  useEffect(() => {
+    if (!active) return;
+    const onChange = () => bump((n) => n + 1);
+    const mine = key ? key.split("\n") : [];
+    for (const root of mine) {
+      let set = listeners.get(root);
+      if (!set) listeners.set(root, (set = new Set()));
+      set.add(onChange);
+      void sweep(root);
+    }
+    return () => {
+      for (const root of mine) {
+        const set = listeners.get(root);
+        if (!set) continue;
+        set.delete(onChange);
+        if (set.size === 0) {
+          listeners.delete(root);
+          window.clearTimeout(timers.get(root));
+          timers.delete(root);
+          stale.delete(root);
+        }
+      }
+    };
+  }, [key, active]);
+
+  const mine = key ? key.split("\n") : [];
+  const parts = mine.map((r) => snapshots.get(r) ?? EMPTY);
+  return {
+    worktrees: parts.flatMap((p, i) => p.worktrees.map((w) => ({ ...w, owner: mine[i] }))),
+    // One unreadable folder is not the whole panel's answer: the others still
+    // have something to show, so the error rides along beside them rather than
+    // replacing them.
+    error: parts.find((p) => p.error)?.error ?? null,
+    // any folder moving moves the whole, which is what memos off `epoch` want
+    epoch: parts.reduce((n, p) => n + p.epoch, 0),
+  };
 }
 
 /** the words behind git's letters — one tooltip vocabulary for every place a

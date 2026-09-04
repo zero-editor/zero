@@ -599,3 +599,59 @@
 .tree-arrow {
   margin-right: 4px;
 }
+
+/* ---------- a project with more than one folder ---------- */
+
+/* The folder's name in a changes-panel header, before the branch it is on.
+   Three repositories all sitting on `main` are otherwise three rows reading
+   identically, and the branch alone is the thing they have in common rather
+   than the thing that tells them apart. It takes the emphasis and the branch
+   gives it up: the branch is still there to be read, it is just no longer the
+   first thing. Absent entirely for a one-folder project, where the folder is
+   the project and naming it says nothing. */
+.wt-folder {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* the separator, drawn rather than typed so it never gets selected or copied */
+.wt-folder::after {
+  content: "·";
+  color: var(--text-faint);
+  margin: 0 5px;
+}
+
+/* the branch steps back when a folder name is in front of it */
+.wt-header:has(.wt-folder) .wt-branch {
+  color: var(--text-dim);
+}
+
+/* A folder's own row in the tree, drawn only when there are several. Heavier
+   than the folders under it, because it is a different kind of thing: those
+   are directories in a project, this one *is* one. */
+.tree-root {
+  font-weight: 500;
+}
+
+/* Adding a folder — quiet, and last, and there even for a project with one
+   folder, which is the only place anyone would find out this can be done. Dim
+   until the pointer is on it, like the tree's own ignored rows: it must never
+   compete with a filename for the eye. */
+.tree-add {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px 4px 9px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.tree-add:hover {
+  color: var(--text-dim);
+  background: var(--bg-raised);
+}

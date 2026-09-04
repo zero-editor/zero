@@ -45,12 +45,12 @@ function HitText({ line, span }: { line: SearchLine; span: SearchSpan }) {
 }
 
 export function SearchPanel({
-  root,
   search,
   onOpenView,
   onRevealInTree,
 }: {
-  root: string;
+  // no `root`: a result row names the folder it came from, and only the search
+  // itself can turn that back into a path — see `Search.abs`
   search: Search;
   onOpenView: (v: View) => void;
   onRevealInTree: (abs: string) => void;
@@ -83,8 +83,8 @@ export function SearchPanel({
   const openAt = (file: SearchFile, line: number) =>
     onOpenView({
       kind: "file",
-      key: `file:${root}/${file.path}`,
-      absPath: `${root}/${file.path}`,
+      key: `file:${search.abs(file.path)}`,
+      absPath: search.abs(file.path),
       line,
     });
 
@@ -217,13 +217,13 @@ export function SearchPanel({
               onContextMenu={(e) =>
                 contextMenu(e, [
                   { text: "Open", run: () => openAt(f, f.lines[0]?.line ?? 1) },
-                  { text: "Reveal in Sidebar", run: () => onRevealInTree(`${root}/${f.path}`) },
+                  { text: "Reveal in Sidebar", run: () => onRevealInTree(search.abs(f.path)) },
                   showReplace && {
                     text: `Replace ${f.count} in This File`,
                     run: () => replace([{ path: f.path }]),
                   },
                   "sep",
-                  ...fileEntries(`${root}/${f.path}`, { root }),
+                  ...fileEntries(search.abs(f.path), { root: search.owner(f.path) }),
                 ])
               }
             >
@@ -264,14 +264,14 @@ export function SearchPanel({
                           { text: `Open at Line ${l.line}`, run: () => openAt(f, l.line) },
                           {
                             text: "Reveal in Sidebar",
-                            run: () => onRevealInTree(`${root}/${f.path}`),
+                            run: () => onRevealInTree(search.abs(f.path)),
                           },
                           showReplace && {
                             text: "Replace This One",
                             run: () => replace([{ path: f.path, line: l.line, nth: s.nth }]),
                           },
                           "sep",
-                          ...fileEntries(`${root}/${f.path}`, { root }),
+                          ...fileEntries(search.abs(f.path), { root: search.owner(f.path) }),
                         ])
                       }
                     >

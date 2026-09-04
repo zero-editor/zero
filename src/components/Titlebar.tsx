@@ -19,6 +19,8 @@ export function Titlebar({
   activeIdx,
   onSwitch,
   onClose,
+  onRename,
+  onAddFolder,
   onReorder,
   onPick,
   onSettings,
@@ -29,6 +31,10 @@ export function Titlebar({
    *  than the page's — the traffic lights live in the window */
   zoom: number;
   projects: Project[];
+  /** rename the tab — the name is the project's, not the folder's, the moment
+   *  a project holds more than one folder */
+  onRename: (i: number) => void;
+  onAddFolder: (i: number) => void;
   activeIdx: number;
   onSwitch: (i: number) => void;
   onClose: (i: number) => void;
@@ -148,11 +154,15 @@ export function Titlebar({
                 startDrag(e, i);
               }
             }}
-            // The project's own folder. Nothing here writes: closing a project
-            // is a thing you do to the window, and a project you could trash
-            // from its tab is a project one slip away from the Trash.
+            // The project's own folder. Nothing here touches the disk: closing
+            // a project is a thing you do to the window, renaming one is a
+            // thing you do to the tab, and a project you could trash from its
+            // tab is a project one slip away from the Trash.
             onContextMenu={(e) =>
               contextMenu(e, [
+                { text: "Rename Project…", run: () => void onRename(i) },
+                { text: "Add Folder to Project…", run: () => void onAddFolder(i) },
+                "sep",
                 { text: "Close Project", run: () => onClose(i) },
                 "sep",
                 ...fileEntries(p.root, { isDir: true, writes: "none" }),

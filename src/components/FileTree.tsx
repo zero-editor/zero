@@ -12,7 +12,8 @@ import { contextMenu, fileEntries, renameTo, selectStem } from "../lib/contextMe
 import { onFilesChanged } from "../lib/fileEvents";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
-import { decorations, STATUS_NAME, useGitStatus } from "../lib/gitStatus";
+import { decorations, Decorations, GitMark, STATUS_NAME, useGitStatusMany } from "../lib/gitStatus";
+import { baseName } from "../lib/folders";
 import type { View } from "./Workspace";
 
 /** Audio goes to Finder rather than to the editor: QuickLook plays these with
@@ -27,16 +28,34 @@ export interface Reveal {
 }
 
 export function FileTree({
-  root,
+  roots,
   active,
   reveal,
   onOpenView,
+  onAddFolder,
+  onRemoveFolder,
 }: {
-  root: string;
+  /** the project's folders, primary first. Usually one; several when a
+   *  codebase is split across repositories that aren't siblings on disk. */
+  roots: string[];
   active: boolean;
   reveal: Reveal | null;
   onOpenView: (v: View) => void;
+  onAddFolder: () => void;
+  /** never called for `roots[0]` — that folder is the project's identity */
+  onRemoveFolder: (dir: string) => void;
 }) {
+  // A joined string, because `roots` is a fresh array on every render and an
+  // effect keyed on it would re-read the whole tree each time.
+  const key = roots.join("\n");
+  const multi = roots.length > 1;
+  /** which folder a path is under — the one whose menus and git marks it
+   *  answers to. Longest match, so a folder inside another still resolves to
+   *  itself if one ever slips past the nesting check. */
+  const owner = (path: string): string =>
+    roots
+      .filter((r) => path === r || path.startsWith(r + "/"))
+      .sort((a, b) => b.length - a.length)[0] ?? roots[0];
   // expansion lives here rather than in each row: revealing a file means
   // opening every folder above it at once, which a row can't do to its parents
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -57,12 +76,24 @@ export function FileTree({
    *  commit every other way out of the field is */
   const abandoned = useRef(false);
 
-  const git = useGitStatus(root, active);
+  const git = useGitStatusMany(roots, active);
+  // One map for the whole tree, merged from each folder's own. The keys are
+  // absolute paths, so folders can't collide — and a folder is only ever
+  // matched against the worktrees of its own sweep, since "the main worktree"
+  // stops being a question with one answer once there are several.
   const marks = useMemo(() => {
-    const wt = git.worktrees.find((w) => w.path === root) ?? git.worktrees.find((w) => w.is_main);
-    return decorations(root, wt?.changes ?? []);
+    const files: Decorations["files"] = new Map();
+    const dirs: Map<string, GitMark> = new Map();
+    for (const r of roots) {
+      const own = git.worktrees.filter((w) => w.owner === undefined || w.owner === r);
+      const wt = own.find((w) => w.path === r) ?? own.find((w) => w.is_main);
+      const d = decorations(r, wt?.changes ?? []);
+      d.files.forEach((v, k) => files.set(k, v));
+      d.dirs.forEach((v, k) => dirs.set(k, v));
+    }
+    return { files, dirs };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [git.epoch, root]);
+  }, [git.epoch, key]);
 
   /** a directory's children, read once and remembered */
   const load = useCallback((dir: string): Promise<DirEntry[]> => {
@@ -88,9 +119,14 @@ export function FileTree({
     kidsRef.current = {};
     pending.current.clear();
     setKids({});
-    setOpen(new Set());
-    void load(root);
-  }, [root, load]);
+    // Every folder starts open. With one folder that is invisible — its header
+    // isn't drawn and its children are the top level, exactly as before. With
+    // several, a project that opened onto three collapsed rows would be hiding
+    // the thing it was just asked to show.
+    setOpen(new Set(roots));
+    for (const r of roots) void load(r);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, load]);
 
   /**
    * A folder was written to — forget what we knew of it and ask again.
@@ -107,7 +143,7 @@ export function FileTree({
           kidsRef.current = {};
           pending.current.clear();
           setKids({});
-          void load(root);
+          for (const r of roots) void load(r);
           return;
         }
         if (!(dir in kidsRef.current)) return;
@@ -119,25 +155,28 @@ export function FileTree({
         pending.current.delete(dir);
         void load(dir);
       }),
-    [root, load]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, load]
   );
 
   useEffect(() => {
     if (!reveal) return;
-    if (!reveal.path.startsWith(root + "/")) return;
+    // whichever folder holds it, rather than the first one
+    const base = roots.find((r) => reveal.path.startsWith(r + "/"));
+    if (!base) return;
     let cancelled = false;
 
     (async () => {
-      const parts = reveal.path.slice(root.length + 1).split("/");
-      const folders: string[] = [];
-      let dir = root;
+      const parts = reveal.path.slice(base.length + 1).split("/");
+      const folders: string[] = [base];
+      let dir = base;
       for (let i = 0; i < parts.length - 1; i++) {
         dir = `${dir}/${parts[i]}`;
         folders.push(dir);
       }
       // one level at a time: a folder's children are how the next level down
       // is reached, so they have to have arrived before we ask for it
-      await load(root);
+      await load(base);
       for (const f of folders) {
         if (cancelled) return;
         await load(f);
@@ -155,7 +194,8 @@ export function FileTree({
     return () => {
       cancelled = true;
     };
-  }, [reveal, root, load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal, key, load]);
 
   // after the folders have opened and the row exists
   useEffect(() => {
@@ -320,7 +360,7 @@ export function FileTree({
               contextMenu(e, [
                 { text: "Open", run: () => openFile(full, entry.name) },
                 ...fileEntries(full, {
-                  root,
+                  root: owner(full),
                   after: (made) => openFile(made),
                   onRename: () => setEditing(full),
                 }),
@@ -358,7 +398,7 @@ export function FileTree({
               // a new file lands in the folder you asked from, so open it —
               // otherwise the row appears under a chevron still pointing right
               ...fileEntries(full, {
-                root,
+                root: owner(full),
                 isDir: true,
                 onRename: () => setEditing(full),
                 after: (made) => {
@@ -380,20 +420,73 @@ export function FileTree({
       ];
     });
 
+  /**
+   * A folder's own row, drawn only when the project has more than one.
+   *
+   * With a single folder the tree opens straight onto its contents, which is
+   * how it has always looked and is one less row between you and the files.
+   * The header earns its line only when there is something to tell apart.
+   */
+  const rootRow = (dir: string): ReactNode => (
+    <button
+      key={dir}
+      className={`tree-item dir tree-root ${open.has(dir) ? "" : "closed"}`}
+      style={{ paddingLeft: 8 }}
+      title={dir}
+      onClick={(e) => {
+        e.currentTarget.focus();
+        toggle(dir);
+      }}
+      onContextMenu={(e) =>
+        contextMenu(e, [
+          // The project's first folder is what everything about the project is
+          // keyed on — its stored layout, its notes, the cwd its terminals open
+          // in — so it is shown here without the verb that would take it away.
+          dir === roots[0]
+            ? { text: "Remove from Project", enabled: false, run: () => {} }
+            : { text: "Remove from Project", run: () => onRemoveFolder(dir) },
+          { text: "Add Folder to Project…", run: onAddFolder },
+          "sep",
+          ...fileEntries(dir, { root: dir, isDir: true, writes: "inside", after: openFile }),
+        ])
+      }
+    >
+      <Chevron open={open.has(dir)} className="tree-arrow" />
+      <span className="tree-name">{baseName(dir)}</span>
+    </button>
+  );
+
   // The container's own menu, which only ever fires on the space below the last
   // row — every row stops the event. That space is the project itself, so what
-  // it offers is what you can put *in* the project: the root is not one of the
+  // it offers is what you can put *in* the project, plus the one thing that is
+  // about the project rather than about a file. A folder is not one of the
   // project's entries and has no business being renamed or trashed from here.
   return (
     <div
       className="file-tree"
       onContextMenu={(e) =>
         contextMenu(e, [
-          ...fileEntries(root, { root, isDir: true, writes: "inside", after: openFile }),
+          { text: "Add Folder to Project…", run: onAddFolder },
+          "sep",
+          ...fileEntries(roots[0], {
+            root: roots[0],
+            isDir: true,
+            writes: "inside",
+            after: openFile,
+          }),
         ])
       }
     >
-      {rows(root, 0)}
+      {multi
+        ? roots.flatMap((r) => [rootRow(r), ...(open.has(r) ? rows(r, 1) : [])])
+        : rows(roots[0], 0)}
+      {/* Quiet, and last, and always there — including for a project with one
+          folder, which is the only place anyone would find out this can be
+          done. It sits below the tree rather than in the rail because the rail
+          is tabs, and because the folders are the thing it adds to. */}
+      <button className="tree-add" onClick={onAddFolder}>
+        + add folder
+      </button>
     </div>
   );
 }

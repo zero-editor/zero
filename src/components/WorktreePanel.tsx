@@ -4,7 +4,8 @@ import { api, FileChange } from "../lib/api";
 import { contextMenu, fileEntries } from "../lib/contextMenu";
 import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
-import { pokeGit, STATUS_NAME, useGitStatus, WorktreeChanges } from "../lib/gitStatus";
+import { pokeGit, STATUS_NAME, useGitStatusMany, WorktreeChanges } from "../lib/gitStatus";
+import { baseName, folders, isMulti } from "../lib/folders";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 
@@ -72,19 +73,24 @@ export function WorktreePanel({
   project,
   onOpenView,
   onRevealInTree,
+  onRemoveFolder,
   active,
   activeKey,
 }: {
   project: Project;
   onOpenView: (v: View) => void;
   onRevealInTree: (abs: string) => void;
+  /** drop one of the project's own folders — never a worktree of one */
+  onRemoveFolder: (dir: string) => void;
   active: boolean;
   /** the shown view's key — the row it belongs to marks itself */
   activeKey: string | null;
 }) {
-  // the same sweep the file tree reads, so switching sidebar tabs doesn't cost
-  // a fresh round of git processes — and so the two never disagree
-  const git = useGitStatus(project.root, active);
+  // the same sweeps the file tree reads, so switching sidebar tabs doesn't
+  // cost a fresh round of git processes — and so the two never disagree
+  const mine = folders(project);
+  const multi = isMulti(project);
+  const git = useGitStatusMany(mine, active);
   const worktrees = git.worktrees;
   const [failed, setFailed] = useState<string | null>(null);
   const error = failed ?? git.error;
@@ -203,7 +209,11 @@ export function WorktreePanel({
     );
   };
 
-  if (error) return <div className="panel-error">not a git repo?<br />{error}</div>;
+  // With one folder an error is the whole answer. With several it is one
+  // folder's answer, and blanking the panel would hide the two that are fine —
+  // so it only takes the panel when nothing came back at all.
+  if (error && worktrees.length === 0)
+    return <div className="panel-error">not a git repo?<br />{error}</div>;
 
   const fileRow = (wt: WtState, c: FileChange, staged: boolean) => {
     const fileKey = `file:${wt.path}/${c.path}`;
@@ -360,12 +370,26 @@ export function WorktreePanel({
                     enabled: busy !== `remove:${wt.path}`,
                     run: () => removeWt(wt),
                   },
+                  // Only on a folder the project was given, and never on the
+                  // root — this drops it from the project, which is nothing
+                  // like the Delete Worktree above it that walks a checkout
+                  // off the disk.
+                  wt.path !== project.root &&
+                    mine.includes(wt.path) && {
+                      text: "Remove from Project",
+                      run: () => onRemoveFolder(wt.path),
+                    },
                   "sep",
                   ...fileEntries(wt.path, { root: project.root, isDir: true, writes: "none" }),
                 ])
               }
             >
               <Chevron open={open} className="wt-chevron" />
+              {/* The folder's own name, and only when there is more than one
+                  to tell apart: three repositories all sitting on `main` are
+                  three rows that otherwise read identically. A one-folder
+                  project shows the branch alone, exactly as it always has. */}
+              {multi && <span className="wt-folder">{baseName(wt.path)}</span>}
               <span className="wt-branch">{wt.branch || "(no branch)"}</span>
               <span className="wt-count">{wt.changes.length || ""}</span>
               {!wt.is_main && (

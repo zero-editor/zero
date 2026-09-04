@@ -6,7 +6,10 @@ export function Launcher({
   onOpen,
   onPick,
 }: {
-  onOpen: (root: string) => void;
+  /** the second argument is what this project was last time — its name and its
+   *  folders. A three-folder project reopened as one folder would make the row
+   *  below a lie. */
+  onOpen: (root: string, was?: { name?: string; folders?: string[] }) => void;
   onPick: () => void;
 }) {
   const [recents, setRecents] = useState<RecentProject[]>([]);
@@ -32,14 +35,17 @@ export function Launcher({
             <button
               key={r.path}
               className="launcher-item"
-              onClick={() => onOpen(r.path)}
+              onClick={() => onOpen(r.path, { name: r.name, folders: r.folders })}
               // "Remove from Recents" is the item this list has been missing:
               // a project that has moved leaves a row that opens nothing, and
               // there was no way to be rid of it short of opening others until
               // it fell off the end
               onContextMenu={(e) =>
                 contextMenu(e, [
-                  { text: "Open Project", run: () => onOpen(r.path) },
+                  {
+                    text: "Open Project",
+                    run: () => onOpen(r.path, { name: r.name, folders: r.folders }),
+                  },
                   {
                     text: "Remove from Recents",
                     run: () =>
@@ -53,7 +59,14 @@ export function Launcher({
               }
             >
               <span className="launcher-item-name">{r.name}</span>
-              <span className="launcher-item-path">{r.path.replace(/^\/Users\/[^/]+/, "~")}</span>
+              {/* A project of several folders has no one path to show, and
+                  the primary one would name only a third of it — so it says
+                  what it is instead. */}
+              <span className="launcher-item-path">
+                {r.folders?.length
+                  ? `${r.folders.length + 1} folders`
+                  : r.path.replace(/^\/Users\/[^/]+/, "~")}
+              </span>
             </button>
           ))}
           {recents.length === 0 && <div className="launcher-empty">no recent projects</div>}

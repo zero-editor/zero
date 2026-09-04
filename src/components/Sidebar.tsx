@@ -11,6 +11,8 @@ import { goToNoteEnd } from "../lib/notes";
 import type { Search } from "../lib/search";
 import type { Memos } from "../lib/memos";
 import { useSettings } from "../lib/settings";
+import { folders } from "../lib/folders";
+import { contextMenu } from "../lib/contextMenu";
 
 export type SidebarTab = "scm" | "files" | "search" | "issues" | "memos";
 
@@ -130,6 +132,8 @@ export function Sidebar({
   collapsed,
   onCollapse,
   onExpand,
+  onAddFolder,
+  onRemoveFolder,
 }: {
   project: Project;
   tab: SidebarTab;
@@ -153,6 +157,9 @@ export function Sidebar({
   collapsed: boolean;
   onCollapse: () => void;
   onExpand: () => void;
+  /** put another folder in this project — the picker lives up in App */
+  onAddFolder: () => void;
+  onRemoveFolder: (dir: string) => void;
 }) {
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
@@ -186,6 +193,18 @@ export function Sidebar({
             className={`sidebar-tab ${tab === t.id ? "active" : ""}`}
             title={t.title}
             onClick={() => onTab(t.id)}
+            // The files icon is the one rail button that stands for a thing
+            // rather than a view — it is the project's folders — so it is the
+            // one that answers a right-click. The other tabs have nothing to
+            // offer that clicking them doesn't already do.
+            onContextMenu={
+              t.id === "files"
+                ? (e) => {
+                    onTab("files");
+                    contextMenu(e, [{ text: "Add Folder to Project…", run: onAddFolder }]);
+                  }
+                : undefined
+            }
           >
             {ICONS[t.id]}
             {t.id === "memos" && dot && <span className={`memo-tab-dot ${dot}`} />}
@@ -220,21 +239,23 @@ export function Sidebar({
             project={project}
             onOpenView={onOpenView}
             onRevealInTree={onRevealInTree}
+            onRemoveFolder={onRemoveFolder}
             active={active}
             activeKey={activeKey}
           />
         )}
         <div hidden={tab !== "files"}>
           <FileTree
-            root={project.root}
+            roots={folders(project)}
             active={active && tab === "files" && !collapsed}
             reveal={reveal}
             onOpenView={onOpenView}
+            onAddFolder={onAddFolder}
+            onRemoveFolder={onRemoveFolder}
           />
         </div>
         {tab === "search" && (
           <SearchPanel
-            root={project.root}
             search={search}
             onOpenView={onOpenView}
             onRevealInTree={onRevealInTree}

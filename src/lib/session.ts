@@ -223,15 +223,27 @@ function parse(raw: string | null): Session {
   }
 
   const seenRoots = new Set<string>();
-  const projects = (Array.isArray(blob.projects) ? blob.projects : []).filter(
-    (p): p is Project =>
-      !!p &&
-      typeof p.root === "string" &&
-      !!p.root &&
-      typeof p.name === "string" &&
-      !seenRoots.has(p.root) &&
-      !!seenRoots.add(p.root)
-  );
+  const projects = (Array.isArray(blob.projects) ? blob.projects : [])
+    .filter(
+      (p): p is Project =>
+        !!p &&
+        typeof p.root === "string" &&
+        !!p.root &&
+        typeof p.name === "string" &&
+        !seenRoots.has(p.root) &&
+        !!seenRoots.add(p.root)
+    )
+    // The extra folders of a multi-folder project. Sieved rather than trusted
+    // like everything else here, and dropped to `undefined` when there are
+    // none left — a project with an empty array is a project with one folder,
+    // and the two should not be two shapes in the stored blob.
+    .map((p) => {
+      const seen = new Set([p.root]);
+      const extra = (Array.isArray(p.folders) ? p.folders : []).filter(
+        (f): f is string => typeof f === "string" && !!f && !seen.has(f) && !!seen.add(f)
+      );
+      return extra.length ? { ...p, folders: extra } : { root: p.root, name: p.name };
+    });
 
   const byProject: Session["byProject"] = {};
   for (const p of projects) {
@@ -323,7 +335,10 @@ export async function restoreSession(): Promise<{ projects: Project[]; activeIdx
   if (adopted) schedule();
   if (current.projects.length === 0) return { projects: [], activeIdx: 0 };
 
-  const roots = current.projects.map((p) => p.root);
+  // every folder of every project, not just the roots — an added folder that
+  // has been moved or deleted since would otherwise come back as a tree branch
+  // that lists nothing and a changes group that only ever says "not a git repo"
+  const roots = current.projects.flatMap((p) => [p.root, ...(p.folders ?? [])]);
   let alive: string[];
   try {
     alive = await api.existingDirs(roots);
@@ -333,7 +348,15 @@ export async function restoreSession(): Promise<{ projects: Project[]; activeIdx
 
   const live = new Set(alive);
   const activeRoot = current.projects[current.activeIdx]?.root;
-  current.projects = current.projects.filter((p) => live.has(p.root));
+  current.projects = current.projects
+    .filter((p) => live.has(p.root))
+    .map((p) => {
+      // A project loses a folder that has gone, but never itself over one:
+      // losing the root is what closes the tab, and the tab is where the
+      // terminals are.
+      const kept = (p.folders ?? []).filter((f) => live.has(f));
+      return kept.length ? { ...p, folders: kept } : { root: p.root, name: p.name };
+    });
   for (const root of Object.keys(current.byProject)) {
     if (!live.has(root)) delete current.byProject[root];
   }

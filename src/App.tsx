@@ -18,8 +18,11 @@ import {
 } from "./lib/session";
 import type { ProjectSession } from "./lib/session";
 import { closeSeq } from "./lib/closeOrder";
+import { ask } from "./lib/prompt";
 import { openInProject } from "./lib/openBus";
 import { setDropOpener, watchFileDrops } from "./lib/fileDrop";
+import { folders, holding, rejects } from "./lib/folders";
+import { message } from "@tauri-apps/plugin-dialog";
 import { resolvedAppearance, useSettings } from "./lib/settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isGlassSupported, setLiquidGlassEffect, GlassMaterialVariant } from "tauri-plugin-liquid-glass-api";
@@ -28,6 +31,9 @@ import "./App.css";
 export interface Project {
   root: string;
   name: string;
+  /** the folders beyond `root`, for a project split across repositories —
+   *  absent on every project that is just the one. See lib/folders.ts */
+  folders?: string[];
 }
 
 export default function App() {
@@ -155,9 +161,15 @@ export default function App() {
     if (restored) saveProjects(projects, activeIdx);
   }, [restored, projects, activeIdx]);
 
-  const openProject = useCallback((root: string) => {
-    const name = root.split("/").filter(Boolean).pop() ?? root;
-    api.addRecent(root).catch(() => {});
+  /**
+   * `was` is what the launcher remembered about this project — the name it was
+   * given and the folders it had. A project reopened from a row that says
+   * "3 folders" has to come back as three, or the row was lying.
+   */
+  const openProject = useCallback((root: string, was?: { name?: string; folders?: string[] }) => {
+    const name = was?.name || (root.split("/").filter(Boolean).pop() ?? root);
+    const extra = was?.folders?.length ? was.folders : undefined;
+    api.addRecent(root, name, extra).catch(() => {});
     setProjects((prev) => {
       const existing = prev.findIndex((p) => p.root === root);
       if (existing >= 0) {
@@ -165,9 +177,35 @@ export default function App() {
         return prev;
       }
       setActiveIdx(prev.length);
-      return [...prev, { root, name }];
+      return [...prev, extra ? { root, name, folders: extra } : { root, name }];
     });
   }, []);
+
+  /** Keep the launcher's copy of a project in step with the tab strip's — the
+   *  name it now has and the folders it now holds. */
+  const rememberProject = useCallback((p: Project) => {
+    api.addRecent(p.root, p.name, p.folders).catch(() => {});
+  }, []);
+
+  /**
+   * Rename a project.
+   *
+   * `name` has always been stored beside `root` and always been derived from
+   * it, which was fine while a project was one folder wearing its own name. A
+   * project holding three repositories is named after whichever of them was
+   * opened first, and that is a poor name for the thing it now is.
+   */
+  const renameProject = useCallback(
+    async (idx: number) => {
+      const p = projects[idx];
+      if (!p) return;
+      const next = await ask({ title: "Rename project", value: p.name, ok: "Rename" });
+      if (!next) return;
+      setProjects((prev) => prev.map((x, i) => (i === idx ? { ...x, name: next } : x)));
+      api.addRecent(p.root, next, p.folders).catch(() => {});
+    },
+    [projects]
+  );
 
   // `zero <dir>` in a shell: the command leaves the directory for the app to
   // pick up and the Rust side emits it here, whether zero was already running
@@ -195,10 +233,10 @@ export default function App() {
           openProject(t.path);
           continue;
         }
-        const holder = projects.find(
-          (p) => t.path === p.root || t.path.startsWith(p.root + "/")
-        );
-        const root = holder?.root ?? t.root;
+        // every folder of every project, not just the roots: a file from an
+        // added folder belongs to the project holding that folder, and opening
+        // it as a project of its own would be the same repository twice
+        const root = holding(projects, t.path)?.root ?? t.root;
         openProject(root);
         openInProject(root, t.path);
       }
@@ -239,6 +277,55 @@ export default function App() {
     const dir = await api.pickDirectory("Open project");
     if (typeof dir === "string") openProject(dir);
   }, [openProject]);
+
+  /**
+   * Add a folder to a project that already has one.
+   *
+   * The folder is not opened as its own tab, and any tab it already has open
+   * is left alone. Closing that tab to tidy the model up would take its
+   * terminals with it, and one of them is usually holding a session — a folder
+   * showing in two places is the cheaper of the two wrongs.
+   */
+  const addFolder = useCallback((idx: number, dir: string) => {
+    setProjects((prev) => {
+      const p = prev[idx];
+      if (!p) return prev;
+      const no = rejects(folders(p), dir);
+      if (no) {
+        void message(no, { title: "Add folder", kind: "info" });
+        return prev;
+      }
+      const next = prev.map((x, i) =>
+        i === idx ? { ...x, folders: [...(x.folders ?? []), dir] } : x
+      );
+      rememberProject(next[idx]);
+      return next;
+    });
+  }, [rememberProject]);
+
+  const pickFolder = useCallback(
+    async (idx: number) => {
+      const dir = await api.pickDirectory("Add folder to project");
+      if (typeof dir === "string") addFolder(idx, dir);
+    },
+    [addFolder]
+  );
+
+  /** `root` is not among the removable ones — it is what the project is keyed
+   *  on, so losing it would lose the session, the notes and the terminals'
+   *  cwd along with the folder. */
+  const removeFolder = useCallback(
+    (idx: number, dir: string) => {
+      setProjects((prev) => {
+        const next = prev.map((p, i) =>
+          i === idx ? { ...p, folders: (p.folders ?? []).filter((f) => f !== dir) } : p
+        );
+        rememberProject(next[idx]);
+        return next;
+      });
+    },
+    [rememberProject]
+  );
 
   const reorderProjects = useCallback((from: number, to: number) => {
     setProjects((prev) => {
@@ -438,6 +525,8 @@ export default function App() {
         onSwitch={setActiveIdx}
         onClose={closeProject}
         onReorder={reorderProjects}
+        onRename={renameProject}
+        onAddFolder={(i) => void pickFolder(i)}
         onPick={pickProject}
         onSettings={() => setShowSettings(true)}
         locked={layoutLocked}
@@ -452,6 +541,8 @@ export default function App() {
             locked={layoutLocked}
             lastClosedProject={lastClosedProject}
             onReopenProject={reopenProject}
+            onAddFolder={() => void pickFolder(i)}
+            onRemoveFolder={(dir) => removeFolder(i, dir)}
           />
         ))}
       </div>
