@@ -22,7 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -219,6 +219,26 @@ pub struct Pr {
     pub target_branch: String,
 }
 
+
+/// The cycle an issue is in, when it is in one.
+///
+/// Carried as Linear's four facts rather than as a `current` flag. Which cycle
+/// is the current one is a question about the clock, and the clock is on the
+/// other side of this: the panel holds these across a poll and a wake from
+/// sleep, and a boolean decided when the list was fetched would go on saying
+/// "current" about last week's cycle. The dates never go stale.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Cycle {
+    pub number: i64,
+    /// Linear's own name for it, which is often empty — cycles are numbered by
+    /// default and only some teams name them. Measured: named `Cycle 66` in one
+    /// of these two workspaces and null in the other.
+    pub name: String,
+    pub starts_at: String,
+    pub ends_at: String,
+}
+
 /// What the checkout knows, which is the half Linear can't see.
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -262,6 +282,10 @@ pub struct Issue {
     pub project: Option<String>,
     /// The team's key, for the same reason.
     pub team: String,
+    /// The cycle it is in, for the same reason again — and the axis people
+    /// reach for first, since "this cycle" is the one narrowing that answers
+    /// what the team is doing *now*.
+    pub cycle: Option<Cycle>,
     pub labels: Vec<Label>,
     pub prs: Vec<Pr>,
     pub local: Local,
@@ -343,6 +367,16 @@ fn parse_prs(node: &Value) -> Vec<Pr> {
     out
 }
 
+
+fn parse_cycle(node: &Value) -> Option<Cycle> {
+    let c = node.get("cycle").filter(|c| !c.is_null())?;
+    Some(Cycle {
+        number: c.get("number").and_then(|n| n.as_i64()).unwrap_or(0),
+        name: s(c, "name"),
+        starts_at: s(c, "startsAt"),
+        ends_at: s(c, "endsAt"),
+    })
+}
 fn parse_issue(node: &Value, me: &str) -> Issue {
     let assignee = node
         .pointer("/assignee/displayName")
@@ -385,6 +419,7 @@ fn parse_issue(node: &Value, me: &str) -> Issue {
         is_mine,
         project: node.pointer("/project/name").and_then(|x| x.as_str()).map(String::from),
         team: node.pointer("/team/key").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        cycle: parse_cycle(node),
         labels,
         prs: parse_prs(node),
         local: Local::default(),
@@ -409,12 +444,28 @@ fn window_filter() -> Value {
     })
 }
 
+/// The same window, narrowed to whatever cycle is running now — Linear's own
+/// answer to "current", per team, rather than this crate's arithmetic on two
+/// timestamps.
+///
+/// This is fetched *as well as* the list, and the reason is a measurement.
+/// One of the two workspaces this was built against has 1225 issues in the
+/// window and 181 in its active cycle; the list below asks for the 150
+/// most-recently-updated, and only 44 of those 181 are among them. A cycle
+/// filter over that list would have quietly shown a quarter of the cycle and
+/// called it the cycle. So the cycle is loaded whole, and the filter keeps its
+/// promise that it narrows what is already there.
+fn active_cycle_filter() -> Value {
+    json!({ "and": [window_filter(), { "cycle": { "isActive": { "eq": true } } }] })
+}
+
 const ISSUE_FIELDS: &str = r#"
   id identifier title url branchName priority updatedAt
   state { name type color position }
   assignee { id displayName avatarUrl initials }
   project { name }
   team { key }
+  cycle { number name startsAt endsAt }
   labels(first: 8) { nodes { name color } }
   attachments(first: 10) { nodes { sourceType metadata } }
 "#;
@@ -469,6 +520,20 @@ fn local_state(root: &str, issues: &mut [Issue]) {
             i.local = Local { branch: Some(b), worktree, current };
         }
     }
+}
+
+/// The two lists as one, the first winning on duplicates. They overlap by
+/// definition — an issue in the active cycle that was also touched this week
+/// arrives in both — and the panel keys rows by id, so a duplicate would be a
+/// React key collision rather than a visible second row.
+fn merge_issues(mut first: Vec<Issue>, rest: Vec<Issue>) -> Vec<Issue> {
+    let mut seen: HashSet<String> = first.iter().map(|i| i.id.clone()).collect();
+    for i in rest {
+        if seen.insert(i.id.clone()) {
+            first.push(i);
+        }
+    }
+    first
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
@@ -571,19 +636,31 @@ pub fn linear_disconnect(app: tauri::AppHandle, root: String) -> Result<(), Stri
 pub async fn linear_issues(app: tauri::AppHandle, root: String) -> Result<Vec<Issue>, String> {
     let token = read_token(&app, &root)?;
 
+    // Two lists in one round trip, which costs one request and 30 of the
+    // 3,000,000 complexity an hour buys: the recent window, and the active
+    // cycle in full. Aliased rather than two requests so they cannot disagree
+    // about what has just moved.
     let query = format!(
-        "query Issues($f: IssueFilter) {{
+        "query Issues($f: IssueFilter, $c: IssueFilter) {{
            viewer {{ id }}
            issues(first: 150, filter: $f, orderBy: updatedAt) {{ nodes {{ {ISSUE_FIELDS} }} }}
+           cycle: issues(first: 250, filter: $c, orderBy: updatedAt) {{ nodes {{ {ISSUE_FIELDS} }} }}
          }}"
     );
-    let data = gql(&token, &query, json!({ "f": window_filter() })).await?;
+    let data = gql(
+        &token,
+        &query,
+        json!({ "f": window_filter(), "c": active_cycle_filter() }),
+    )
+    .await?;
     let me = data.pointer("/viewer/id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let mut issues: Vec<Issue> = data
-        .pointer("/issues/nodes")
-        .and_then(|n| n.as_array())
-        .map(|a| a.iter().map(|n| parse_issue(n, &me)).collect())
-        .unwrap_or_default();
+    let nodes = |at: &str| -> Vec<Issue> {
+        data.pointer(at)
+            .and_then(|n| n.as_array())
+            .map(|a| a.iter().map(|n| parse_issue(n, &me)).collect())
+            .unwrap_or_default()
+    };
+    let mut issues = merge_issues(nodes("/issues/nodes"), nodes("/cycle/nodes"));
 
     let r = root.clone();
     let mut owned = std::mem::take(&mut issues);
@@ -788,11 +865,39 @@ mod tests {
         assert_eq!(pr("somethingNew", false), "somethingNew");
     }
 
+    /// A cycle is optional in every sense: most teams have one running and
+    /// most issues are not in it. Both halves have to survive, because the
+    /// filter groups on the absence as its own row.
+    #[test]
+    fn a_cycle_arrives_whole_or_not_at_all() {
+        let with = json!({ "cycle": { "number": 66, "name": "Cycle 66",
+                                      "startsAt": "2026-08-31T22:00:00.000Z",
+                                      "endsAt": "2026-09-07T22:00:00.000Z" } });
+        let c = parse_cycle(&with).expect("a cycle");
+        assert_eq!(c.number, 66);
+        assert_eq!(c.starts_at, "2026-08-31T22:00:00.000Z");
+        // an unnamed cycle is the common case, and reads as empty rather than
+        // as the string "null"
+        let unnamed = json!({ "cycle": { "number": 2, "name": null,
+                                         "startsAt": "a", "endsAt": "b" } });
+        assert_eq!(parse_cycle(&unnamed).unwrap().name, "");
+        assert!(parse_cycle(&json!({ "cycle": null })).is_none());
+        assert!(parse_cycle(&json!({})).is_none());
+    }
 
-
-
-
-
+    /// The active cycle is fetched as a second list, and the two overlap
+    /// wherever a cycle issue was also touched recently. Every such issue must
+    /// appear once: the panel keys its rows by id.
+    #[test]
+    fn merging_the_two_lists_keeps_one_of_each() {
+        let issue = |id: &str| parse_issue(&json!({ "id": id, "identifier": id }), "me");
+        let merged = merge_issues(
+            vec![issue("a"), issue("b")],
+            vec![issue("b"), issue("c")],
+        );
+        let ids: Vec<&str> = merged.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+    }
 
     #[test]
     fn github_issues_are_not_pull_requests() {

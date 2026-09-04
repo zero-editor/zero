@@ -197,6 +197,17 @@ export interface LinearLocal {
   current: boolean;
 }
 
+/** the cycle an issue belongs to. Which one is *current* is left to the clock
+ *  on this side: these are held across polls and a sleep, and a flag decided
+ *  when they were fetched would go on claiming last week's cycle. */
+export interface LinearCycle {
+  number: number;
+  /** Linear's name for it, or "" — cycles are usually only numbered */
+  name: string;
+  startsAt: string;
+  endsAt: string;
+}
+
 export interface LinearIssue {
   id: string;
   identifier: string;
@@ -220,6 +231,8 @@ export interface LinearIssue {
   project: string | null;
   /** the team's key, another */
   team: string;
+  /** the cycle it is in, if any — the axis that answers "what now" */
+  cycle: LinearCycle | null;
   labels: LinearLabel[];
   prs: LinearPr[];
   local: LinearLocal;

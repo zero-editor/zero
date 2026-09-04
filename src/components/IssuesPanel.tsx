@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
-import { api, type LinearIssue } from "../lib/api";
+import { api, type LinearCycle, type LinearIssue } from "../lib/api";
 import { Chevron } from "./Chevron";
 import { contextMenu } from "../lib/contextMenu";
 
@@ -320,21 +320,43 @@ type Gate = "loading" | "no-token" | "ready";
  *  be changed while you read, and it cannot disagree with the list because it
  *  *is* the list. */
 interface Filter {
+  cycles: string[];
   projects: string[];
   teams: string[];
   people: string[];
   labels: string[];
 }
 
-const NO_FILTER: Filter = { projects: [], teams: [], people: [], labels: [] };
+const NO_FILTER: Filter = { cycles: [], projects: [], teams: [], people: [], labels: [] };
 
 const filterCount = (f: Filter) =>
-  f.projects.length + f.teams.length + f.people.length + f.labels.length;
+  f.cycles.length + f.projects.length + f.teams.length + f.people.length + f.labels.length;
 
 const UNASSIGNED = "\u2014 unassigned";
 const NO_PROJECT = "\u2014 no project";
+const NO_CYCLE = "\u2014 no cycle";
+
+/** What the filter calls a cycle: Linear's name for it when someone has given
+ *  it one, its number when nobody has — which is the usual case. */
+const cycleName = (c: LinearCycle) => c.name || `Cycle ${c.number}`;
+
+/** Where a cycle stands right now — 0 running, 1 still to come, 2 over.
+ *
+ *  Decided here, from the dates, rather than taken from a flag set when the
+ *  list was fetched. The panel holds a list across polls and across a laptop
+ *  being shut for a week, and "current" is the one thing about a cycle that
+ *  stops being true while nobody is looking. Cycles are per team, so several
+ *  can be running at once and each is judged on its own dates.
+ */
+function cyclePhase(c: LinearCycle, now: number): 0 | 1 | 2 {
+  if (now < Date.parse(c.startsAt)) return 1;
+  return now < Date.parse(c.endsAt) ? 0 : 2;
+}
+
+const PHASE_NOTE = ["current", "upcoming", ""];
 
 function matches(i: LinearIssue, f: Filter, q: string): boolean {
+  if (f.cycles.length && !f.cycles.includes(i.cycle ? cycleName(i.cycle) : NO_CYCLE)) return false;
   if (f.projects.length && !f.projects.includes(i.project ?? NO_PROJECT)) return false;
   if (f.teams.length && !f.teams.includes(i.team)) return false;
   if (f.people.length && !f.people.includes(i.assignee ?? UNASSIGNED)) return false;
@@ -366,11 +388,16 @@ function FilterGroup({
   rows,
   on,
   toggle,
+  note,
 }: {
   title: string;
   rows: [string, number][];
   on: string[];
   toggle: (v: string) => void;
+  /** a word after an option that the option's own name can't carry — which
+   *  cycle is the one running, and which has yet to start. Dim, and never a
+   *  second thing to click. */
+  note?: (v: string) => string;
 }) {
   // One option is not a choice: every issue on screen already has it, so the
   // row would filter nothing and the heading would name an axis that does no
@@ -390,6 +417,7 @@ function FilterGroup({
           >
             <span className="li-opt-tick">{TICK}</span>
             <span className="li-opt-name">{v}</span>
+            {note?.(v) && <span className="li-opt-note">{note(v)}</span>}
           </button>
         ))}
       </div>
@@ -541,13 +569,51 @@ export function IssuesPanel({
       [axis]: f[axis].includes(v) ? f[axis].filter((x) => x !== v) : [...f[axis], v],
     }));
 
-  // The four axes, each with the options it actually offers. Built once so the
+  // The cycles on screen, by the name the filter uses for them, so the axis
+  // can say which one is running without going back to the issues for it.
+  const now = Date.now();
+  const cycles = new Map<string, LinearCycle>();
+  for (const i of issues) if (i.cycle) cycles.set(cycleName(i.cycle), i.cycle);
+  const cycleNote = (v: string) => {
+    const c = cycles.get(v);
+    return c ? PHASE_NOTE[cyclePhase(c, now)] : "";
+  };
+
+  // The five axes, each with the options it actually offers. Built once so the
   // groups and the "nothing to filter by" test read the same rows.
-  const axes: [string, [string, number][], keyof Filter][] = [
-    ["Linear project", options(issues, (i) => [i.project ?? NO_PROJECT]), "projects"],
-    ["Team", options(issues, (i) => [i.team]), "teams"],
-    ["Assignee", options(issues, (i) => [i.assignee ?? UNASSIGNED]), "people"],
-    ["Label", options(issues, (i) => i.labels.map((l) => l.name)), "labels"],
+  //
+  // Cycle first, and not by count: it is the only axis whose answer changes on
+  // its own, and "what are we doing this week" is the question people arrive
+  // with. Its rows are ordered the way Linear's own sidebar orders them —
+  // what's running, what's next, what's been and gone, then everything in no
+  // cycle at all — rather than by how many issues each holds, which would put
+  // the uncycled backlog on top of the cycle you came for.
+  const cycleRows = options(issues, (i) => [i.cycle ? cycleName(i.cycle) : NO_CYCLE]).sort(
+    (a, b) => {
+      const ca = cycles.get(a[0]);
+      const cb = cycles.get(b[0]);
+      if (!ca || !cb) return ca ? -1 : cb ? 1 : 0;
+      const pa = cyclePhase(ca, now);
+      const pb = cyclePhase(cb, now);
+      if (pa !== pb) return pa - pb;
+      // the soonest of what's coming, the most recent of what's gone
+      return pa === 1
+        ? Date.parse(ca.startsAt) - Date.parse(cb.startsAt)
+        : Date.parse(cb.startsAt) - Date.parse(ca.startsAt);
+    },
+  );
+
+  const axes: {
+    title: string;
+    rows: [string, number][];
+    key: keyof Filter;
+    note?: (v: string) => string;
+  }[] = [
+    { title: "Cycle", rows: cycleRows, key: "cycles", note: cycleNote },
+    { title: "Linear project", rows: options(issues, (i) => [i.project ?? NO_PROJECT]), key: "projects" },
+    { title: "Team", rows: options(issues, (i) => [i.team]), key: "teams" },
+    { title: "Assignee", rows: options(issues, (i) => [i.assignee ?? UNASSIGNED]), key: "people" },
+    { title: "Label", rows: options(issues, (i) => i.labels.map((l) => l.name)), key: "labels" },
   ];
 
   return (
@@ -597,16 +663,17 @@ export function IssuesPanel({
               construction rather than by a padding chosen to match. */}
           {filtering && (
             <div className="li-filters">
-              {axes.map(([title, rows, key]) => (
+              {axes.map((a) => (
                 <FilterGroup
-                  key={title}
-                  title={title}
-                  rows={rows}
-                  on={filter[key]}
-                  toggle={toggle(key)}
+                  key={a.title}
+                  title={a.title}
+                  rows={a.rows}
+                  on={filter[a.key]}
+                  toggle={toggle(a.key)}
+                  note={a.note}
                 />
               ))}
-              {!axes.some(([, rows]) => rows.length > 1) && (
+              {!axes.some((a) => a.rows.length > 1) && (
                 <p className="li-axis-empty">Nothing to filter by yet.</p>
               )}
             </div>

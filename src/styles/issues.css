@@ -112,6 +112,15 @@
   white-space: nowrap;
 }
 
+/* Which cycle is the one running, said beside its name rather than folded into
+   it. Faint, and it stays faint when the option is on: it is an annotation on
+   the row, not a second thing the row is called. */
+.li-opt-note {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 /* ── a row ─────────────────────────────────────────────────────────────── */
 
 .li-row {
