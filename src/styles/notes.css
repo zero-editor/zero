@@ -101,19 +101,38 @@
   min-height: 0;
 }
 
+/* A note is not code, so it wears no line numbers — and that is what lets
+   the two faces share one frame. Without the gutter the editor's text starts
+   at the same left edge and the same 4px from the top as the rendering, at
+   the same size and line height, so flipping changes what the words look
+   like and never where they are. The 20px is the editor's own 6px line
+   padding widened to a reading margin; both faces carry the same number. */
+.note-view .cm-gutters {
+  display: none;
+}
+
+.note-view .cm-line {
+  padding-left: 20px;
+}
+
 .note-preview {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 14px 22px 40px;
-  font-size: 13px;
-  line-height: 1.55;
+  padding: 4px 22px 40px 20px;
+  font-size: 12.5px;
+  line-height: 1.4;
   color: var(--text);
   outline: none;
   user-select: text;
   -webkit-user-select: text;
   /* scrolls on the compositor, like every other scroller under glass */
   transform: translateZ(0);
+}
+
+/* the first block sits on the first line, whatever kind it is */
+.note-preview > :first-child {
+  margin-top: 0;
 }
 
 .note-preview h1 {

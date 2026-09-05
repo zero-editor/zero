@@ -291,7 +291,7 @@ export function FileView({
 
   return (
     <div
-      className={`note-view note-${mode}`}
+      className="note-view"
       onKeyDown={(e) => {
         // ⌘⇧P flips faces from either side — GitHub's key for the same thing
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "KeyP") {
