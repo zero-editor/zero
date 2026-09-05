@@ -176,39 +176,10 @@ pub async fn note_format(
             hurried: true,
             timed_out: "the reformat gave up after a minute",
         });
-        answer.text.map(|out| strip_added_fences(&text, out.trim_end()))
+        answer.text.map(|out| out.trim_end().to_string())
     })
     .await
     .map_err(|e| format!("the reformat never ran: {e}"))?
-}
-
-/// Take off the code fences the model added, whatever it was told.
-///
-/// The instructions say not to add any and mostly it doesn't — but "mostly" is
-/// not a contract, and what it costs when it slips is three characters somebody
-/// has to delete before the line will run. A prompt is the wrong tool for a
-/// thing that has to be true every time; this is the right one, and it is four
-/// lines.
-///
-/// **Only ones it added.** A fence goes only when the pasted text had none of
-/// its own: somebody pasting a markdown document gets its fences back exactly
-/// as they were, because there the fence is content, and keeping what arrived
-/// is worth more than this. The test is the whole of the decision — no attempt
-/// to tell an added fence from an original one within the same passage, which
-/// is a guess, and a guess here deletes somebody's text.
-fn strip_added_fences(pasted: &str, formatted: &str) -> String {
-    if pasted.lines().any(is_fence) {
-        return formatted.to_string();
-    }
-    let kept: Vec<&str> = formatted.lines().filter(|line| !is_fence(line)).collect();
-    kept.join("\n").trim_end().to_string()
-}
-
-/// A line that is a fence and nothing else — the marker, and at most a language
-/// after it. A line of prose that merely contains backticks is not one.
-fn is_fence(line: &str) -> bool {
-    let t = line.trim();
-    (t.starts_with("```") || t.starts_with("~~~")) && !t[3..].contains(char::is_whitespace)
 }
 
 /// The house style as the prompt should see it: the guidance, with the file's
@@ -263,12 +234,11 @@ it arrives damaged in ways that have nothing to do with what it says.
 
 Two rules come before everything else.
 
-**What you return is plain text, not a document.** It is going to be pasted straight on — into a \
-terminal, or to a person — so add no markup the text did not already have. No code fences: no \
-```, ever, for any reason. No headings, no emphasis, no bullets over lines that had none, no rules, \
-no links. Return the text by itself: no preamble, no commentary, no account of what you changed. \
-Text that arrived clean comes back unchanged. The one mark worth its punctuation is a table's \
-pipes, which are what hold its columns apart and read as plainly in a terminal as anywhere.
+**What you return is the text, not a document about it.** It lands in a markdown note, and the \
+only markup you add is the two kinds that hold shape: a code fence around code and commands (see \
+Code below) and a table's pipes, which are what hold its columns apart. No headings, no emphasis, \
+no bullets over lines that had none, no rules, no links. Return the text by itself: no preamble, \
+no commentary, no account of what you changed. Text that arrived clean comes back unchanged.
 
 **Change nothing but the shape.** Every word, number, path, identifier, quotation and unit \
 survives exactly as it arrived. Do not summarise, do not correct spelling or grammar, do not fix \
@@ -291,14 +261,17 @@ stay: a line ending in a backslash, typed to mean this continues, and the struct
 multi-line script — a loop, a function body, a heredoc. Leave alone every line that was always \
 meant to be one: list items, table rows, log lines.
 - **Chrome.** Drop what the terminal added and the text never had — box-drawing borders, ANSI \
-escapes and whatever is left of them, shell prompt prefixes, line-number gutters, `>` continuation \
-markers, progress bars, spinner frames — and where the same line was redrawn as it changed, keep \
-the last one only.
-- **Code.** Laid out properly, and left as bare lines — no fence around it, no language tag, no \
-marker of any kind. A terminal flattens indentation, leaves it ragged, or runs statements onto one \
-line; code that arrives like that gets back the indentation and the line breaks its language \
-ordinarily has — nesting stepped in, one statement to a line, one width used throughout. \
-Whitespace and line breaks are the whole of what you may move. Never add, remove, rename or \
+escapes and whatever is left of them, shell prompt prefixes such as `$ `, `% ` or `❯ `, \
+line-number gutters, `>` continuation markers, progress bars, spinner frames — and where the same \
+line was redrawn as it changed, keep the last one only. A leading `!` is not a prompt: it is how a \
+command is typed to a coding agent, and it stays with its command.
+- **Code.** Every command and every piece of code goes inside a code fence — ``` on the line before \
+and the line after, the opening one tagged with the language when that is clear (`sh` for a shell \
+command), one fence per block, a single command being a block of one line. Inside the fence, laid \
+out properly. A terminal flattens indentation, leaves it ragged, or runs statements onto one line; \
+code that arrives like that gets back the indentation and the line breaks its language ordinarily \
+has — nesting stepped in, one statement to a line, one width used throughout. Whitespace, line \
+breaks and the fence are the whole of what you may add or move. Never add, remove, rename or \
 reorder a single token: not a missing brace, not an import, not a fix for a bug you can see. \
 Formatting it is the job; improving it is not.
 
@@ -346,39 +319,13 @@ mod tests {
     }
 
     #[test]
-    fn a_fence_the_model_invented_comes_off() {
-        let pasted = "cd ~/x && make";
-        let answered = "```sh\ncd ~/x && make\n```";
-        assert_eq!(strip_added_fences(pasted, answered), "cd ~/x && make");
-        // the whole answer wrapped in one, which is the other way it slips
-        assert_eq!(strip_added_fences("a\nb", "```\na\nb\n```"), "a\nb");
-    }
-
-    #[test]
-    fn a_fence_that_was_pasted_is_left_alone() {
-        // somebody pasting markdown gets their document back, fences and all —
-        // there the fence is content, and keeping what arrived outranks this
-        let pasted = "see:\n\n```js\nconst a = 1\n```";
-        let answered = "see:\n\n```js\nconst a = 1;\n```";
-        assert_eq!(strip_added_fences(pasted, answered), answered);
-    }
-
-    #[test]
-    fn prose_about_backticks_is_not_a_fence() {
-        assert!(!is_fence("use ``` to fence a block"));
-        assert!(!is_fence("  text ```"));
-        assert!(is_fence("```"));
-        assert!(is_fence("   ```python"));
-        assert!(is_fence("~~~"));
-    }
-
-    #[test]
     fn code_is_laid_out_but_never_edited() {
         assert!(FORMAT_SYSTEM.contains("nesting stepped in, one statement to a line"));
-        // and comes back runnable rather than rendered — the note is a text
-        // buffer whose contents get pasted straight into a terminal
-        assert!(FORMAT_SYSTEM.contains("no fence around it, no language tag"));
-        assert!(FORMAT_SYSTEM.contains("What you return is plain text, not a document."));
+        // and inside a fence, which is what the note draws as a code block —
+        // and the one prefix that is part of a command rather than the shell's
+        assert!(FORMAT_SYSTEM.contains("goes inside a code fence"));
+        assert!(FORMAT_SYSTEM.contains("A leading `!` is not a prompt"));
+        assert!(FORMAT_SYSTEM.contains("What you return is the text, not a document about it."));
         // the half that keeps a reformat from turning into a rewrite
         assert!(FORMAT_SYSTEM.contains("Never add, remove, rename or reorder a single token"));
         assert!(FORMAT_SYSTEM.contains("Formatting it is the job; improving it is not."));

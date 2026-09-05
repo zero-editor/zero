@@ -3,7 +3,7 @@ import { python } from "@codemirror/lang-python";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { rust } from "@codemirror/lang-rust";
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
@@ -52,7 +52,10 @@ export function langFor(path: string): Extension[] {
     case "markdown":
       // fenced code blocks colour as their own language, fetched from the
       // registry only when a fence actually names one
-      return [markdown({ codeLanguages: ALL })];
+      // GitHub's flavour rather than plain CommonMark: `- [ ]`, tables and
+      // ~~strikethrough~~ are then nodes in the tree, which is what lets a
+      // note draw its checkboxes — see noteLive.ts
+      return [markdown({ base: markdownLanguage, codeLanguages: ALL })];
     case "rs":
       return [rust()];
     default:

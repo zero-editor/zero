@@ -45,68 +45,21 @@
   .note-mark-busy { animation: none; opacity: 0.7; }
 }
 
-/* ── the two faces of a note ─────────────────────────────────────────────── */
+/* ── the note ────────────────────────────────────────────────────────────── */
 
-/* Edit and Preview, like a markdown file on GitHub. The strip is the editor
-   tab strip's shape one size down — same underline, same faint-to-text — so
-   it reads as more of the same chrome rather than a new kind. */
 .note-view {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.note-modes {
-  flex: none;
-  display: flex;
-  gap: 2px;
-  height: 26px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.note-mode {
-  position: relative;
-  padding: 0 8px;
-  border: 0;
-  background: none;
-  color: var(--text-faint);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.note-mode:hover {
-  color: var(--text-dim);
-}
-
-.note-mode.active {
-  color: var(--text);
-}
-
-.note-mode.active::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 0;
-  height: 1.5px;
-  border-radius: 1px;
-  background: var(--accent);
-}
-
-/* the editor is the flexible half; hidden, it gives the row to the rendering */
 .note-view .cm-host {
   flex: 1;
   min-height: 0;
 }
 
-/* A note is not code, so it wears no line numbers — and that is what lets
-   the two faces share one frame. Without the gutter the editor's text starts
-   at the same left edge and the same 12px from the top as the rendering, at
-   the same size and line height, so flipping changes what the words look
-   like and never where they are. The 20px is the editor's own 6px line
-   padding widened to a reading margin; both faces carry the same number. */
+/* A note is not code, so it wears no line numbers, and its text starts a
+   reading margin in from the edge and a little under the strip. */
 .note-view .cm-gutters {
   display: none;
 }
@@ -115,71 +68,139 @@
   padding-left: 20px;
 }
 
-/* room under the strip: the editor's own 4px puts the first line right up
-   against the rule, and the rendering carries the same 12px so it stays put */
 .note-view .cm-content {
   padding-top: 12px;
 }
 
-.note-preview {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px 22px 40px 20px;
-  font-size: 12.5px;
-  line-height: 1.4;
+/* ── the live face ───────────────────────────────────────────────────────── */
+
+/* The Note face reads in the UI face, not the code one — it is prose. The
+   rule has to outweigh main-column's `!important` on the scroller, hence
+   the weight. The Markdown face keeps the monospace, as source should. */
+.note-view.note-live .cm-host .cm-scroller {
+  font-family: var(--font-ui) !important;
+}
+
+/* headings grow; the syntax colour a code theme gives a `#` line is not a
+   colour a note wants, so the text goes back to being text */
+.note-live .nl-h1,
+.note-live .nl-h2,
+.note-live .nl-h3,
+.note-live .nl-h4,
+.note-live .nl-h5,
+.note-live .nl-h6 {
+  font-weight: 600;
   color: var(--text);
-  outline: none;
-  user-select: text;
-  -webkit-user-select: text;
-  /* scrolls on the compositor, like every other scroller under glass */
-  transform: translateZ(0);
 }
 
-/* the first block sits on the first line, whatever kind it is */
-.note-preview > :first-child {
-  margin-top: 0;
+.note-live .nl-h1 span,
+.note-live .nl-h2 span,
+.note-live .nl-h3 span,
+.note-live .nl-h4 span,
+.note-live .nl-h5 span,
+.note-live .nl-h6 span {
+  color: inherit;
 }
 
-.note-preview h1 {
-  font-size: 17px;
+.note-live .nl-h1 {
+  font-size: 1.6em;
+  padding-top: 0.5em;
+  padding-bottom: 0.15em;
 }
 
-.note-preview h2 {
-  font-size: 15px;
+.note-live .nl-h2 {
+  font-size: 1.35em;
+  padding-top: 0.45em;
+  padding-bottom: 0.1em;
 }
 
-.note-empty {
+.note-live .nl-h3 {
+  font-size: 1.15em;
+  padding-top: 0.4em;
+}
+
+.nl-bullet {
   color: var(--text-faint);
 }
 
-/* ── the todo list ───────────────────────────────────────────────────────── */
-
-/* A task drops its bullet — the box is the marker — and the whole line is the
-   click target. Done items fade rather than strike through: the tick already
-   says it, and a page of struck lines is louder than a page of done ones. */
-.note-preview .md-task {
-  list-style: none;
-  margin-left: -20px;
-}
-
-.note-preview .md-task > label {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+/* The checkbox sits where `[ ]` was, centred on its line. Not by a nudge —
+   those are tuned to one font and wrong in the next — but by geometry: the
+   wrapper is exactly one line tall (`1lh` is the element's own line-height;
+   the em value is the same number for anything that lacks the unit), pinned
+   to the top of the line box, and centres its content. Whatever the font,
+   the middle of the box is the middle of the line. */
+.nl-task-box {
+  display: inline-flex;
+  align-items: center;
+  height: 1.4em;
+  height: 1lh;
+  margin-right: 7px;
+  vertical-align: top;
   cursor: pointer;
 }
 
-.note-preview .md-task > label > input {
-  flex: none;
+.nl-check {
   width: 13px;
   height: 13px;
   margin: 0;
-  transform: translateY(1.5px);
   accent-color: var(--accent);
   cursor: pointer;
 }
 
-.note-preview .md-done > label > span {
+/* done items fade rather than strike through: the tick already says it */
+.note-live .nl-done {
   color: var(--text-faint);
+}
+
+.note-live .nl-done span {
+  color: inherit;
+}
+
+/* Code wears a tint of the text colour rather than a surface colour: the
+   selection is painted on a layer *under* the lines, and an opaque line
+   background would hide it — which is exactly what happened. Through a tint
+   it shows, in any theme, since the tint is made from that theme's own text. */
+.nl-code {
+  padding: 1px 4px;
+  border-radius: var(--panel-radius);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.note-live .nl-codeblock {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.note-live .nl-table {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.nl-fence {
+  color: var(--text-faint);
+}
+
+.note-live .nl-quote {
+  margin-left: 20px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-faint);
+}
+
+.nl-rule {
+  display: inline-block;
+  width: 100%;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.nl-link {
+  color: var(--accent);
+}
+
+.nl-link:hover {
+  text-decoration: underline;
 }
