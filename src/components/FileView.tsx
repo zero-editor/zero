@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
-import { Compartment, Text } from "@codemirror/state";
+import { Compartment, Prec, Text } from "@codemirror/state";
 import { editorTheme } from "../lib/cmTheme";
 import { api } from "../lib/api";
 import { langFor, lazyLangFor, lazyLangForShebang, overrideFor } from "../lib/lang";
@@ -13,6 +13,27 @@ import { pokeGit } from "../lib/gitStatus";
 import { minimalChange } from "../lib/minimalChange";
 import { notePaste } from "../lib/notePaste";
 import { onNoteEnd } from "../lib/notes";
+import { miniMarkdown, type MdOptions } from "../lib/miniMarkdown";
+
+/**
+ * A note has two faces, like a markdown file on GitHub: the source, and what
+ * it says. The source is where you type and paste; the rendering is where the
+ * todo list lives — `- [ ]` is a checkbox there, and ticking it edits the line
+ * it came from, so the two faces are one file and never disagree.
+ *
+ * Which face a note was showing is remembered for as long as the app runs,
+ * keyed by path: a list you keep coming back to tick things off should open
+ * on the list, and one you were writing should open on the text.
+ */
+type Mode = "edit" | "preview";
+const lastMode = new Map<string, Mode>();
+
+/** a note is typed markdown, so everything a developer would expect to render
+ *  does — the same set the Linear panel switches on, plus the checkboxes */
+const NOTE_MD: Omit<MdOptions, "tasks"> = { code: true, tables: true, links: true };
+
+/** `- [ ] ` or `- [x] ` at the front of a line: the mark, so it can be flipped */
+const TASK_MARK = /^(\s*(?:[-*]|\d+[.)])\s+\[)([ xX])\]/;
 
 export function FileView({
   absPath,
@@ -34,6 +55,13 @@ export function FileView({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const [mode, setMode] = useState<Mode>(() => (note && lastMode.get(absPath)) || "edit");
+  // the rendered face is drawn from this; kept only for a note, because it is
+  // the whole document as a string on every keystroke
+  const [docText, setDocText] = useState("");
+  // ⌘⌥N while the rendering is up: switch faces first, put the cursor at the
+  // end once the editor is visible enough to take it
+  const pendingEndRef = useRef(false);
   const dirtyRef = useRef(false);
   const lastLoadedRef = useRef("");
   const visibleRef = useRef(visible);
@@ -113,8 +141,9 @@ export function FileView({
             if (!u.docChanged) return;
             dirtyRef.current = true;
             autosave();
+            if (note) setDocText(u.state.doc.toString());
           }),
-          ...(note ? [notePaste(note)] : []),
+          ...(note ? [notePaste(note), noteKeys()] : []),
           modClick(
             () => absPath,
             (abs, ln) => onOpenFileRef.current(abs, ln)
@@ -140,6 +169,7 @@ export function FileView({
           ]),
         ],
       });
+      if (note) setDocText(content);
       if (line) jumpToLine(viewRef.current, line);
       // ⌘⌥N means "somewhere to put this", which has to be true of the second
       // press as much as the first — and the second press opens nothing,
@@ -149,7 +179,12 @@ export function FileView({
       if (note) {
         goToEnd(viewRef.current);
         offEnd = onNoteEnd(absPath, () => {
-          if (viewRef.current) goToEnd(viewRef.current);
+          // the editor may be hidden behind the rendering, and a hidden editor
+          // can't take focus — so ask for the face first and finish in the
+          // effect below, once it is showing
+          pendingEndRef.current = true;
+          setMode("edit");
+          flushEnd();
         });
       }
       void readBaseline();
@@ -224,7 +259,119 @@ export function FileView({
     if (line && viewRef.current) jumpToLine(viewRef.current, line);
   }, [line]);
 
-  return <div className="cm-host" ref={hostRef} />;
+  /** the second half of ⌘⌥N: runs once the editor is the visible face */
+  const flushEnd = () => {
+    const view = viewRef.current;
+    if (!view || !pendingEndRef.current || view.dom.offsetParent === null) return;
+    pendingEndRef.current = false;
+    goToEnd(view);
+  };
+  useEffect(() => {
+    if (!note) return;
+    lastMode.set(absPath, mode);
+    if (mode === "edit") {
+      flushEnd();
+      viewRef.current?.focus();
+    }
+  }, [mode, note, absPath]);
+
+  if (!note) return <div className="cm-host" ref={hostRef} />;
+
+  /** a checkbox in the rendering flips the mark on its line of the source —
+   *  through the editor, so it is one undo step and the autosave sees it */
+  const toggleTask = (line: number) => {
+    const view = viewRef.current;
+    if (!view || line >= view.state.doc.lines) return;
+    const ln = view.state.doc.line(line + 1);
+    const m = TASK_MARK.exec(ln.text);
+    if (!m) return;
+    const at = ln.from + m[1].length;
+    view.dispatch({ changes: { from: at, to: at + 1, insert: m[2] === " " ? "x" : " " } });
+  };
+
+  return (
+    <div
+      className={`note-view note-${mode}`}
+      onKeyDown={(e) => {
+        // ⌘⇧P flips faces from either side — GitHub's key for the same thing
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "KeyP") {
+          e.preventDefault();
+          setMode(mode === "edit" ? "preview" : "edit");
+        }
+      }}
+    >
+      <div className="note-modes" role="tablist">
+        {(["edit", "preview"] as const).map((m) => (
+          <button
+            key={m}
+            role="tab"
+            aria-selected={mode === m}
+            className={`note-mode${mode === m ? " active" : ""}`}
+            onClick={() => setMode(m)}
+          >
+            {m === "edit" ? "Edit" : "Preview"}
+          </button>
+        ))}
+      </div>
+      {/* the editor stays mounted behind the rendering: it owns the document,
+          the cursor and the undo history, and a hidden editor keeps all three */}
+      <div className="cm-host" ref={hostRef} hidden={mode !== "edit"} />
+      {mode === "preview" && (
+        <div
+          className="note-preview iv-md"
+          tabIndex={0}
+          onClick={(e) => {
+            // a link opens in the browser, never in the webview — see IssueView
+            const a = (e.target as HTMLElement).closest("a");
+            const href = a?.getAttribute("href");
+            if (!href) return;
+            e.preventDefault();
+            void api.openUrl(href);
+          }}
+        >
+          {docText.trim() ? (
+            miniMarkdown(docText, { ...NOTE_MD, tasks: toggleTask })
+          ) : (
+            <p className="note-empty">Nothing here yet — write something under Edit.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The one key a todo list wants in the editor: ⌘⏎ ticks or unticks the task
+ * under the cursor, or makes the line one when it isn't yet. Enter after
+ * `- [ ] a` already continues with a fresh `- [ ] `; that comes with the
+ * markdown mode. ⌘⇧P isn't bound here on purpose — the editor doesn't know
+ * it, so it bubbles to the note's own handler, which is the one place both
+ * faces share. High precedence so the markdown keymap underneath never gets
+ * ⌘⏎ first.
+ */
+function noteKeys() {
+  return Prec.high(
+    keymap.of([
+      {
+        key: "Mod-Enter",
+        run: (view) => {
+          const ln = view.state.doc.lineAt(view.state.selection.main.head);
+          const m = TASK_MARK.exec(ln.text);
+          if (m) {
+            const at = ln.from + m[1].length;
+            view.dispatch({ changes: { from: at, to: at + 1, insert: m[2] === " " ? "x" : " " } });
+            return true;
+          }
+          // not a task: make it one, keeping any bullet it already has
+          const bullet = /^(\s*)(?:[-*]\s+)?/.exec(ln.text)!;
+          view.dispatch({
+            changes: { from: ln.from, to: ln.from + bullet[0].length, insert: `${bullet[1]}- [ ] ` },
+          });
+          return true;
+        },
+      },
+    ]),
+  );
 }
 
 /** the cursor after everything already written, where the next paste goes */

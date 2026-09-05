@@ -46,8 +46,11 @@ const darkModernChrome = EditorView.theme(
       backgroundColor: "transparent",
       color: "#cccccc",
     },
+    // room for three digits from the first line, so the gutter doesn't widen
+    // and shove the text over at line 10 (or 100). Border-box, and CodeMirror
+    // pads it 5px + 3px, hence the 8px — 3.2ch used to be a hair short
     ".cm-lineNumbers .cm-gutterElement": {
-      minWidth: "3.2ch",
+      minWidth: "calc(3ch + 8px)",
     },
     ".cm-matchingBracket": {
       backgroundColor: "#0064961a",
@@ -145,8 +148,11 @@ const lightModernChrome = EditorView.theme(
       backgroundColor: "transparent",
       color: "#0b216f",
     },
+    // room for three digits from the first line, so the gutter doesn't widen
+    // and shove the text over at line 10 (or 100). Border-box, and CodeMirror
+    // pads it 5px + 3px, hence the 8px — 3.2ch used to be a hair short
     ".cm-lineNumbers .cm-gutterElement": {
-      minWidth: "3.2ch",
+      minWidth: "calc(3ch + 8px)",
     },
     ".cm-matchingBracket": {
       backgroundColor: "#0064001a",
@@ -239,8 +245,11 @@ const trmnlChrome = EditorView.theme(
     ".cm-activeLineGutter": {
       backgroundColor: "rgba(255,255,255,0.06)",
     },
+    // room for three digits from the first line, so the gutter doesn't widen
+    // and shove the text over at line 10 (or 100). Border-box, and CodeMirror
+    // pads it 5px + 3px, hence the 8px — 3.2ch used to be a hair short
     ".cm-lineNumbers .cm-gutterElement": {
-      minWidth: "3.2ch",
+      minWidth: "calc(3ch + 8px)",
     },
     ".cm-foldPlaceholder": {
       backgroundColor: "#2a2a2a",
@@ -359,8 +368,11 @@ const trmnlLightChrome = EditorView.theme(
     ".cm-activeLineGutter": {
       backgroundColor: "rgba(0,0,0,0.06)",
     },
+    // room for three digits from the first line, so the gutter doesn't widen
+    // and shove the text over at line 10 (or 100). Border-box, and CodeMirror
+    // pads it 5px + 3px, hence the 8px — 3.2ch used to be a hair short
     ".cm-lineNumbers .cm-gutterElement": {
-      minWidth: "3.2ch",
+      minWidth: "calc(3ch + 8px)",
     },
     ".cm-foldPlaceholder": {
       backgroundColor: "#e5e2dd",

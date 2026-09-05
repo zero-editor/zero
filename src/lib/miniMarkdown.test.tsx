@@ -320,6 +320,35 @@ is(
   '<p>wow! <a href="https://x.co">doc</a></p>',
 );
 
+// ---------------------------------------------------------------------------
+// tasks. off, the brackets are text — a memo saying "[x]" means the word.
+// on, a real checkbox that names the line it came from.
+
+is(
+  "off: a task is its brackets",
+  html("- [ ] buy milk\n- [x] done"),
+  "<ul><li>[ ] buy milk</li><li>[x] done</li></ul>",
+);
+const flipped: number[] = [];
+const TASKS: MdOptions = { tasks: (line) => flipped.push(line) };
+is(
+  "on: a checkbox per task, done ones checked, plain items untouched",
+  html("# list\n- [ ] buy milk\n- [x] done\n- plain", TASKS),
+  '<h1>list</h1><ul><li class="md-task"><label><input type="checkbox"/><span>buy milk</span></label></li>' +
+    '<li class="md-task md-done"><label><input type="checkbox" checked=""/><span>done</span></label></li>' +
+    "<li>plain</li></ul>",
+);
+is(
+  "on: a task with nothing after the mark is still a task",
+  html("- [ ]", TASKS),
+  '<ul><li class="md-task"><label><input type="checkbox"/><span></span></label></li></ul>',
+);
+is(
+  "on: a nested task is one too",
+  html("- top\n  - [x] kid", TASKS),
+  '<ul><li>top<ul><li class="md-task md-done"><label><input type="checkbox" checked=""/><span>kid</span></label></li></ul></li></ul>',
+);
+
 if (failures) throw new Error(`${failures} failing`);
 console.log("miniMarkdown: all tests passed");
 
