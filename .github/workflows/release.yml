@@ -204,10 +204,19 @@ jobs:
           # the checksum goes in the notes because the Homebrew cask needs it,
           # and this is where it can be read without downloading the file.
           # Four spaces rather than a fence: no backticks to escape twice.
+          # What changed is the body of the annotated tag — `npm version -m`
+          # writes it — so the release is born with its notes. Writing them
+          # afterwards loses a race: an installed copy polls within seconds of
+          # publish, fetches the notes then, and shows "no notes for this one".
+          git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          changed=$(git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
           notes=$(printf '%s\n' \
             "Apple Silicon. Signed and notarized — it opens without a warning." \
             "" \
             "    sha256  $sha")
+          if [ -n "$changed" ]; then
+            notes=$(printf '%s\n' "$notes" "" "## What's Changed" "" "$changed")
+          fi
           # --notes is prepended to the changelog --generate-notes writes
           # the tarball and the manifest are the updater's half of the release:
           # the dmg is what a new user downloads, these are what an installed

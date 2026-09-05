@@ -84,7 +84,12 @@ export function releaseNotesBetween(from: string, to: string): Promise<ReleaseNo
   const hit = cache.get(key);
   if (hit) return hit;
   const p = fetchBetween(from, to).then((got) => {
-    if (got === null) cache.delete(key);
+    // Forgotten, not kept, when GitHub didn't answer — and when a release
+    // came back empty: the notes are usually written minutes after the
+    // workflow publishes, and this fetch fires the moment an update stages,
+    // so an empty body is more often "not yet" than "nothing". The dialog
+    // asks again when opened, and by then they're there.
+    if (got === null || got.some((n) => !n.body)) cache.delete(key);
     return got;
   });
   cache.set(key, p);

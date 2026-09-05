@@ -23,29 +23,29 @@ nobody has.
 To cut one, from a clean tree on `main`:
 
 ```sh
-npm version 0.2.0 -m "zero %s"   # bumps package.json, commits, tags v0.2.0
+npm version 0.2.0 -m "zero %s
+
+- What changed, for someone deciding whether to update."
 git push origin main --follow-tags
 ```
 
 That is the release, but not the end of it — the cask block below has to run
 too, or brew users stay on whatever the last bumped version was.
 
-**Write the release notes. Nothing else will.** GitHub's generated notes list
-*merged pull requests only*, so a release tagged from a direct push to `main`
-— which is how most work lands here — publishes a page saying nothing about
-what changed. Most of the releases before 0.20.0 read that way. After the
-workflow publishes:
+**The release notes are the tag message. Write them there, not afterwards.**
+GitHub's generated notes list *merged pull requests only*, so a release tagged
+from a direct push to `main` — which is how most work lands here — would
+publish a page saying nothing about what changed. The workflow reads the body
+of the annotated tag (everything after the first line of that `-m`) and
+publishes it under "What's Changed", between the signing line and the
+generated changelog. `gh release edit` after the fact is too late: an
+installed copy polls within seconds of publish, fetches the notes then, and
+its "what's new" dialog says "no notes for this one". 0.44.0 shipped that way.
 
-```sh
-gh release edit "v$V" --repo zero-editor/zero --notes-file notes.md
-```
-
-Keep the two lines the workflow wrote (the "Signed and notarized" line and the
-indented `sha256  <hash>`), and **do not use the word "sha256" anywhere else in
-the body** — the cask block below reads it with `awk '/sha256/{print $2}'`,
-which prints one line per match, so a second mention silently pins the tap to
-a mangled hash. Write for someone deciding whether to update: what changed for
-them, and what still doesn't work.
+**Do not use the word "sha256" in the notes** — the cask block below reads
+the body with `awk '/sha256/{print $2}'`, which prints one line per match, so
+a second mention silently pins the tap to a mangled hash. Keep it to a couple
+of tight bullets: what changed for them, and what still doesn't work.
 
 `package.json` is the only copy of the version. `tauri.conf.json` names it as a
 path rather than repeating the number, and `Cargo.toml` sits at `0.0.0` because
