@@ -12,6 +12,8 @@ export interface Worktree {
   path: string;
   branch: string;
   is_main: boolean;
+  /** the checked-out commit's oid */
+  head: string;
 }
 
 export interface FileChange {
@@ -337,6 +339,11 @@ export const api = {
     invoke<string>("git_commit", { worktree, message }),
   gitPush: (worktree: string) => invoke<string>("git_push", { worktree }),
   branchInfo: (worktree: string) => invoke<BranchInfo>("git_branch_info", { worktree }),
+  gitFetch: (worktree: string) => invoke<void>("git_fetch", { worktree }),
+  gitPull: (worktree: string) => invoke<string>("git_pull", { worktree }),
+  /** worktree-relative directories whose entries differ between two commits */
+  headDelta: (worktree: string, from: string, to: string) =>
+    invoke<string[]>("git_head_delta", { worktree, from, to }),
   headFile: (worktree: string, path: string) => invoke<string>("git_head_file", { worktree, path }),
   /** the staged copy — the base a working-tree diff is measured against */
   indexFile: (worktree: string, path: string) => invoke<string>("git_index_file", { worktree, path }),

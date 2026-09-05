@@ -52,6 +52,9 @@ fn git_base(cwd: &str) -> Command {
     let augmented = format!("/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{}", path);
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd).env("PATH", augmented);
+    // No terminal is attached, so a credential prompt could only hang: fail
+    // instead, and let the caller report it.
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd
 }
 
@@ -161,6 +164,10 @@ pub struct Worktree {
     pub path: String,
     pub branch: String,
     pub is_main: bool,
+    /// the commit checked out — the one thing that moves when a pull, a
+    /// checkout or a commit happens in a terminal, and so what the file tree
+    /// watches to learn it should look again
+    pub head: String,
 }
 
 #[tauri::command]
@@ -170,6 +177,7 @@ pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
         let mut result = Vec::new();
         let mut path = String::new();
         let mut branch = String::new();
+        let mut head = String::new();
         let mut initializing = false;
         for line in out.lines().chain(std::iter::once("")) {
             if line.is_empty() {
@@ -185,13 +193,17 @@ pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
                         path: path.clone(),
                         branch: branch.clone(),
                         is_main,
+                        head: head.clone(),
                     });
                 }
                 path.clear();
                 branch.clear();
+                head.clear();
                 initializing = false;
             } else if let Some(p) = line.strip_prefix("worktree ") {
                 path = p.to_string();
+            } else if let Some(h) = line.strip_prefix("HEAD ") {
+                head = h.to_string();
             } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
                 branch = b.to_string();
             } else if line == "detached" {
@@ -533,6 +545,74 @@ pub async fn git_push(worktree: String) -> Result<String, String> {
             }
             Err(e) => Err(e),
         }
+    })
+    .await
+}
+
+/// Bring the remote's refs up to date, so "behind" means something. Errors
+/// are the caller's to ignore: no remote, no network, and a credential helper
+/// that wanted a terminal all land here, and none of them is news worth a
+/// notice every few minutes.
+#[tauri::command]
+pub async fn git_fetch(worktree: String) -> Result<(), String> {
+    blocking(move || run_git_trusted(&worktree, &["fetch", "--quiet"]).map(|_| ())).await
+}
+
+/// `git pull` as the user has it configured — merge or rebase is their
+/// `pull.rebase`, not ours to decide. A merge commit's message is taken as git
+/// proposes it, since there is no editor here to hand it to.
+#[tauri::command]
+pub async fn git_pull(worktree: String) -> Result<String, String> {
+    blocking(move || {
+        let out = git_base(&worktree)
+            .env("GIT_EDITOR", "true")
+            .args(["pull"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        finish(out)
+    })
+    .await
+}
+
+/// The directories whose entries differ between two commits, relative to the
+/// worktree — every ancestor of a path that was added, deleted or renamed.
+/// A modified file changes nothing about which names a folder holds, so it is
+/// left out; that is what lets a commit made from the panel, where HEAD moves
+/// but no file appears or vanishes, leave the tree alone.
+#[tauri::command]
+pub async fn git_head_delta(worktree: String, from: String, to: String) -> Result<Vec<String>, String> {
+    blocking(move || {
+        let out = run_git(&worktree, &["diff", "--name-status", "-M", "-z", &from, &to])?;
+        let mut dirs: HashSet<String> = HashSet::new();
+        let mut fields = out.split('\0').filter(|f| !f.is_empty());
+        while let Some(status) = fields.next() {
+            let Some(path) = fields.next() else { break };
+            let kind = status.chars().next().unwrap_or('M');
+            let mut touched = vec![];
+            match kind {
+                'A' | 'D' => touched.push(path),
+                'R' | 'C' => {
+                    touched.push(path);
+                    if let Some(new) = fields.next() {
+                        touched.push(new);
+                    }
+                }
+                _ => {}
+            }
+            for p in touched {
+                let mut dir = p;
+                loop {
+                    dir = match dir.rfind('/') {
+                        Some(i) => &dir[..i],
+                        None => "",
+                    };
+                    if !dirs.insert(dir.to_string()) || dir.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(dirs.into_iter().collect())
     })
     .await
 }

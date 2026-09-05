@@ -166,6 +166,9 @@ export function WorktreePanel({
   };
 
   const stage = (wt: WtState, paths: string[]) => run(`stage:${wt.path}`, () => api.gitStage(wt.path, paths));
+  // the sweep that follows sees HEAD move and tells the file tree which
+  // folders to read again — the pull itself has nothing to say on success
+  const pull = (wt: WtState) => run(`pull:${wt.path}`, () => api.gitPull(wt.path));
   const unstage = (wt: WtState, paths: string[]) =>
     run(`unstage:${wt.path}`, () => api.gitUnstage(wt.path, paths));
 
@@ -392,6 +395,23 @@ export function WorktreePanel({
               {multi && <span className="wt-folder">{baseName(wt.path)}</span>}
               <span className="wt-branch">{wt.branch || "(no branch)"}</span>
               <span className="wt-count">{wt.changes.length || ""}</span>
+              {/* How far the upstream has moved on, and the way to catch up.
+                  Only when there is something to catch up on: a row that is
+                  level with its remote says nothing, which is most rows most
+                  of the time. */}
+              {wt.behind > 0 && (
+                <button
+                  className={`wt-behind ${busy === `pull:${wt.path}` ? "busy" : ""}`}
+                  title={`${wt.behind} commit${wt.behind === 1 ? "" : "s"} behind upstream — pull`}
+                  disabled={busy === `pull:${wt.path}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pull(wt);
+                  }}
+                >
+                  {busy === `pull:${wt.path}` ? "…" : `↓${wt.behind}`}
+                </button>
+              )}
               {!wt.is_main && (
                 <button
                   className={`wt-delete ${busy === `remove:${wt.path}` ? "busy" : ""}`}

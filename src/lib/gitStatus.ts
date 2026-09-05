@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, FileChange, Worktree } from "./api";
+import { pokeFiles } from "./fileEvents";
 
 export interface WorktreeChanges extends Worktree {
   changes: FileChange[];
+  /** commits the upstream has that this checkout doesn't — what a pull would
+   *  bring. Only as fresh as the last fetch, which is why the sweep runs one. */
+  behind: number;
+  ahead: number;
+  /** false for a branch with no upstream, where behind can only ever be 0 */
+  upstream: boolean;
   /** which of the project's folders this worktree was found from. Set only by
    *  `useGitStatusMany`, where several folders' worktrees share one list and
    *  "the main worktree" is no longer a question with one answer. */
@@ -29,6 +36,13 @@ const DUTY = 15;
 /** Fast enough that an edit lands in the panel before you've looked at it. */
 const MIN_INTERVAL = 900;
 const MAX_INTERVAL = 8000;
+/**
+ * How often a repository's remote is asked what it has. "Behind" is measured
+ * against the remote-tracking ref, which only a fetch moves, so without one
+ * the count would say 0 until you fetched by hand. One unauthenticated round
+ * trip every few minutes per repository, and never one that can prompt.
+ */
+const FETCH_INTERVAL = 3 * 60_000;
 
 const snapshots = new Map<string, GitSnapshot>();
 const listeners = new Map<string, Set<() => void>>();
@@ -36,6 +50,8 @@ const timers = new Map<string, number>();
 const running = new Set<string>();
 /** roots poked while their sweep was in flight — owed a fresh one after */
 const stale = new Set<string>();
+/** root → when its remote was last fetched (or the fetch last started) */
+const fetched = new Map<string, number>();
 
 function emit(root: string) {
   listeners.get(root)?.forEach((fn) => fn());
@@ -50,6 +66,7 @@ function unchanged(a: WorktreeChanges[], b: WorktreeChanges[]): boolean {
   for (let i = 0; i < a.length; i++) {
     const x = a[i], y = b[i];
     if (x.path !== y.path || x.branch !== y.branch || x.is_main !== y.is_main) return false;
+    if (x.head !== y.head || x.behind !== y.behind || x.ahead !== y.ahead) return false;
     if (x.changes.length !== y.changes.length) return false;
     for (let j = 0; j < x.changes.length; j++) {
       const c = x.changes[j], d = y.changes[j];
@@ -76,10 +93,19 @@ async function sweep(root: string) {
   try {
     const wts = await api.worktrees(root);
     const withChanges = await Promise.all(
-      wts.map(async (wt) => ({
-        ...wt,
-        changes: await api.gitStatus(wt.path).catch(() => [] as FileChange[]),
-      }))
+      wts.map(async (wt) => {
+        const [changes, info] = await Promise.all([
+          api.gitStatus(wt.path).catch(() => [] as FileChange[]),
+          api.branchInfo(wt.path).catch(() => null),
+        ]);
+        return {
+          ...wt,
+          changes,
+          behind: info?.behind ?? 0,
+          ahead: info?.ahead ?? 0,
+          upstream: info?.upstream ?? false,
+        };
+      })
     );
     // main worktree first, then by branch name
     withChanges.sort(
@@ -90,6 +116,14 @@ async function sweep(root: string) {
       publish = false;
     } else {
       snapshots.set(root, { worktrees: withChanges, error: null, epoch: prev.epoch + 1 });
+      if (prev.epoch > 0) void relist(prev.worktrees, withChanges);
+    }
+    // Worktrees of one repository share its remote-tracking refs, so one
+    // fetch, from the first of them, is every worktree's fetch.
+    const now = Date.now();
+    if (wts.length && now - (fetched.get(root) ?? 0) > FETCH_INTERVAL) {
+      fetched.set(root, now);
+      void api.gitFetch(wts[0].path).catch(() => {});
     }
   } catch (e) {
     const prev = snapshots.get(root) ?? EMPTY;
@@ -108,6 +142,59 @@ async function sweep(root: string) {
   } else {
     schedule(root, performance.now() - started);
   }
+}
+
+/**
+ * What the sweep saw change that the file tree would care about.
+ *
+ * The tree reads a folder once and remembers it, and nothing on disk tells it
+ * otherwise — a `git pull` in a terminal lands new files it goes on not
+ * showing until the project is reopened. The sweep is the one thing here that
+ * looks at the working tree on a clock, so it is the one that can say "look
+ * again", and it says so about the smallest set of folders it can name:
+ *
+ * - HEAD moved (pull, checkout, merge, rebase, commit): the folders whose
+ *   entries differ between the two commits, which for a commit made in the
+ *   panel is usually none at all.
+ * - an untracked, added or deleted path came or went: its ancestors. That is
+ *   a `touch` or an `rm` in a terminal, or a stash taking untracked files.
+ *
+ * Folders the tree hasn't loaded ignore the poke, so over-naming is free.
+ */
+async function relist(before: WorktreeChanges[], after: WorktreeChanges[]) {
+  const dirs = new Set<string>();
+  const ancestors = (root: string, rel: string) => {
+    let p = rel.endsWith("/") ? rel.slice(0, -1) : rel;
+    for (;;) {
+      const cut = p.lastIndexOf("/");
+      dirs.add(cut === -1 ? root : `${root}/${p.slice(0, cut)}`);
+      if (cut === -1) break;
+      p = p.slice(0, cut);
+    }
+  };
+  const exists = (c: FileChange) => c.status === "U" || c.status === "A" || c.status === "D";
+  const keyOf = (c: FileChange) => `${c.status} ${c.path}`;
+  let everything = false;
+
+  for (const b of before) {
+    const a = after.find((w) => w.path === b.path);
+    if (!a) continue;
+    if (a.head !== b.head && a.head && b.head) {
+      try {
+        for (const d of await api.headDelta(a.path, b.head, a.head)) {
+          dirs.add(d ? `${a.path}/${d}` : a.path);
+        }
+      } catch {
+        everything = true;
+      }
+    }
+    const was = new Set(b.changes.filter(exists).map(keyOf));
+    const now = new Set(a.changes.filter(exists).map(keyOf));
+    for (const c of b.changes) if (exists(c) && !now.has(keyOf(c))) ancestors(a.path, c.path);
+    for (const c of a.changes) if (exists(c) && !was.has(keyOf(c))) ancestors(a.path, c.path);
+  }
+  if (everything) pokeFiles(null);
+  else for (const d of dirs) pokeFiles(d);
 }
 
 function schedule(root: string, took: number) {

@@ -32,8 +32,11 @@
 }
 
 /* row eases open to make room for the ✕ instead of overlaying the name —
-   only when there's no count, since a count already holds that space open */
-.wt-header:has(.wt-delete):has(.wt-count:empty):hover {
+   only when there's no count, since a count already holds that space open.
+   A pull button is the exception: it has to stay clickable under the pointer,
+   so the ✕ gets room of its own rather than taking the button's. */
+.wt-header:has(.wt-delete):has(.wt-count:empty):hover,
+.wt-header:has(.wt-delete):has(.wt-behind):hover {
   padding-right: 28px;
 }
 
@@ -81,8 +84,30 @@
 }
 
 /* on hover the count fades out and ✕ fades in, same spot — no layout jump */
-.wt-header:has(.wt-delete):hover .wt-count {
+.wt-header:has(.wt-delete):not(:has(.wt-behind)):hover .wt-count {
   opacity: 0;
+}
+
+/* Commits the remote has that this checkout doesn't, set like the count
+   beside it — and a button, since the one thing to do about it is pull. It
+   brightens under the pointer and otherwise sits as quietly as the count. */
+.wt-behind {
+  flex: none;
+  padding: 0 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  border-radius: 3px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.wt-behind:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.wt-behind.busy {
+  color: var(--text-faint);
 }
 
 .wt-delete {
