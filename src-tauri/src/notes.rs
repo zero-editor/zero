@@ -176,10 +176,37 @@ pub async fn note_format(
             hurried: true,
             timed_out: "the reformat gave up after a minute",
         });
-        answer.text.map(|out| out.trim_end().to_string())
+        answer.text.map(|out| restore_bang(&text, out.trim_end()))
     })
     .await
     .map_err(|e| format!("the reformat never ran: {e}"))?
+}
+
+/// Put back a leading `!` the model dropped.
+///
+/// `! cmd` is how a shell command is typed to a coding agent, and a passage
+/// copied out of one starts with it. The prompt says so, and haiku strips it
+/// anyway often enough — it looks exactly like the shell prompt prefixes the
+/// prompt tells it to drop — that the words are not a fix. This is: when the
+/// pasted text began with `!` and the first line of the answer that is content
+/// (not blank, not a fence) does not, the mark is put back in front of it,
+/// with one space, whatever run of spaces the terminal had left there.
+fn restore_bang(pasted: &str, formatted: &str) -> String {
+    if !pasted.trim_start().starts_with('!') {
+        return formatted.to_string();
+    }
+    let mut lines: Vec<String> = formatted.lines().map(String::from).collect();
+    let is_fence = |l: &str| {
+        let t = l.trim();
+        t.starts_with("```") || t.starts_with("~~~")
+    };
+    if let Some(line) = lines.iter_mut().find(|l| !l.trim().is_empty() && !is_fence(l)) {
+        let body = line.trim_start();
+        if !body.starts_with('!') {
+            *line = format!("! {body}");
+        }
+    }
+    lines.join("\n")
 }
 
 /// The house style as the prompt should see it: the guidance, with the file's
@@ -316,6 +343,18 @@ mod tests {
         // and the two breaks that are the author's, not the terminal's
         assert!(FORMAT_SYSTEM.contains("ending in a backslash"));
         assert!(FORMAT_SYSTEM.contains("heredoc"));
+    }
+
+    #[test]
+    fn a_dropped_bang_goes_back_on_the_command() {
+        // the case this exists for: the model fenced the command and lost the `!`
+        let pasted = "!  git push origin         \n  HEAD:main";
+        let answered = "```sh\ngit push origin HEAD:main\n```";
+        assert_eq!(restore_bang(pasted, answered), "```sh\n! git push origin HEAD:main\n```");
+        // kept by the model: left alone, however many spaces it used
+        assert_eq!(restore_bang("! ls", "! ls"), "! ls");
+        // never there: nothing is invented
+        assert_eq!(restore_bang("ls -la", "ls -la"), "ls -la");
     }
 
     #[test]
