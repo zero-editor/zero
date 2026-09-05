@@ -83,9 +83,10 @@ function group(issues: LinearIssue[]) {
        *  what its default prompt is written against */
       stateType: g.first.stateType,
       // By urgency, which is what a person means: urgent, high, medium, low,
-      // then everything unprioritised. Ties break on most recently touched.
+      // then everything unprioritised. Ties break on issue number, newest
+      // first, so a row keeps its place when someone touches it.
       rows: g.rows.sort(
-        (a, b) => URGENCY(a.priority) - URGENCY(b.priority) || b.updatedAt.localeCompare(a.updatedAt),
+        (a, b) => URGENCY(a.priority) - URGENCY(b.priority) || issueNumber(b) - issueNumber(a),
       ),
     }));
 }
@@ -166,6 +167,9 @@ const RUN = (
  *  on the raw number puts unprioritised issues above urgent ones. This is the
  *  order a person means by "by urgency". */
 const URGENCY = (p: number) => (p === 0 ? 99 : p);
+
+/** the number in "ECL-42"; the identifier is the only place the row carries it */
+const issueNumber = (i: LinearIssue) => Number(i.identifier.slice(i.identifier.lastIndexOf("-") + 1)) || 0;
 
 const PRIORITY_NAME = ["No priority", "Urgent", "High", "Medium", "Low"];
 
