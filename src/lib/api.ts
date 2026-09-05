@@ -252,26 +252,8 @@ export interface LinearComment {
   id: string;
   body: string;
   author: string;
-  createdAt: string;
-}
-
-export interface LinearIssueDetail extends LinearIssue {
-  description: string;
-  createdAt: string;
-  comments: LinearComment[];
-}
-
-export interface LinearViewer {
-  name: string;
-  email: string;
-  org: string;
-  urlKey: string;
-}
-
-export interface LinearComment {
-  id: string;
-  body: string;
-  author: string;
+  authorAvatar: string | null;
+  authorInitials: string | null;
   createdAt: string;
 }
 

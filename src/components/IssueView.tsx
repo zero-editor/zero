@@ -3,6 +3,7 @@ import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { api, type LinearIssueDetail } from "../lib/api";
+import { Avatar } from "./Avatar";
 import { miniMarkdown } from "../lib/miniMarkdown";
 import { editorTheme } from "../lib/cmTheme";
 import { focusTerm, targetTerm } from "../lib/termFocus";
@@ -464,15 +465,20 @@ export function IssueView({
               {issue.comments.length} comment{issue.comments.length > 1 ? "s" : ""}
             </span>
           </div>
-          {issue.comments.map((c) => (
-            <div className="iv-comment" key={c.id}>
-              <div className="iv-comment-head">
-                <span className="iv-who">{c.author}</span>
-                <span className="iv-dim">{when(c.createdAt)}</span>
+          {/* Oldest first, so the thread reads top to bottom the way it was
+              written and the newest reply is the one nearest the bottom. */}
+          {[...issue.comments]
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+            .map((c) => (
+              <div className="iv-comment" key={c.id}>
+                <div className="iv-comment-head">
+                  <Avatar className="iv-avatar" name={c.author} avatar={c.authorAvatar} initials={c.authorInitials} />
+                  <span className="iv-who">{c.author}</span>
+                  <span className="iv-dim">{when(c.createdAt)}</span>
+                </div>
+                <Markdown text={c.body} />
               </div>
-              <Markdown text={c.body} />
-            </div>
-          ))}
+            ))}
         </>
       )}
 

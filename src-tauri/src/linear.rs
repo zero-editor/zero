@@ -298,6 +298,10 @@ pub struct Comment {
     pub id: String,
     pub body: String,
     pub author: String,
+    /// their picture and Linear's initials for them, the same pair the
+    /// assignee carries, so a comment can show who wrote it the same way
+    pub author_avatar: Option<String>,
+    pub author_initials: Option<String>,
     pub created_at: String,
 }
 
@@ -681,7 +685,7 @@ pub async fn linear_issue(app: tauri::AppHandle, root: String, id: String) -> Re
            issue(id: $id) {{
              {ISSUE_FIELDS}
              description createdAt
-             comments(first: 50) {{ nodes {{ id body createdAt user {{ displayName }} }} }}
+             comments(first: 50) {{ nodes {{ id body createdAt user {{ displayName avatarUrl initials }} }} }}
            }}
          }}"
     );
@@ -711,6 +715,14 @@ pub async fn linear_issue(app: tauri::AppHandle, root: String, id: String) -> Re
                         .and_then(|x| x.as_str())
                         .unwrap_or("Linear")
                         .to_string(),
+                    author_avatar: c
+                        .pointer("/user/avatarUrl")
+                        .and_then(|x| x.as_str())
+                        .map(str::to_string),
+                    author_initials: c
+                        .pointer("/user/initials")
+                        .and_then(|x| x.as_str())
+                        .map(str::to_string),
                     created_at: s(c, "createdAt"),
                 })
                 .collect()

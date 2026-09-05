@@ -538,22 +538,41 @@ button.li-mark:hover {
   display: block;
 }
 
-.iv-comment {
-  margin-bottom: 16px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
+/* One block per comment, separated by a rule and air rather than a shared
+   left border: with several in a row the border read as one long quote and
+   the comments as one blob. The header carries who and when; the avatar is
+   what lets the eye find the next comment without reading. */
+.iv-comment + .iv-comment {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .iv-comment-head {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 2px;
+  margin-bottom: 6px;
   font-size: 11px;
+}
+
+.iv-avatar {
+  flex: none;
+  display: flex;
+  object-fit: cover;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .iv-who {
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text);
 }
 
 .iv-foot {

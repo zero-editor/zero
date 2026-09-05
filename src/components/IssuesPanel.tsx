@@ -1,3 +1,4 @@
+import { Avatar } from "./Avatar";
 import {
   Fragment,
   useCallback,
@@ -222,39 +223,11 @@ function Priority({ p }: { p: number }) {
  *  they are spelled the same in both places — "amishkoli123" is AK in Linear
  *  and would be AM if this guessed. The tint behind them is derived from the
  *  name, so one person is one colour without a table of people to maintain.
- *
- *  A picture that fails to load falls back to the initials rather than to a
- *  broken image: these are remote URLs on Linear's CDN, and the network they
- *  need is not the network the panel needed to get this far. */
+ */
 function Assignee({ issue }: { issue: LinearIssue }) {
-  const [broken, setBroken] = useState(false);
   const name = issue.assignee;
   if (!name) return <span className="li-who empty" title="unassigned" />;
-
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  const initials = issue.assigneeInitials ?? name.slice(0, 2).toUpperCase();
-
-  if (issue.assigneeAvatar && !broken)
-    return (
-      <img
-        className="li-who"
-        src={issue.assigneeAvatar}
-        alt={name}
-        title={name}
-        loading="lazy"
-        onError={() => setBroken(true)}
-      />
-    );
-  return (
-    <span
-      className="li-who"
-      title={name}
-      style={{ background: `oklch(0.45 0.09 ${h} / 0.5)`, color: `oklch(0.92 0.05 ${h})` }}
-    >
-      {initials}
-    </span>
-  );
+  return <Avatar className="li-who" name={name} avatar={issue.assigneeAvatar} initials={issue.assigneeInitials} />;
 }
 
 // ─── rows ────────────────────────────────────────────────────────────────────
