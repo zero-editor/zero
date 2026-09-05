@@ -575,6 +575,14 @@ button.li-mark:hover {
   color: var(--text);
 }
 
+.li-who.linear,
+.iv-avatar.linear {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  padding: 2px;
+  box-sizing: border-box;
+}
+
 .iv-foot {
   margin-top: 26px;
   font-size: 11px;

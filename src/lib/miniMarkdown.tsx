@@ -17,19 +17,34 @@ import type { CSSProperties, ReactNode } from "react";
  * node here is a React element with text children, so the escaping isn't a step
  * that could be forgotten, it's the only thing that can happen.
  *
- * The three opt-ins are what keeps that default honest rather than merely
+ * The opt-ins are what keep that default honest rather than merely
  * stubborn. A memo is transcribed speech: a line of pipes there is far likelier
  * to be somebody saying the word than a table nobody spoke, and drawing one
  * would be this file guessing at what a person meant. A Linear issue is typed
  * by a developer into a box that advertises Markdown, so its fences, tables and
  * links are exactly what they look like and rendering them flat is the only
  * wrong answer. Same renderer, two audiences, and the difference between them
- * is three booleans the caller passes rather than a judgement made here. With
- * `opts` left off nothing behaves differently than it did before they existed,
- * which is the promise the memo half is owed.
+ * is three booleans the caller passes rather than a judgement made here. The
+ * fourth opt-in, `tasks`, is a note's: `- [ ]` becomes a checkbox that flips
+ * the line it came from. With `opts` left off nothing behaves differently than
+ * it did before any of them existed, which is the promise the memo half is
+ * owed.
  */
 
-export type MdOptions = { code?: boolean; tables?: boolean; links?: boolean };
+export type MdOptions = {
+  code?: boolean;
+  tables?: boolean;
+  links?: boolean;
+  /**
+   * `- [ ] a` and `- [x] a` drawn as a checkbox rather than as the brackets,
+   * and the callback is what makes it a todo list rather than a picture of
+   * one: it is handed the zero-based line the item sits on, and the caller
+   * flips that line's mark in the source it rendered from. A note is the one
+   * caller so far. Without it the brackets stay text, which for a memo is the
+   * right answer — "[x]" is a thing people say.
+   */
+  tasks?: (line: number) => void;
+};
 
 /** the memo, and the default: everything below asks `opts.x` and gets nothing */
 const PLAIN: MdOptions = {};
@@ -71,6 +86,9 @@ const RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 const BULLET = /^(\s*)[-*]\s+(.*)$/;
 const NUMBER = /^(\s*)\d+[.)]\s+(.*)$/;
+/** the front of an item's text: `[ ] ` or `[x] `, the text optional so that a
+ *  task just started — the marker typed, nothing after it yet — is still one */
+const TASK = /^\[([ xX])\](?:\s+(.*))?$/;
 
 const MD_LINK = /^\[([^\]\n]*)\]\(([^()\s]*)\)$/;
 const BARE_URL = /^https?:\/\//i;
@@ -202,29 +220,33 @@ function list(
   opts: MdOptions,
 ): [ReactNode, number] {
   const top = item(lines[from])!;
-  const rows: { text: string; kids: string[] }[] = [];
+  // each row remembers its line: a task that is ticked has to say which line
+  // of the source to change, and the text alone could name two
+  const rows: (Item & { kids: Item[] })[] = [];
   let i = from;
   while (i < lines.length) {
     const it = item(lines[i]);
     if (!it) break;
-    if (it.deep && rows.length) rows[rows.length - 1].kids.push(it.text);
+    if (it.deep && rows.length) rows[rows.length - 1].kids.push({ text: it.text, line: i });
     // the other kind of list starting at this level is a new list, not a row
     else if (it.ordered !== top.ordered) break;
-    else rows.push({ text: it.text, kids: [] });
+    else rows.push({ text: it.text, line: i, kids: [] });
     i++;
   }
   const Tag = top.ordered ? "ol" : "ul";
   return [
     <Tag key={key}>
       {rows.map((row, n) => (
-        <li key={n}>
-          {inline(row.text, opts)}
+        <li key={n} {...taskAttrs(row, opts)}>
+          {taskBody(row, opts)}
           {/* a nested list is drawn as a list; which kind it was is a
               distinction one level down doesn't earn */}
           {row.kids.length > 0 && (
             <ul>
               {row.kids.map((kid, j) => (
-                <li key={j}>{inline(kid, opts)}</li>
+                <li key={j} {...taskAttrs(kid, opts)}>
+                  {taskBody(kid, opts)}
+                </li>
               ))}
             </ul>
           )}
@@ -233,6 +255,38 @@ function list(
     </Tag>,
     i,
   ];
+}
+
+type Item = { text: string; line: number };
+
+/** `- [x] a` → done, and the text after the mark; anything else → null. Only
+ *  ever asked with tasks switched on, so the flags-off path never sees it. */
+function task(it: Item, opts: MdOptions) {
+  if (!opts.tasks) return null;
+  const m = TASK.exec(it.text);
+  return m ? { done: m[1] !== " ", text: m[2] ?? "" } : null;
+}
+
+/** the class goes on the `<li>` so the stylesheet can take the bullet away —
+ *  a checkbox with a dot in front of it is two markers for one item */
+function taskAttrs(it: Item, opts: MdOptions) {
+  const t = task(it, opts);
+  return t ? { className: t.done ? "md-task md-done" : "md-task" } : {};
+}
+
+/** The checkbox is real — it is a todo list, not a drawing of one. Toggling it
+ *  tells the caller which line to flip; the caller re-renders from the changed
+ *  source, so `checked` is never state this file keeps. The label is the
+ *  click target too, since a 13px box is a mean thing to have to hit. */
+function taskBody(it: Item, opts: MdOptions): ReactNode {
+  const t = task(it, opts);
+  if (!t) return inline(it.text, opts);
+  return (
+    <label>
+      <input type="checkbox" checked={t.done} onChange={() => opts.tasks!(it.line)} />
+      <span>{inline(t.text, opts)}</span>
+    </label>
+  );
 }
 
 /** One fenced block, taken verbatim. Nothing inside is markdown — that is the
