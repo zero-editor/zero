@@ -108,7 +108,11 @@ const rule = Decoration.replace({ widget: new Rule() });
 const checked = Decoration.replace({ widget: new Checkbox(true) });
 const unchecked = Decoration.replace({ widget: new Checkbox(false) });
 const codeMark = Decoration.mark({ class: "nl-code" });
+/** a fence line's marks, shown — on the cursor line — and hidden everywhere
+ *  else. Two decorations rather than one so a copy can drop the line whole
+ *  either way: a fence is never content, seen or unseen */
 const fenceMark = Decoration.mark({ class: "nl-fence" });
+const hideFence = Decoration.replace({});
 const line = (cls: string) => Decoration.line({ class: cls });
 const link = (href: string) => Decoration.mark({ class: "nl-link", attributes: { "data-href": href } });
 
@@ -158,11 +162,13 @@ function build(view: EditorView): DecorationSet {
             const parent = node.node.parent?.name;
             if (parent === "InlineCode") {
               if (!active) out.push(hide.range(node.from, node.to));
-            } else out.push(fenceMark.range(node.from, node.to));
+            } else out.push((active ? fenceMark : hideFence).range(node.from, node.to));
             return;
           }
           case "CodeInfo":
-            out.push(fenceMark.range(node.from, node.to));
+            // hidden, the fence line is an empty tinted line — the block's
+            // own padding, top and bottom
+            out.push((active ? fenceMark : hideFence).range(node.from, node.to));
             return;
           case "FencedCode": {
             // every line of the block wears the background, fences included,
@@ -282,7 +288,7 @@ function visibleText(view: EditorView, from: number, to: number): string {
   const cuts: [number, number][] = [];
   decos.between(from, to, (f, t, deco) => {
     if (deco === hide) cuts.push([Math.max(f, from), Math.min(t, to)]);
-    else if (deco === fenceMark) {
+    else if (deco === fenceMark || deco === hideFence) {
       // the whole fence line, and the line break after it, so the code
       // arrives as the lines it is and not with a blank where the fence was
       const ln = doc.lineAt(f);
