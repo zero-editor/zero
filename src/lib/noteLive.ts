@@ -1,5 +1,5 @@
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { EditorState, Extension, Range, StateField, Text } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import { api } from "./api";
@@ -35,7 +35,23 @@ import { api } from "./api";
  * Everything here is derived from the syntax tree the markdown mode already
  * builds, and rebuilt for the visible lines on every edit, selection move or
  * scroll. Nothing is stored: the document is the markdown, always.
+ *
+ * One thing the tree is not: finished when the editor first paints. The
+ * language parses the first 3000 characters up front and the rest in an idle
+ * callback a hundred milliseconds or more later — and a note opens with the
+ * cursor at its end, which on a note of any age is past that line. So the
+ * first frame showed the tail as raw markdown and the next one drew it
+ * properly: headings grew, dashes turned into boxes, the lines above shifted
+ * to make room. `parsedTo` asks for the tree to reach the lines being drawn
+ * before drawing them. Markdown is cheap to parse — a whole 50 KB note takes
+ * under 10 ms — and a note is small, so the wait is never felt; the budget
+ * is there for the file this is put in front of that isn't a note.
  */
+
+/** the tree, parsed at least up to `to` when that is affordable */
+function parsedTo(state: EditorState, to: number) {
+  return ensureSyntaxTree(state, to, 20) ?? syntaxTree(state);
+}
 
 /** the one thing that is interactive: a real checkbox in place of `[ ]` */
 class Checkbox extends WidgetType {
@@ -221,9 +237,10 @@ function build(view: EditorView): DecorationSet {
   const withSpace = (to: number) => (doc.sliceString(to, to + 1) === " " ? to + 1 : to);
 
   const out: Range<Decoration>[] = [];
-  const tree = syntaxTree(state);
+  const ranges = view.visibleRanges;
+  const tree = parsedTo(state, ranges.length ? ranges[ranges.length - 1].to : 0);
 
-  for (const { from, to } of view.visibleRanges) {
+  for (const { from, to } of ranges) {
     tree.iterate({
       from,
       to,
@@ -360,7 +377,7 @@ function buildTables(state: EditorState): DecorationSet {
   const doc = state.doc;
   const sel = state.selection.main;
   const out: Range<Decoration>[] = [];
-  syntaxTree(state).iterate({
+  parsedTo(state, doc.length).iterate({
     enter: (node) => {
       if (node.name !== "Table") return;
       const [first, last] = tableLines(node.node, doc);
