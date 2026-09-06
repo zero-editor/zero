@@ -1,6 +1,7 @@
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
-import { Extension, Range } from "@codemirror/state";
+import { EditorState, Extension, Range, StateField, Text } from "@codemirror/state";
+import type { SyntaxNode } from "@lezer/common";
 import { api } from "./api";
 
 /**
@@ -98,6 +99,93 @@ class Rule extends WidgetType {
   }
 }
 
+type Align = "left" | "center" | "right" | null;
+type Grid = { head: string[]; align: Align[]; rows: string[][] };
+
+/**
+ * A pipe table drawn as a table, in place of its lines, whenever the cursor
+ * is somewhere else. Built by hand from the tree's own rows and cells rather
+ * than through React — a widget is made inside the editor's update, and a
+ * render that lands a tick later would leave the editor measuring an empty
+ * box. Cells are text: a `**` or a backtick inside one stays as typed. Click
+ * anywhere on it and the cursor goes to the source, which is the table's
+ * edit mode; ⌘-click a link in it and the link opens.
+ */
+class TableWidget extends WidgetType {
+  constructor(readonly grid: Grid, readonly key: string) {
+    super();
+  }
+  eq(other: TableWidget) {
+    return other.key === this.key;
+  }
+  toDOM(view: EditorView) {
+    const el = document.createElement("div");
+    el.className = "nl-tablewrap";
+    const table = document.createElement("table");
+    const row = (cells: string[], tag: "th" | "td") => {
+      const tr = document.createElement("tr");
+      cells.forEach((text, n) => {
+        const cell = document.createElement(tag);
+        cell.textContent = text;
+        const a = this.grid.align[n];
+        if (a) cell.style.textAlign = a;
+        tr.appendChild(cell);
+      });
+      return tr;
+    };
+    const thead = document.createElement("thead");
+    thead.appendChild(row(this.grid.head, "th"));
+    table.appendChild(thead);
+    if (this.grid.rows.length) {
+      const tbody = document.createElement("tbody");
+      for (const r of this.grid.rows) tbody.appendChild(row(r, "td"));
+      table.appendChild(tbody);
+    }
+    el.appendChild(table);
+    el.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const pos = view.posAtDOM(el);
+      view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+      view.focus();
+    });
+    return el;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** the rows and cells of a Table node, as the tree already has them: a
+ *  TableHeader, a TableDelimiter that carries the alignments, and TableRows,
+ *  each of TableCells. Short rows gain empty cells and long ones lose the
+ *  extra, the same forgiveness a hand-written table gets everywhere else. */
+function grid(node: SyntaxNode, doc: Text): Grid | null {
+  const cellsOf = (row: SyntaxNode) => {
+    const out: string[] = [];
+    for (let c = row.firstChild; c; c = c.nextSibling)
+      if (c.name === "TableCell") out.push(doc.sliceString(c.from, c.to).trim());
+    return out;
+  };
+  let head: string[] | null = null;
+  const align: Align[] = [];
+  const rows: string[][] = [];
+  for (let child = node.firstChild; child; child = child.nextSibling) {
+    if (child.name === "TableHeader") head = cellsOf(child);
+    else if (child.name === "TableDelimiter") {
+      for (const cell of doc.sliceString(child.from, child.to).split("|")) {
+        const t = cell.trim();
+        if (!t) continue;
+        const l = t.startsWith(":");
+        const r = t.endsWith(":");
+        align.push(l && r ? "center" : r ? "right" : l ? "left" : null);
+      }
+    } else if (child.name === "TableRow") rows.push(cellsOf(child));
+  }
+  if (!head) return null;
+  return { head, align, rows: rows.map((r) => head!.map((_, n) => r[n] ?? "")) };
+}
+
 const hide = Decoration.replace({});
 /** the same nothing, for a task's dash — kept apart so a copy can tell the two
  *  hidden things apart: a `**` leaves the clipboard, a `- ` before a `[ ]` stays,
@@ -179,11 +267,18 @@ function build(view: EditorView): DecorationSet {
             return;
           }
           case "Table": {
-            // pipes only line up in a monospaced face; the table keeps one
-            const first = doc.lineAt(node.from).number;
-            const last = doc.lineAt(node.to).number;
-            for (let n = first; n <= last; n++) out.push(line("nl-table").range(doc.line(n).from));
-            return;
+            // drawn as a table by the `tables` field below, which is where a
+            // block-sized replacement is allowed to come from — a plugin may
+            // not change the vertical layout, and one that tries is switched
+            // off along with everything else it draws. Here only the case
+            // where it is being edited: pipes only line up in a monospaced
+            // face. Never into its cells either way — a hidden `**` in one
+            // row would knock its column out of line with the others.
+            const [first, last] = tableLines(node.node, doc);
+            if (cursorIn(sel, first, last))
+              for (let n = first.number; n <= last.number; n++)
+                out.push(line("nl-table").range(doc.line(n).from));
+            return false;
           }
           case "QuoteMark":
             out.push(line("nl-quote").range(doc.lineAt(node.from).from));
@@ -241,6 +336,56 @@ function build(view: EditorView): DecorationSet {
   }
   return Decoration.set(out, true);
 }
+
+/** whole lines, first to last — a block widget has to stand in for complete
+ *  lines, and a Table node's end can sit on the line break */
+function tableLines(node: SyntaxNode, doc: Text) {
+  return [doc.lineAt(node.from), doc.lineAt(Math.max(node.from, node.to - 1))] as const;
+}
+
+const cursorIn = (
+  sel: { empty: boolean; head: number },
+  first: { from: number },
+  last: { to: number },
+) => sel.empty && sel.head >= first.from && sel.head <= last.to;
+
+/**
+ * The tables, as a state field rather than part of the plugin: a decoration
+ * that replaces whole lines changes the height of the document, and CodeMirror
+ * only takes those from state, where they are known before layout. Computed
+ * over the whole document rather than the viewport — a document has few
+ * tables, and the tree is the same one the plugin reads.
+ */
+function buildTables(state: EditorState): DecorationSet {
+  const doc = state.doc;
+  const sel = state.selection.main;
+  const out: Range<Decoration>[] = [];
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name !== "Table") return;
+      const [first, last] = tableLines(node.node, doc);
+      if (!cursorIn(sel, first, last)) {
+        const g = grid(node.node, doc);
+        if (g) {
+          const widget = new TableWidget(g, doc.sliceString(first.from, last.to));
+          out.push(Decoration.replace({ widget, block: true }).range(first.from, last.to));
+        }
+      }
+      return false;
+    },
+  });
+  return Decoration.set(out, true);
+}
+
+const tables = StateField.define<DecorationSet>({
+  create: buildTables,
+  update(set, tr) {
+    if (tr.docChanged || tr.selection || syntaxTree(tr.state) !== syntaxTree(tr.startState))
+      return buildTables(tr.state);
+    return set;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 const plugin = ViewPlugin.fromClass(
   class {
@@ -322,5 +467,5 @@ const copyWhatYouSee = EditorView.domEventHandlers({
 });
 
 export function noteLive(): Extension {
-  return [plugin, openLinks, copyWhatYouSee];
+  return [plugin, tables, openLinks, copyWhatYouSee];
 }

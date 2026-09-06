@@ -16,14 +16,23 @@ import { noteLive } from "../lib/noteLive";
 import { onNoteEnd } from "../lib/notes";
 
 /**
- * A note is the editor with its markup hidden and the result drawn in its
- * place — see noteLive.ts — and still a place you type and paste into. There
- * were tabs here once, a "Markdown" face beside the "Note" one; once the note
- * face could be edited they were a switch between the thing and a worse view
- * of it, so they went. ⌘⇧P still shows the raw markdown, for the moment
- * something renders in a way you want to see the source of.
+ * Markdown has two faces: the source, and the live one — the editor with its
+ * markup hidden and the result drawn in its place, see noteLive.ts — which is
+ * still a place you type and paste into.
+ *
+ * A note is the live face and nothing else. There were tabs on it once, and
+ * once the live face could be edited they were a switch between the thing and
+ * a worse view of it, so they went; ⌘⇧P still shows the raw markdown for the
+ * moment something renders in a way you want to see the source of. Every
+ * other markdown file — a README, a doc — keeps the tabs, opens on its
+ * source, and remembers which face it was on: those are being edited on
+ * purpose, and hidden markup while you rewrite a table is a nuisance rather
+ * than a help. Their Source face keeps the line numbers, since search and
+ * ⌘-click land on a line; the Preview, like a note, has none.
  */
-type Mode = "note" | "markdown";
+type Mode = "live" | "source";
+const lastMode = new Map<string, Mode>();
+const isMarkdown = (absPath: string) => /\.(md|markdown|mdx)$/i.test(absPath);
 
 /** `- [ ] ` or `- [x] ` at the front of a line: the mark, so it can be flipped */
 const TASK_MARK = /^(\s*(?:[-*]|\d+[.)])\s+\[)([ xX])\]/;
@@ -48,7 +57,11 @@ export function FileView({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const [mode, setMode] = useState<Mode>("note");
+  // a note is markdown that lives in the notes folder; the rest is markdown
+  const md = !!note || isMarkdown(absPath);
+  const [mode, setMode] = useState<Mode>(() =>
+    note ? "live" : (lastMode.get(absPath) ?? "source"),
+  );
   // the live face sits in a compartment so the tabs can switch it under the
   // cursor without rebuilding the editor
   const liveRef = useRef(new Compartment());
@@ -134,13 +147,8 @@ export function FileView({
             dirtyRef.current = true;
             autosave();
           }),
-          ...(note
-            ? [
-                notePaste(note),
-                noteKeys(),
-                liveRef.current.of(modeRef.current === "note" ? noteLive() : []),
-              ]
-            : []),
+          ...(note ? [notePaste(note)] : []),
+          ...(md ? [noteKeys(), liveRef.current.of(modeRef.current === "live" ? noteLive() : [])] : []),
           modClick(
             () => absPath,
             (abs, ln) => onOpenFileRef.current(abs, ln)
@@ -253,26 +261,42 @@ export function FileView({
   // the live face is a compartment in the editor: switching it keeps the
   // document, the cursor and the undo history exactly where they were
   useEffect(() => {
-    if (!note) return;
+    if (!md) return;
+    if (!note) lastMode.set(absPath, mode);
     const view = viewRef.current;
     if (!view) return;
-    view.dispatch({ effects: liveRef.current.reconfigure(mode === "note" ? noteLive() : []) });
+    view.dispatch({ effects: liveRef.current.reconfigure(mode === "live" ? noteLive() : []) });
     view.focus();
-  }, [mode, note]);
+  }, [mode, md, note, absPath]);
 
-  if (!note) return <div className="cm-host" ref={hostRef} />;
+  if (!md) return <div className="cm-host" ref={hostRef} />;
 
   return (
     <div
-      className={`note-view${mode === "note" ? " note-live" : ""}`}
+      className={`note-view ${note ? "is-note" : "is-md"}${mode === "live" ? " note-live" : ""}`}
       onKeyDown={(e) => {
-        // ⌘⇧P: the raw markdown, and back
+        // ⌘⇧P flips faces — GitHub's key for the same thing
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "KeyP") {
           e.preventDefault();
-          setMode(mode === "note" ? "markdown" : "note");
+          setMode(mode === "live" ? "source" : "live");
         }
       }}
     >
+      {!note && (
+        <div className="note-modes" role="tablist">
+          {(["source", "live"] as const).map((m) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={mode === m}
+              className={`note-mode${mode === m ? " active" : ""}`}
+              onClick={() => setMode(m)}
+            >
+              {m === "source" ? "Source" : "Preview"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="cm-host" ref={hostRef} />
     </div>
   );

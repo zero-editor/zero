@@ -45,7 +45,7 @@
   .note-mark-busy { animation: none; opacity: 0.7; }
 }
 
-/* ── the note ────────────────────────────────────────────────────────────── */
+/* ── markdown, and the note ──────────────────────────────────────────────── */
 
 .note-view {
   display: flex;
@@ -58,25 +58,71 @@
   min-height: 0;
 }
 
-/* A note is not code, so it wears no line numbers, and its text starts a
-   reading margin in from the edge and a little under the strip. */
-.note-view .cm-gutters {
-  display: none;
-}
-
-.note-view .cm-line {
-  padding-left: 20px;
-}
-
 .note-view .cm-content {
   padding-top: 12px;
 }
 
+/* Source and Preview, on every markdown file that isn't a note: the editor
+   tab strip's shape one size down — same underline, same faint-to-text — so
+   it reads as more of the same chrome rather than a new kind. */
+.note-modes {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  height: 26px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-mode {
+  position: relative;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.note-mode:hover {
+  color: var(--text-dim);
+}
+
+.note-mode.active {
+  color: var(--text);
+}
+
+.note-mode.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+/* Rendered markdown is not code, so it wears no line numbers — a note never,
+   another file's Preview neither — and its text starts a reading margin in
+   from the edge. The Source face keeps its gutter: search and ⌘-click land
+   on a line, and that is the face you read a line number on. */
+.note-view.is-note .cm-gutters,
+.note-view.note-live .cm-gutters {
+  display: none;
+}
+
+.note-view.is-note .cm-line,
+.note-view.note-live .cm-line {
+  padding-left: 20px;
+}
+
 /* ── the live face ───────────────────────────────────────────────────────── */
 
-/* The Note face reads in the UI face, not the code one — it is prose. The
+/* The live face reads in the UI face, not the code one — it is prose. The
    rule has to outweigh main-column's `!important` on the scroller, hence
-   the weight. The Markdown face keeps the monospace, as source should. */
+   the weight. The source face keeps the monospace, as source should. */
 .note-view.note-live .cm-host .cm-scroller {
   font-family: var(--font-ui) !important;
 }
@@ -180,6 +226,33 @@
 }
 
 .nl-fence {
+  color: var(--text-faint);
+}
+
+/* a table drawn in place of its lines — the same table the Linear panel
+   draws, at the reading margin the rest of the note keeps */
+.nl-tablewrap {
+  padding: 4px 0 6px 20px;
+  overflow-x: auto;
+}
+
+.nl-tablewrap table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.nl-tablewrap th,
+.nl-tablewrap td {
+  padding: 3px 14px 3px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.nl-tablewrap th {
+  font-weight: 600;
   color: var(--text-faint);
 }
 
