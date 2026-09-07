@@ -17,7 +17,7 @@ import { contextMenu } from "../lib/contextMenu";
 import { projectSession, saveProject } from "../lib/session";
 import { focusTerm, targetTerm } from "../lib/termFocus";
 import {
-  DEFAULT_ISSUE_PROMPT,
+  DEFAULT_ISSUE_PROMPTS,
   ISSUE,
   ISSUES,
   bootCommand,
@@ -25,8 +25,10 @@ import {
   composePrompt,
   defaultPrompt,
   inlineCommand,
+  issueKind,
   issuePromptOf,
   pasteKeys,
+  type IssueKind,
 } from "../lib/issuePrompt";
 
 /** How often the list is refetched while you're looking at it. A Linear query
@@ -84,6 +86,9 @@ function group(issues: LinearIssue[]) {
       /** the group's kind, kept for the run button: what a state is *for* is
        *  what its default prompt is written against */
       stateType: g.first.stateType,
+      /** which start prompt its rows get — or none, for a state nobody starts
+       *  on: In Progress already is, Done is over */
+      kind: issueKind(g.title, g.first.stateType),
       // By urgency, which is what a person means: urgent, high, medium, low,
       // then everything unprioritised. Ties break on issue number, newest
       // first, so a row keeps its place when someone touches it.
@@ -243,9 +248,10 @@ function IssueRow({
   issue: LinearIssue;
   activeKey: string | null;
   onOpen: (i: LinearIssue) => void;
-  /** start work on this one in a fresh session */
-  onStart: () => void;
-  onStartMenu: (e: MouseEvent) => void;
+  /** start work on this one in a fresh session — absent on a row in a state
+   *  there is no starting from, which is also what takes the button away */
+  onStart?: () => void;
+  onStartMenu?: (e: MouseEvent) => void;
 }) {
   const pr = issue.prs[0];
   const local = issue.local;
@@ -332,9 +338,11 @@ function IssueRow({
           in the avatar's place while you hover, and the avatar steps aside;
           who it is assigned to is in the row's own tooltip, and the layout
           does not move. */}
-      <button className="li-play" title={`start ${issue.identifier} in a new terminal`} onClick={onStart} onContextMenu={onStartMenu}>
-        {RUN}
-      </button>
+      {onStart && (
+        <button className="li-play" title={`start ${issue.identifier} in a new terminal`} onClick={onStart} onContextMenu={onStartMenu}>
+          {RUN}
+        </button>
+      )}
     </div>
   );
 }
@@ -562,9 +570,10 @@ export function IssuesPanel({
   const [prompts, setPrompts] = useState<Record<string, string>>(
     () => projectSession(root).linearPrompts ?? {},
   );
-  /** the row's own run button, one template for every issue in the panel */
-  const [issuePrompt, setIssuePrompt] = useState<string>(
-    () => issuePromptOf(projectSession(root).linearIssuePrompt),
+  /** the rows' own run buttons, by the kind of state a row is in — triage,
+   *  todo or review — and again only the edited ones */
+  const [issuePrompts, setIssuePrompts] = useState<Record<string, string>>(
+    () => projectSession(root).linearIssuePrompts ?? {},
   );
   /** which prompt is open for editing — a state group's, or the shared one an
    *  issue row runs. One at a time, so the panel never has two boxes open
@@ -700,6 +709,7 @@ export function IssuesPanel({
   type Group = (typeof groups)[number];
 
   const promptFor = (g: Group) => prompts[g.title] ?? defaultPrompt(g.title, g.stateType);
+  const issuePromptFor = (kind: IssueKind) => issuePromptOf(issuePrompts, kind);
 
   /**
    * Open a terminal on a prompt — via a file, so the shell carries a path
@@ -753,45 +763,51 @@ export function IssuesPanel({
     setEditing(null);
   };
 
-  /* ---------- the same three verbs, for one row ---------- */
+  /* ---------- the same three verbs, for one row ----------
+     Each takes the row's kind rather than looking it up, because the row's
+     group already did: the kind is the group's, and a row never disagrees
+     with the heading it sits under. */
 
-  const runIssue = (i: LinearIssue) =>
-    void launch(i.identifier, composeIssuePrompt(issuePrompt, i));
+  const runIssue = (i: LinearIssue, kind: IssueKind) =>
+    void launch(i.identifier, composeIssuePrompt(issuePromptFor(kind), i));
 
-  const pasteIssue = (i: LinearIssue) => {
+  const pasteIssue = (i: LinearIssue, kind: IssueKind) => {
     const term = targetTerm();
     if (!term) return;
     api
-      .ptyWrite(term, pasteKeys(composeIssuePrompt(issuePrompt, i)))
+      .ptyWrite(term, pasteKeys(composeIssuePrompt(issuePromptFor(kind), i)))
       .then(() => focusTerm(term))
       .catch(() => {});
   };
 
-  /** Back to the default on empty, the same way a group's does. */
-  const saveIssuePrompt = (body: string) => {
-    const clean = body.trim() || DEFAULT_ISSUE_PROMPT;
-    setIssuePrompt(clean);
-    saveProject(root, { linearIssuePrompt: clean === DEFAULT_ISSUE_PROMPT ? "" : clean });
+  /** Back to no entry on empty, the same way a group's does. */
+  const saveIssuePrompt = (kind: IssueKind, body: string) => {
+    const next = { ...issuePrompts };
+    const clean = body.trim();
+    if (!clean || clean === DEFAULT_ISSUE_PROMPTS[kind].trim()) delete next[kind];
+    else next[kind] = clean;
+    setIssuePrompts(next);
+    saveProject(root, { linearIssuePrompts: next });
     setEditing(null);
   };
 
-  const issueMenu = (e: MouseEvent, i: LinearIssue) =>
+  const issueMenu = (e: MouseEvent, i: LinearIssue, kind: IssueKind) =>
     contextMenu(e, [
-      { text: "Start in New Terminal", run: () => runIssue(i) },
+      { text: "Start in New Terminal", run: () => runIssue(i, kind) },
       // not "Paste into Terminal": the issue view has a button of that name
       // which pastes a reference, and this pastes a whole instruction
-      { text: "Paste Start Prompt", run: () => pasteIssue(i), enabled: !!targetTerm() },
+      { text: "Paste Start Prompt", run: () => pasteIssue(i, kind), enabled: !!targetTerm() },
       "sep",
       {
         text: "Edit Start Prompt…",
         run: () => {
-          setDraft(issuePrompt);
+          setDraft(issuePromptFor(kind));
           setEditing({ kind: "issue", id: i.id });
         },
       },
-      issuePrompt !== DEFAULT_ISSUE_PROMPT && {
+      issuePrompts[kind] !== undefined && {
         text: "Reset to Default",
-        run: () => saveIssuePrompt(""),
+        run: () => saveIssuePrompt(kind, ""),
       },
     ]);
 
@@ -956,18 +972,22 @@ export function IssuesPanel({
               <span className="li-head-title">{g.title}</span>
               <span className="li-count">{g.rows.length}</span>
             </button>
-            <button
-              className="li-play"
-              title={`run this prompt on the ${g.rows.length} issue${
-                g.rows.length > 1 ? "s" : ""
-              } shown — right-click to edit it`}
-              onClick={() => runGroup(g)}
-              onContextMenu={(e) => runMenu(e, g)}
-            >
-              {RUN}
-            </button>
+            {/* The same rule as the rows: a state nobody starts from — In
+                Progress, Done — has nothing to run either. */}
+            {g.kind && (
+              <button
+                className="li-play"
+                title={`run this prompt on the ${g.rows.length} issue${
+                  g.rows.length > 1 ? "s" : ""
+                } shown — right-click to edit it`}
+                onClick={() => runGroup(g)}
+                onContextMenu={(e) => runMenu(e, g)}
+              >
+                {RUN}
+              </button>
+            )}
           </div>
-          {editing?.kind === "group" && editing.title === g.title && (
+          {g.kind && editing?.kind === "group" && editing.title === g.title && (
             <PromptEditor
               value={draft}
               note={
@@ -1002,23 +1022,25 @@ export function IssuesPanel({
                       identifier: x.identifier,
                     })
                   }
-                  onStart={() => runIssue(i)}
-                  onStartMenu={(e) => issueMenu(e, i)}
+                  onStart={g.kind ? () => runIssue(i, g.kind!) : undefined}
+                  onStartMenu={g.kind ? (e) => issueMenu(e, i, g.kind!) : undefined}
                 />
-                {editing?.kind === "issue" && editing.id === i.id && (
+                {g.kind && editing?.kind === "issue" && editing.id === i.id && (
                   <PromptEditor
                     value={draft}
                     note={
                       <>
-                        <code>{ISSUE}</code> becomes {i.identifier} · one prompt for every issue
+                        <code>{ISSUE}</code> becomes {i.identifier} · one prompt for every issue in{" "}
+                        {g.title}
+                        {issuePrompts[g.kind] === undefined ? " · default" : ""}
                       </>
                     }
                     onChange={setDraft}
                     onCancel={() => setEditing(null)}
-                    onSave={saveIssuePrompt}
+                    onSave={(body) => saveIssuePrompt(g.kind!, body)}
                     onRun={(body) => {
-                      saveIssuePrompt(body);
-                      const eff = body.trim() || DEFAULT_ISSUE_PROMPT;
+                      saveIssuePrompt(g.kind!, body);
+                      const eff = body.trim() || DEFAULT_ISSUE_PROMPTS[g.kind!];
                       void launch(i.identifier, composeIssuePrompt(eff, i));
                     }}
                   />

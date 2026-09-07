@@ -75,27 +75,72 @@ export function defaultPrompt(state: string, stateType: string): string {
 }
 
 /**
- * The prompt behind an issue row's own button — one template for every issue,
- * not one per issue: what changes between two issues is the issue, which is
- * what the placeholders are for.
+ * Which of the three start prompts an issue gets — or none.
  *
- * **It is a prompt about deciding whether to start, not about starting.** The
- * stop condition is spelled out and given a test — a question you would want a
- * person to answer — because "if anything is unclear, ask" reads to an agent as
- * permission to guess, and the failure mode of this button is a confident hour
- * spent on a misreading of a two-line issue.
+ * A row's play button is only for an issue someone could *start* on: one to
+ * decide about (triage), one to build (todo), or one to check (in review). In
+ * Progress is already started, and a session on it is a second pair of hands
+ * on the same branch; Done, Canceled and Duplicate are over. Backlog is
+ * deliberately not todo — a backlog is where things wait to be chosen, and a
+ * button that starts them skips the choosing.
+ *
+ * Matched the same way the group prompts are: by type where Linear's type says
+ * enough, by name where it doesn't — "In Progress" and "In Review" are both
+ * `started`.
  */
-export const DEFAULT_ISSUE_PROMPT = [
-  `Start on ${ISSUE}. Read it in full, comments included, and check the problem is real in this`,
-  "codebase before touching anything. If the scope or the approach has a genuine open question —",
-  "one you would want a person to answer before committing to it — ask it and stop there.",
-  `Otherwise: move it to In Progress, work on branch ${BRANCH}, keep commits small, and open a`,
-  `pull request that references ${IDENTIFIER}. Finish by saying what you verified, what you`,
-  "changed, and what you left alone.",
-].join("\n");
+export type IssueKind = "triage" | "todo" | "review";
+
+export function issueKind(state: string, stateType: string): IssueKind | null {
+  const name = state.toLowerCase();
+  if (stateType === "triage" || name.includes("triage")) return "triage";
+  if (name.includes("review")) return "review";
+  if (stateType === "unstarted") return "todo";
+  return null;
+}
 
 /**
- * The row button's template for a project: what was saved, or the default.
+ * The prompts behind an issue row's own button — one template per kind, not
+ * one per issue: what changes between two issues of a kind is the issue,
+ * which is what the placeholders are for. What changes between the kinds is
+ * the verb, which is why there are three.
+ *
+ * **Todo's is a prompt about deciding whether to start, not about starting.**
+ * The stop condition is spelled out and given a test — a question you would
+ * want a person to answer — because "if anything is unclear, ask" reads to an
+ * agent as permission to guess, and the failure mode of this button is a
+ * confident hour spent on a misreading of a two-line issue.
+ *
+ * Triage's and review's are the group prompts' verbs, for one issue: the same
+ * deliverable, said to land in the same place — a comment on the issue, a
+ * review on the PR — so that a run either did the thing or visibly did not.
+ */
+export const DEFAULT_ISSUE_PROMPTS: Record<IssueKind, string> = {
+  triage: [
+    `Triage ${ISSUE}. Read it in full, comments included, and try to reproduce it or confirm it`,
+    "against this codebase. Leave a comment on the issue saying what you found. Then route it —",
+    "Todo with a priority if it is real and actionable; Canceled if it is not a bug or will not",
+    "be done; Duplicate if it already exists, naming which. Do not fix anything: triage is",
+    "deciding, not doing. End with one line saying where it went and why.",
+  ].join("\n"),
+  todo: [
+    `Start on ${ISSUE}. Read it in full, comments included, and check the problem is real in this`,
+    "codebase before touching anything. If the scope or the approach has a genuine open question —",
+    "one you would want a person to answer before committing to it — ask it and stop there.",
+    `Otherwise: move it to In Progress, work on branch ${BRANCH}, keep commits small, and open a`,
+    `pull request that references ${IDENTIFIER}. Finish by saying what you verified, what you`,
+    "changed, and what you left alone.",
+  ].join("\n"),
+  review: [
+    `Review ${ISSUE}. Find its pull request (attached to the issue), read the whole diff against`,
+    "what the issue actually asked for, run whatever tests exist, and look for what is missing as",
+    "hard as what is wrong. Give a verdict — ready to merge, or what has to change first — and",
+    "post it as a review on the PR. If there is no PR, say so and stop.",
+  ].join("\n"),
+};
+
+/**
+ * A kind's row-button template for a project: what was saved for it, or its
+ * default.
  *
  * `||`, never `??`. "Reset to default" is stored as an empty string rather
  * than by deleting the key — the same trick the group prompts use, so that a
@@ -104,7 +149,8 @@ export const DEFAULT_ISSUE_PROMPT = [
  * read this (the panel at mount, the issue view at click), and a helper is
  * cheaper than the two of them agreeing by hand.
  */
-export const issuePromptOf = (saved: string | undefined): string => saved || DEFAULT_ISSUE_PROMPT;
+export const issuePromptOf = (saved: Record<string, string> | undefined, kind: IssueKind): string =>
+  saved?.[kind] || DEFAULT_ISSUE_PROMPTS[kind];
 
 /** One issue, as the agent reads it: the identifier it can look up, and the
  *  title so it doesn't have to in order to know what it's holding. */

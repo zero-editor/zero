@@ -9,7 +9,7 @@ import { issuePattern, type IssueLinks } from "../lib/noteLive";
 import { editorTheme } from "../lib/cmTheme";
 import { focusTerm, targetTerm } from "../lib/termFocus";
 import { projectSession } from "../lib/session";
-import { bootCommand, composeIssuePrompt, inlineCommand, issuePromptOf } from "../lib/issuePrompt";
+import { bootCommand, composeIssuePrompt, inlineCommand, issueKind, issuePromptOf } from "../lib/issuePrompt";
 
 /** Linear descriptions are written in a browser, where fences, tables and
  *  links all render — so unlike a voice memo, this text needs the parts
@@ -280,14 +280,17 @@ export function IssueView({
    * one sends a verb, and it needs a session with nothing else in it. Both are
    * worth having, and folding either into the other loses a real use.
    *
-   * The prompt is the same one the sidebar's rows run, read from the store
-   * **at click time rather than at mount**: it is one template per project and
-   * it can be edited from any row in the panel, so a view opened this morning
-   * must not still be running this morning's copy of it.
+   * The prompt is the same one the sidebar's rows run — the one for the kind
+   * of state the issue is in — read from the store **at click time rather than
+   * at mount**: it is one template per kind per project and it can be edited
+   * from any row in the panel, so a view opened this morning must not still be
+   * running this morning's copy of it.
    */
   const startWork = async () => {
     if (!issue) return;
-    const template = issuePromptOf(projectSession(root).linearIssuePrompt);
+    const kind = issueKind(issue.state, issue.stateType);
+    if (!kind) return;
+    const template = issuePromptOf(projectSession(root).linearIssuePrompts, kind);
     const prompt = composeIssuePrompt(template, issue);
     // the same file the panel's buttons write, named the same way, so the two
     // never leave two prompts on disk for one issue
@@ -329,6 +332,8 @@ export function IssueView({
   }
 
   const pr = issue.prs[0];
+  // the same rule as the row's button: a state you can start from, or nothing
+  const startable = issueKind(issue.state, issue.stateType) !== null;
 
   return (
     <div className="issue-view">
@@ -351,13 +356,15 @@ export function IssueView({
             wide as the wider of the two and swapping them moves nothing. The
             alternative — measuring the idle width and pinning it — is the same
             idea with a number in it that goes stale when the font changes. */}
-        <button
-          className="iv-btn flat"
-          title={`start ${issue.identifier} in a new terminal — the same prompt its row runs`}
-          onClick={() => void startWork()}
-        >
-          Start
-        </button>
+        {startable && (
+          <button
+            className="iv-btn flat"
+            title={`start ${issue.identifier} in a new terminal — the same prompt its row runs`}
+            onClick={() => void startWork()}
+          >
+            Start
+          </button>
+        )}
         <button
           className={`iv-btn flat iv-send ${sent ? "sent" : ""}`}
           title="the identifier, title and link — hold ⌥ to send the description too"

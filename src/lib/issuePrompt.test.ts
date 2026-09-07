@@ -1,12 +1,13 @@
 import {
   BRANCH,
-  DEFAULT_ISSUE_PROMPT,
+  DEFAULT_ISSUE_PROMPTS,
   IDENTIFIER,
   ISSUE,
   ISSUES,
   bootCommand,
   composeIssuePrompt,
   inlineCommand,
+  issueKind,
   issuePromptOf,
   composePrompt,
   defaultPrompt,
@@ -85,9 +86,27 @@ is(
 );
 is(
   "starting an issue has a stop condition, not just a start",
-  DEFAULT_ISSUE_PROMPT.includes("ask it and stop there"),
+  DEFAULT_ISSUE_PROMPTS.todo.includes("ask it and stop there"),
   true,
 );
+is("triaging one says where its decision goes", DEFAULT_ISSUE_PROMPTS.triage.includes("comment"), true);
+is(
+  "reviewing one says where the verdict goes",
+  DEFAULT_ISSUE_PROMPTS.review.includes("post it as a review on the PR"),
+  true,
+);
+
+// ---------------------------------------------------------------------------
+// which rows get a start button at all. Three kinds start something; a state
+// already underway or already over gets no button, and Backlog is not Todo.
+
+is("triage by type", issueKind("Triage", "triage"), "triage");
+is("todo by type", issueKind("Todo", "unstarted"), "todo");
+is("review by name, since its type is only `started`", issueKind("In Review", "started"), "review");
+is("in progress gets nothing", issueKind("In Progress", "started"), null);
+is("done gets nothing", issueKind("Done", "completed"), null);
+is("canceled gets nothing", issueKind("Canceled", "canceled"), null);
+is("backlog gets nothing", issueKind("Backlog", "backlog"), null);
 
 // ---------------------------------------------------------------------------
 // composition
@@ -126,9 +145,18 @@ is(
 // The bug this exists to prevent: "reset to default" is stored as an empty
 // string, and `??` hands an empty string back as the prompt. Two readers, one
 // helper, so they cannot disagree.
-is("nothing saved means the default", issuePromptOf(undefined), DEFAULT_ISSUE_PROMPT);
-is("and a reset — stored as empty — means it too", issuePromptOf(""), DEFAULT_ISSUE_PROMPT);
-is("an edited one is kept", issuePromptOf("just do it"), "just do it");
+is("nothing saved means the default", issuePromptOf(undefined, "todo"), DEFAULT_ISSUE_PROMPTS.todo);
+is(
+  "and a reset — stored as empty — means it too",
+  issuePromptOf({ todo: "" }, "todo"),
+  DEFAULT_ISSUE_PROMPTS.todo,
+);
+is("an edited one is kept", issuePromptOf({ review: "just do it" }, "review"), "just do it");
+is(
+  "and editing one kind leaves the others on their defaults",
+  issuePromptOf({ review: "just do it" }, "triage"),
+  DEFAULT_ISSUE_PROMPTS.triage,
+);
 
 // ---------------------------------------------------------------------------
 // the command line. The prompt lives in a file now, so what the shell carries

@@ -70,9 +70,15 @@ export interface ProjectSession {
    *  names belong to the workspace its token opens, the same way the token
    *  itself does. */
   linearPrompts: Record<string, string>;
-  /** what an issue row's own run button says — one template for every row, so
-   *  a string rather than a map. Absent until edited, same as the above. */
-  linearIssuePrompt: string;
+  /** what an issue row's own run button says, by the kind of state the row is
+   *  in — `triage`, `todo` or `review` — and only the edited ones, same as the
+   *  above. One template per kind rather than per row: what differs between
+   *  two rows of a kind is the row. */
+  linearIssuePrompts: Record<string, string>;
+  /** the one template every row ran before there were three, read once by the
+   *  migration below into `linearIssuePrompts.todo` — the kind whose default
+   *  it was — and never written again */
+  linearIssuePrompt?: string;
 }
 
 interface Session {
@@ -200,6 +206,16 @@ function validPrompts(v: unknown): Record<string, string> | undefined {
   return out;
 }
 
+/** The per-kind map, with the single template it replaced folded in: an edit
+ *  made when there was one start prompt was an edit to the todo one, since
+ *  that is the prompt it was. The map wins where both say something. */
+function validIssuePrompts(v: unknown, old: unknown): Record<string, string> | undefined {
+  const out = validPrompts(v);
+  if (typeof old !== "string" || !old) return out;
+  if (out?.todo) return out;
+  return { ...out, todo: old };
+}
+
 function validProjectSession(v: unknown): Partial<ProjectSession> {
   if (!v || typeof v !== "object") return {};
   const p = v as Partial<ProjectSession>;
@@ -230,8 +246,7 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     docPanes: validDocPanes(p.docPanes),
     activePane: typeof p.activePane === "string" ? p.activePane : undefined,
     linearPrompts: validPrompts(p.linearPrompts),
-    linearIssuePrompt:
-      typeof p.linearIssuePrompt === "string" ? p.linearIssuePrompt : undefined,
+    linearIssuePrompts: validIssuePrompts(p.linearIssuePrompts, p.linearIssuePrompt),
   };
 }
 
