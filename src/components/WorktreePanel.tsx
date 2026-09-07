@@ -6,6 +6,7 @@ import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
 import { pokeGit, STATUS_NAME, useGitStatusMany, WorktreeChanges } from "../lib/gitStatus";
 import { baseName, folders, isMulti } from "../lib/folders";
+import { deletableWorktrees, removeWorktree, removeWorktrees } from "../lib/worktreeRemoval";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 
@@ -114,40 +115,36 @@ export function WorktreePanel({
   const removeWt = (wt: WtState) =>
     run(`remove:${wt.path}`, async () => {
       try {
-        await api.worktreeRemove(project.root, wt.path, false);
+        await removeWorktree(wt, project.root, false, api.worktreeRemove);
       } catch (e) {
         const force = await confirm(
           `Worktree has uncommitted changes:\n${e}\n\nForce delete? Changes will be lost.`,
           { title: "Delete worktree", kind: "warning" }
         );
         if (!force) return;
-        await api.worktreeRemove(project.root, wt.path, true);
+        await removeWorktree(wt, project.root, true, api.worktreeRemove);
       }
     });
 
-  const deletable = worktrees.filter((w) => !w.is_main);
+  const deletable = deletableWorktrees(worktrees);
 
   const removeAll = async () => {
+    if (deleting || busy || deletable.length === 0) return;
     const ok = await confirm(
       `Delete all ${deletable.length} worktree${deletable.length === 1 ? "" : "s"}? Uncommitted changes will be lost.`,
       { title: "Delete all worktrees", kind: "warning" }
     );
     if (!ok) return;
-    // one at a time — git serialises writes to the repo's worktree list
-    // anyway — but with a running count, so a slow delete looks like work
-    // rather than a hang
-    for (let i = 0; i < deletable.length; i++) {
-      setDeleting({ done: i, total: deletable.length });
-      try {
-        await api.worktreeRemove(project.root, deletable[i].path, true);
-      } catch (e) {
-        setFailed(String(e));
-        setDeleting(null);
-        return;
-      }
+    setFailed(null);
+    setNotice(null);
+    try {
+      const failures = await removeWorktrees(deletable, project.root, api.worktreeRemove,
+        (done, total) => setDeleting({ done, total }));
+      if (failures.length) setFailed(`Could not delete ${failures.length} worktree(s):\n${failures.join("\n")}`);
+    } finally {
+      setDeleting(null);
+      pokeGit();
     }
-    setDeleting(null);
-    pokeGit();
   };
 
   // every git action ends the same way: surface failures, then re-read state
@@ -370,7 +367,7 @@ export function WorktreePanel({
                   },
                   !wt.is_main && {
                     text: "Delete Worktree",
-                    enabled: busy !== `remove:${wt.path}`,
+                    enabled: busy === null && deleting === null,
                     run: () => removeWt(wt),
                   },
                   // Only on a folder the project was given, and never on the
@@ -416,7 +413,7 @@ export function WorktreePanel({
                 <button
                   className={`wt-delete ${busy === `remove:${wt.path}` ? "busy" : ""}`}
                   title="delete worktree"
-                  disabled={busy === `remove:${wt.path}`}
+                  disabled={busy !== null || deleting !== null}
                   onClick={(e) => {
                     e.stopPropagation();
                     removeWt(wt);
@@ -495,6 +492,7 @@ export function WorktreePanel({
           </div>
         );
       })}
+      {error && <div className="panel-error" role="alert">{error}</div>}
       {notice && (
         <div className="wt-notice" onClick={() => setNotice(null)}>
           {notice}
@@ -503,7 +501,7 @@ export function WorktreePanel({
       {deletable.length > 0 && (
         <button
           className={`wt-delete-all ${deleting ? "busy" : ""}`}
-          disabled={deleting !== null}
+          disabled={deleting !== null || busy !== null}
           title={`delete all ${deletable.length} worktrees`}
           onClick={removeAll}
         >
