@@ -5,6 +5,7 @@ import { ImageDiffView } from "./ImageDiffView";
 import { FileView } from "./FileView";
 import { ImageView } from "./ImageView";
 import { IssueView } from "./IssueView";
+import type { IssueLinks } from "../lib/noteLive";
 import { MemoThread } from "./MemoThread";
 import { NewFileView } from "./NewFileView";
 import { isImage } from "../lib/imageFile";
@@ -147,6 +148,7 @@ export function EditorPane({
   gitMarks,
   memos,
   onOpenTerminalOn,
+  issues,
 }: {
   views: View[];
   activeView: number;
@@ -173,6 +175,9 @@ export function EditorPane({
   gitMarks: Map<string, { mark: GitMark; letter: string }>;
   /** open a terminal already running a command — an issue tab's start button */
   onOpenTerminalOn: (boot: string) => void;
+  /** Linear's team keys and how to open an issue by identifier — what makes
+   *  `ECL-141` in a note or a description a link. Absent when not connected. */
+  issues?: IssueLinks;
   /** this project's memos — a memo tab reads its title, its status and its
    *  record button off the same object the panel does */
   memos: Memos;
@@ -421,6 +426,7 @@ export function EditorPane({
                   identifier={v.identifier}
                   visible={i === activeView}
                   onOpenTerminalOn={onOpenTerminalOn}
+                  issues={issues}
                 />
               ) : v.kind === "memo" ? (
                 <MemoThread
@@ -454,6 +460,7 @@ export function EditorPane({
                   // with notes switched off it is only the ordinary file,
                   // still openable, still saveable, pasting into it verbatim
                   note={notesOn && isNote(v.absPath, root) ? root : undefined}
+                  issues={issues}
                   onOpenFile={onOpenFile}
                 />
               )}

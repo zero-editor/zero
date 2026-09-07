@@ -676,6 +676,20 @@ pub async fn linear_issues(app: tauri::AppHandle, root: String) -> Result<Vec<Is
     Ok(owned)
 }
 
+/// The workspace's team keys — the `ECL` in `ECL-141`. What turns a bare
+/// identifier in a note into a link: only a token whose prefix is a team here
+/// is one, so `UTF-8` and `SHA-256` stay the text they are.
+#[tauri::command]
+pub async fn linear_teams(app: tauri::AppHandle, root: String) -> Result<Vec<String>, String> {
+    let token = read_token(&app, &root)?;
+    let data = gql(&token, "{ teams(first: 100) { nodes { key } } }", json!({})).await?;
+    Ok(data
+        .pointer("/teams/nodes")
+        .and_then(|n| n.as_array())
+        .map(|a| a.iter().filter_map(|t| t.get("key")?.as_str().map(str::to_string)).collect())
+        .unwrap_or_default())
+}
+
 #[tauri::command]
 pub async fn linear_issue(app: tauri::AppHandle, root: String, id: String) -> Result<IssueDetail, String> {
     let token = read_token(&app, &root)?;

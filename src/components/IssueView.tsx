@@ -5,6 +5,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { api, type LinearIssueDetail } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { miniMarkdown } from "../lib/miniMarkdown";
+import { issuePattern, type IssueLinks } from "../lib/noteLive";
 import { editorTheme } from "../lib/cmTheme";
 import { focusTerm, targetTerm } from "../lib/termFocus";
 import { projectSession } from "../lib/session";
@@ -65,7 +66,7 @@ function when(iso: string): string {
 /** Markdown that opens its links in the browser rather than navigating the app
  *  out of existence — a webview has no back button, so an unhandled click on
  *  an external link is unrecoverable. */
-function Markdown({ text }: { text: string }) {
+function Markdown({ text, issues }: { text: string; issues?: IssueLinks }) {
   return (
     <div
       className="iv-md"
@@ -74,10 +75,12 @@ function Markdown({ text }: { text: string }) {
         const href = a?.getAttribute("href");
         if (!href) return;
         e.preventDefault();
-        void api.openUrl(href);
+        // `ECL-141` in a description is the tab it names, not a browser tab
+        if (href.startsWith("issue:")) issues?.open(href.slice(6));
+        else void api.openUrl(href);
       }}
     >
-      {miniMarkdown(text, MD)}
+      {miniMarkdown(text, { ...MD, issues: issuePattern(issues) ?? undefined })}
     </div>
   );
 }
@@ -153,6 +156,7 @@ export function IssueView({
   identifier,
   visible,
   onOpenTerminalOn,
+  issues,
 }: {
   root: string;
   id: string;
@@ -160,6 +164,8 @@ export function IssueView({
   visible: boolean;
   /** open a terminal already running a command — the start button below */
   onOpenTerminalOn: (boot: string) => void;
+  /** other issues this one mentions, opened as tabs — see `issueLinks` */
+  issues?: IssueLinks;
 }) {
   const [issue, setIssue] = useState<LinearIssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -453,7 +459,7 @@ export function IssueView({
           onCancel={() => setEditing(false)}
         />
       ) : issue.description ? (
-        <Markdown text={issue.description} />
+        <Markdown text={issue.description} issues={issues} />
       ) : (
         <p className="iv-dim">No description.</p>
       )}
@@ -476,7 +482,7 @@ export function IssueView({
                   <span className="iv-who">{c.author}</span>
                   <span className="iv-dim">{when(c.createdAt)}</span>
                 </div>
-                <Markdown text={c.body} />
+                <Markdown text={c.body} issues={issues} />
               </div>
             ))}
         </>

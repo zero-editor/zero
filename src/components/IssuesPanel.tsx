@@ -11,6 +11,7 @@ import {
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 import { api, type LinearCycle, type LinearIssue } from "../lib/api";
+import { refreshIssueKeys } from "../lib/issueKeys";
 import { Chevron } from "./Chevron";
 import { contextMenu } from "../lib/contextMenu";
 import { projectSession, saveProject } from "../lib/session";
@@ -624,6 +625,7 @@ export function IssuesPanel({
     setBusy(true);
     try {
       await api.linearConnect(root, token.trim());
+      refreshIssueKeys(root);
       setToken("");
       setGate("loading");
       await load();

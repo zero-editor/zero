@@ -1,6 +1,6 @@
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorState, Extension, Range, StateField, Text } from "@codemirror/state";
+import { EditorState, Extension, Facet, Range, StateField, Text } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import { api } from "./api";
 
@@ -219,6 +219,32 @@ const fenceMark = Decoration.mark({ class: "nl-fence" });
 const hideFence = Decoration.replace({});
 const line = (cls: string) => Decoration.line({ class: cls });
 const link = (href: string) => Decoration.mark({ class: "nl-link", attributes: { "data-href": href } });
+const issueLink = (id: string) =>
+  Decoration.mark({ class: "nl-link nl-issue", attributes: { "data-issue": id } });
+
+/**
+ * Bare Linear identifiers — `ECL-141` — drawn as links and opened, on
+ * ⌘-click, as the issue tab the sidebar would open. Off unless the project is
+ * connected to Linear, and then only for that workspace's own team keys, so
+ * `UTF-8` and `SHA-256` never light up: a false link in a note is worse than
+ * no link, since the note is the one place the text is meant to be trusted.
+ * Nothing is written into the markdown — the identifier stays the plain
+ * token it was, and reads as one anywhere else.
+ */
+export type IssueLinks = { keys: string[]; open: (identifier: string) => void };
+export const issueLinks = Facet.define<IssueLinks, IssueLinks | null>({
+  combine: (v) => v.find((x) => x.keys.length > 0) ?? null,
+});
+
+/** the identifiers to look for, as one pattern, or nothing when there are no keys */
+export function issuePattern(links: IssueLinks | null | undefined): RegExp | null {
+  if (!links?.keys.length) return null;
+  const alt = links.keys.map((k) => k.replace(/[^A-Za-z0-9]/g, "\\$&")).join("|");
+  return new RegExp(`(?<![A-Za-z0-9-])(?:${alt})-\\d+(?![A-Za-z0-9-])`, "g");
+}
+
+/** inside code, or already inside a link: the token there is not one */
+const NO_LINK = /^(?:InlineCode|CodeText|FencedCode|CodeBlock|URL|Link|Autolink|HTMLTag|HTMLBlock)$/;
 
 const HEADING = /^ATXHeading([1-6])$/;
 const TASK = /^\[[ xX]\]$/;
@@ -351,6 +377,19 @@ function build(view: EditorView): DecorationSet {
       },
     });
   }
+  const pattern = issuePattern(state.facet(issueLinks));
+  if (pattern) {
+    for (const { from, to } of ranges) {
+      const text = doc.sliceString(from, to);
+      for (const m of text.matchAll(pattern)) {
+        const start = from + m.index;
+        let node: SyntaxNode | null = tree.resolveInner(start, 1);
+        for (; node; node = node.parent) if (NO_LINK.test(node.name)) break;
+        if (node) continue;
+        out.push(issueLink(m[0]).range(start, start + m[0].length));
+      }
+    }
+  }
   return Decoration.set(out, true);
 }
 
@@ -415,6 +454,7 @@ const plugin = ViewPlugin.fromClass(
         u.docChanged ||
         u.selectionSet ||
         u.viewportChanged ||
+        u.state.facet(issueLinks) !== u.startState.facet(issueLinks) ||
         syntaxTree(u.state) !== syntaxTree(u.startState)
       )
         this.decorations = build(u.view);
@@ -423,12 +463,19 @@ const plugin = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
-/** ⌘-click on a link opens it in the browser; a plain click puts the cursor
- *  in it, because this is still an editor and the text is still editable */
+/** ⌘-click on a link opens it in the browser, and on an identifier opens the
+ *  issue; a plain click puts the cursor in it, because this is still an editor
+ *  and the text is still editable */
 const openLinks = EditorView.domEventHandlers({
-  mousedown(event) {
+  mousedown(event, view) {
     if (!event.metaKey || event.button !== 0) return false;
     const a = (event.target as HTMLElement).closest?.(".nl-link");
+    const issue = a?.getAttribute("data-issue");
+    if (issue) {
+      event.preventDefault();
+      view.state.facet(issueLinks)?.open(issue);
+      return true;
+    }
     const href = a?.getAttribute("data-href");
     if (!href || !/^(?:https?:\/\/|mailto:)/i.test(href)) return false;
     event.preventDefault();

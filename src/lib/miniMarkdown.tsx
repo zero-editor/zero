@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 /**
  * Enough Markdown to read a memo by, and not one construct more.
@@ -44,6 +44,13 @@ export type MdOptions = {
    * right answer — "[x]" is a thing people say.
    */
   tasks?: (line: number) => void;
+  /**
+   * Bare Linear identifiers — `ECL-141` — as links, with `issue:ECL-141` for
+   * an href the caller's click handler turns into the tab. The pattern is
+   * built from the workspace's own team keys by whoever has them; there is
+   * no default, so a memo never guesses that `UTF-8` is a ticket.
+   */
+  issues?: RegExp;
 };
 
 /** the memo, and the default: everything below asks `opts.x` and gets nothing */
@@ -137,8 +144,28 @@ function inline(text: string, opts: MdOptions = PLAIN): ReactNode[] {
             </a>
           );
       }
+      if (opts.issues) return issueLinks(part, opts.issues, i);
       return part;
     });
+}
+
+/** plain text with its identifiers linked — the text around them untouched */
+function issueLinks(text: string, pattern: RegExp, key: number): ReactNode {
+  pattern.lastIndex = 0;
+  const out: ReactNode[] = [];
+  let pos = 0;
+  for (const m of text.matchAll(pattern)) {
+    if (m.index > pos) out.push(text.slice(pos, m.index));
+    out.push(
+      <a key={m.index} href={`issue:${m[0]}`} className="md-issue">
+        {m[0]}
+      </a>,
+    );
+    pos = m.index + m[0].length;
+  }
+  if (!out.length) return text;
+  if (pos < text.length) out.push(text.slice(pos));
+  return <Fragment key={key}>{out}</Fragment>;
 }
 
 /** `- a`, `* a`, `1. a` — how deep it is, which kind it is, and what it says.

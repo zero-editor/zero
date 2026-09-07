@@ -12,7 +12,7 @@ import { changeGutter, setBaseline } from "../lib/changeGutter";
 import { pokeGit } from "../lib/gitStatus";
 import { minimalChange } from "../lib/minimalChange";
 import { notePaste } from "../lib/notePaste";
-import { noteLive } from "../lib/noteLive";
+import { noteLive, issueLinks, type IssueLinks } from "../lib/noteLive";
 import { onNoteEnd } from "../lib/notes";
 
 /**
@@ -42,6 +42,7 @@ export function FileView({
   line,
   visible,
   note,
+  issues,
   onOpenFile,
 }: {
   absPath: string;
@@ -52,6 +53,9 @@ export function FileView({
    *  tidied on the way in, ⌘⌥N can put the cursor at the end of it, and it
    *  saves itself. Every other file behaves exactly as it always has. */
   note?: string;
+  /** the Linear team keys and what a ⌘-click on `ECL-141` does — see
+   *  `issueLinks`. Absent, or with no keys, no identifier is a link. */
+  issues?: IssueLinks;
   /** ⌘-click resolved to a definition somewhere */
   onOpenFile: (abs: string, line?: number) => void;
 }) {
@@ -65,6 +69,8 @@ export function FileView({
   // the live face sits in a compartment so the tabs can switch it under the
   // cursor without rebuilding the editor
   const liveRef = useRef(new Compartment());
+  // and the keys in another, so they can arrive after the editor is built
+  const issuesRef = useRef(new Compartment());
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const dirtyRef = useRef(false);
@@ -148,7 +154,13 @@ export function FileView({
             autosave();
           }),
           ...(note ? [notePaste(note)] : []),
-          ...(md ? [noteKeys(), liveRef.current.of(modeRef.current === "live" ? noteLive() : [])] : []),
+          ...(md
+            ? [
+                noteKeys(),
+                liveRef.current.of(modeRef.current === "live" ? noteLive() : []),
+                issuesRef.current.of(issues ? issueLinks.of(issues) : []),
+              ]
+            : []),
           modClick(
             () => absPath,
             (abs, ln) => onOpenFileRef.current(abs, ln)
@@ -252,6 +264,14 @@ export function FileView({
       viewRef.current = null;
     };
   }, [absPath, note]);
+
+  // the keys land a fetch after the first note opens; the identifiers in it
+  // light up when they do
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!md || !view) return;
+    view.dispatch({ effects: issuesRef.current.reconfigure(issues ? issueLinks.of(issues) : []) });
+  }, [issues, md]);
 
   // search jump on an already-open file
   useEffect(() => {

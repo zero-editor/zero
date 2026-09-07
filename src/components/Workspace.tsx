@@ -38,6 +38,8 @@ import { useSearch } from "../lib/search";
 import { folders } from "../lib/folders";
 import { useMemos } from "../lib/memos";
 import { api } from "../lib/api";
+import { useIssueKeys } from "../lib/issueKeys";
+import type { IssueLinks } from "../lib/noteLive";
 import { goToNoteEnd } from "../lib/notes";
 
 export type View =
@@ -310,12 +312,18 @@ export const Workspace = memo(function Workspace({
     setDocPanes((prev) => {
       for (const pid of paneIdsRef.current) {
         const dp = prev[pid];
-        const idx = dp ? dp.views.findIndex((x) => x.key === v.key) : -1;
+        // an issue is one tab whether it was opened from the sidebar, by uuid,
+        // or from an identifier in a note — the key differs, the issue doesn't
+        const same = (x: View) =>
+          x.key === v.key ||
+          (v.kind === "issue" && x.kind === "issue" && x.identifier === v.identifier);
+        const idx = dp ? dp.views.findIndex(same) : -1;
         if (dp && idx >= 0) {
           setActivePane(pid);
-          // refresh in place — a search jump carries a new line target
+          // refresh in place — a search jump carries a new line target; a
+          // matched issue keeps the tab it has, since the tab is already right
           const views = [...dp.views];
-          views[idx] = v;
+          if (views[idx].key === v.key) views[idx] = v;
           return { ...prev, [pid]: { views, activeView: idx } };
         }
       }
@@ -325,6 +333,24 @@ export const Workspace = memo(function Workspace({
       return { ...prev, [pid]: { views: [...dp.views, v], activeView: dp.views.length } };
     });
   }, []);
+
+  /**
+   * `ECL-141` in a note, ⌘-clicked: the same tab the sidebar row opens.
+   * Linear's `issue(id:)` takes the human identifier as readily as the uuid,
+   * so the tab can be opened on the identifier alone and fetch from it.
+   */
+  const issueKeys = useIssueKeys(project.root);
+  const issues = useMemo<IssueLinks | undefined>(
+    () =>
+      issueKeys.length
+        ? {
+            keys: issueKeys,
+            open: (identifier) =>
+              openView({ kind: "issue", key: `issue:${identifier}`, id: identifier, identifier }),
+          }
+        : undefined,
+    [issueKeys, openView],
+  );
 
   // an untitled buffer turns into a real file view once it's saved somewhere
   const replaceView = useCallback((paneId: string, idx: number, v: View) => {
@@ -1687,6 +1713,7 @@ export const Workspace = memo(function Workspace({
             // a memo tab draws its own live title and records its own
             // follow-ups, both of which are this object
             memos={memos}
+            issues={issues}
           />
         </div>
       ))}

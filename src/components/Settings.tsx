@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type LinearConnection } from "../lib/api";
+import { refreshIssueKeys } from "../lib/issueKeys";
 import { EDITOR_THEME_CHOICES } from "../lib/cmTheme";
 import { updateSettings, useSettings } from "../lib/settings";
 import { FIELDS } from "../lib/settings";
@@ -315,7 +316,10 @@ export function Settings({ onClose }: { onClose: () => void }) {
                       className="settings-conn-x"
                       title={`disconnect ${c.root}`}
                       onClick={() => {
-                        void api.linearDisconnect(c.root).then(refreshConnections);
+                        void api.linearDisconnect(c.root).then(() => {
+                          refreshIssueKeys(c.root);
+                          refreshConnections();
+                        });
                       }}
                     >
                       Disconnect

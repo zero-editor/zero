@@ -277,3 +277,13 @@
 .nl-link:hover {
   text-decoration: underline;
 }
+
+/* an identifier in a note or a description, drawn as the link it is */
+.md-issue {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.md-issue:hover {
+  text-decoration: underline;
+}

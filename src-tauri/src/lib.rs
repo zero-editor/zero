@@ -231,6 +231,7 @@ pub fn run() {
             linear::linear_connections,
             linear::linear_issues,
             linear::linear_issue,
+            linear::linear_teams,
             linear::linear_save_description,
             linear::linear_prompt_file,
             git::git_head_file,
