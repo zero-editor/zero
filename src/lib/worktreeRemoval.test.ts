@@ -1,4 +1,4 @@
-import { deletableWorktrees, removeWorktree, removeWorktrees } from "./worktreeRemoval";
+import { deletableWorktrees, remainingRemovalFailures, removeWorktree, removeWorktrees } from "./worktreeRemoval";
 
 // Run with esbuild --bundle --platform=node --format=esm, then node.
 function equal(actual: unknown, expected: unknown) {
@@ -21,7 +21,13 @@ const failures = await removeWorktrees(worktrees, "/ui", async (root, path, forc
   if (path === bot.path) throw new Error("locked");
 }, (done, total) => progress.push([done, total]));
 equal(calls, [["/ui", ui.path, true], ["/bot", bot.path, true], ["/backend", backend.path, true]]);
-equal(failures, [`${bot.path}: Error: locked`]);
+equal(failures, [{ path: bot.path, message: "Error: locked" }]);
+// A later refresh or successful single delete resolves only the missing paths.
+equal(remainingRemovalFailures(failures, [main("/bot"), bot]), failures);
+equal(remainingRemovalFailures(failures, [main("/bot"), ui]), []);
+equal(remainingRemovalFailures(failures, []), []);
+equal(remainingRemovalFailures([...failures, { path: ui.path, message: "busy" }], [ui]),
+  [{ path: ui.path, message: "busy" }]);
 equal(progress, [[0, 3], [1, 3], [2, 3]]);
 
 // Both the normal single deletion and its force retry must use the owner.

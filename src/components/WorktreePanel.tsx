@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { api, FileChange } from "../lib/api";
 import { contextMenu, fileEntries } from "../lib/contextMenu";
@@ -6,7 +6,7 @@ import { FileIconSpan } from "./FileIcon";
 import { Chevron } from "./Chevron";
 import { pokeGit, STATUS_NAME, useGitStatusMany, WorktreeChanges } from "../lib/gitStatus";
 import { baseName, folders, isMulti } from "../lib/folders";
-import { deletableWorktrees, removeWorktree, removeWorktrees } from "../lib/worktreeRemoval";
+import { deletableWorktrees, remainingRemovalFailures, removeWorktree, removeWorktrees, WorktreeRemovalFailure } from "../lib/worktreeRemoval";
 import type { Project } from "../App";
 import type { View } from "./Workspace";
 
@@ -93,8 +93,19 @@ export function WorktreePanel({
   const multi = isMulti(project);
   const git = useGitStatusMany(mine, active);
   const worktrees = git.worktrees;
-  const [failed, setFailed] = useState<string | null>(null);
-  const error = failed ?? git.error;
+  const [failed, setFailed] = useState<WorktreeRemovalFailure[]>([]);
+  // Keep failures only while their worktrees still exist. An unreadable Git
+  // snapshot cannot establish that a worktree has disappeared.
+  useEffect(() => {
+    if (git.error || git.epoch === 0) return;
+    setFailed((previous) => {
+      const remaining = remainingRemovalFailures(previous, worktrees);
+      return remaining.length === previous.length ? previous : remaining;
+    });
+  }, [worktrees, git.error, git.epoch]);
+  const error = failed.length
+    ? `Could not delete ${failed.length} worktree(s):\n${failed.map((f) => `${f.path}: ${f.message}`).join("\n")}`
+    : git.error;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -135,12 +146,12 @@ export function WorktreePanel({
       { title: "Delete all worktrees", kind: "warning" }
     );
     if (!ok) return;
-    setFailed(null);
+    setFailed([]);
     setNotice(null);
     try {
       const failures = await removeWorktrees(deletable, project.root, api.worktreeRemove,
         (done, total) => setDeleting({ done, total }));
-      if (failures.length) setFailed(`Could not delete ${failures.length} worktree(s):\n${failures.join("\n")}`);
+      setFailed(failures);
     } finally {
       setDeleting(null);
       pokeGit();
@@ -492,7 +503,14 @@ export function WorktreePanel({
           </div>
         );
       })}
-      {error && <div className="panel-error" role="alert">{error}</div>}
+      {error && <div className="panel-error" role="alert">
+        {error}
+        {failed.length > 0 && (
+          <button className="wt-error-dismiss" onClick={() => setFailed([])} aria-label="Dismiss deletion error">
+            dismiss
+          </button>
+        )}
+      </div>}
       {notice && (
         <div className="wt-notice" onClick={() => setNotice(null)}>
           {notice}

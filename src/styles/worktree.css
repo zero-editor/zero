@@ -680,3 +680,11 @@
   color: var(--text-dim);
   background: var(--bg-raised);
 }
+
+.wt-error-dismiss {
+  display: block;
+  margin-top: 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
