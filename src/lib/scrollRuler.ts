@@ -155,12 +155,14 @@ export function scrollRuler(
       /** The scrollbar-thumb identity: height is the visible fraction of
        *  the file, the way the scrollbar it replaces draws it, with only
        *  the minimum every scrollbar has so it stays grabbable in a file
-       *  long enough to shrink it to a sliver. When the minimum applies the
-       *  thumb can't sit at the scrolled fraction — it would hang past the
-       *  end — so it travels the way every scrollbar with a minimum thumb
-       *  does: progress through the file maps to progress through the room
-       *  the thumb has left. A file that fits entirely spans the whole
-       *  strip rather than disappearing. */
+       *  long enough to shrink it to a sliver. Unlike a scrollbar, though,
+       *  it sits among marks that are placed at their true fraction of the
+       *  file, so it must be true too: it is centred on the middle of the
+       *  viewport and only pushed inward at the ends of the strip where the
+       *  minimum would hang it past the edge. Mapping progress onto the
+       *  room the thumb has left — the scrollbar convention — drifts it
+       *  away from the lines actually on screen in a long file. A file that
+       *  fits entirely spans the whole strip rather than disappearing. */
       placeThumb() {
         if (!this.isDiff) return;
         const s = this.scrollEl;
@@ -168,9 +170,9 @@ export function scrollRuler(
         const strip = this.dom.clientHeight;
         const minH = strip ? Math.min(MIN_THUMB_PX / strip, 1) : 0;
         const h = Math.max(visible, minH);
-        const span = s.scrollHeight - s.clientHeight;
-        const progress = span > 0 ? s.scrollTop / span : 0;
-        this.thumb.style.top = `${progress * (1 - h) * 100}%`;
+        const center = s.scrollHeight ? (s.scrollTop + s.clientHeight / 2) / s.scrollHeight : 0.5;
+        const top = clamp(center - h / 2, 0, 1 - h);
+        this.thumb.style.top = `${top * 100}%`;
         this.thumb.style.height = `${h * 100}%`;
       }
 
