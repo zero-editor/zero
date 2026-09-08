@@ -79,6 +79,10 @@ export interface ProjectSession {
    *  migration below into `linearIssuePrompts.todo` — the kind whose default
    *  it was — and never written again */
   linearIssuePrompt?: string;
+  /** which cycles, projects, teams, people and labels the Issues panel is
+   *  narrowed to. The panel unmounts with every switch away from its tab, so
+   *  without this a filter lasted exactly as long as you were looking at it. */
+  linearFilter: Record<string, string[]>;
 }
 
 interface Session {
@@ -216,6 +220,18 @@ function validIssuePrompts(v: unknown, old: unknown): Record<string, string> | u
   return { ...out, todo: old };
 }
 
+/** The Issues panel's filter: axis name to the values it is narrowed to. The
+ *  values are names the panel matches against what Linear sends, so one that
+ *  no longer exists simply selects nothing and is cleared from the panel. */
+function validFilter(v: unknown): Record<string, string[]> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, string[]> = {};
+  for (const [axis, vals] of Object.entries(v as Record<string, unknown>)) {
+    if (axis && Array.isArray(vals)) out[axis] = vals.filter((x) => typeof x === "string");
+  }
+  return out;
+}
+
 function validProjectSession(v: unknown): Partial<ProjectSession> {
   if (!v || typeof v !== "object") return {};
   const p = v as Partial<ProjectSession>;
@@ -247,6 +263,7 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     activePane: typeof p.activePane === "string" ? p.activePane : undefined,
     linearPrompts: validPrompts(p.linearPrompts),
     linearIssuePrompts: validIssuePrompts(p.linearIssuePrompts, p.linearIssuePrompt),
+    linearFilter: validFilter(p.linearFilter),
   };
 }
 

@@ -572,7 +572,23 @@ export function IssuesPanel({
   const [shut, setShut] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  // Kept in the project session: the panel is unmounted every time the
+  // sidebar shows another tab, and a filter that reset on each visit back was
+  // the bug that put it there.
+  const [filter, setFilter] = useState<Filter>(() => {
+    const saved = projectSession(root).linearFilter ?? {};
+    const axis = (k: keyof Filter) => saved[k] ?? [];
+    return {
+      cycles: axis("cycles"),
+      projects: axis("projects"),
+      teams: axis("teams"),
+      people: axis("people"),
+      labels: axis("labels"),
+    };
+  });
+  useEffect(() => {
+    saveProject(root, { linearFilter: { ...filter } });
+  }, [root, filter]);
   const [filtering, setFiltering] = useState(false);
   const [token, setToken] = useState("");
   /** the run buttons' prompts, by state group — only the edited ones, so a
