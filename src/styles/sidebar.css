@@ -114,3 +114,8 @@
 .sidebar.collapsed .sidebar-fold {
   width: 100%;
 }
+
+/* the tree ends where it ends: no rubber band past the last row */
+.sidebar-body {
+  overscroll-behavior: none;
+}

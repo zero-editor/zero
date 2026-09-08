@@ -95,6 +95,15 @@ export function DiffView({
       if (disposed || !hostRef.current) return;
       loadedRef.current = docs;
       dirtyRef.current = false;
+      // No line wrapping on either side, unlike the file view. The panes are
+      // document-tall and the wrapper scrolls, so CodeMirror can't hold the
+      // scroll anchor when a line it had only estimated turns out taller —
+      // and with wrapping, every long line off-screen is an estimate. The
+      // merge view rebuilds its alignment spacers from those heights on each
+      // scroll, so the two panes reflowed and jumped under the pointer while
+      // scrolling, worst on a ruler jump into unmeasured territory. Fixed-
+      // height lines are known before they're seen. Long lines scroll
+      // sideways within their pane instead, the way VS Code's diff does.
       mergeRef.current = new MergeView({
         parent: hostRef.current,
         a: {
@@ -103,7 +112,6 @@ export function DiffView({
             lineNumbers(),
             EditorView.editable.of(false),
             EditorState.readOnly.of(true),
-            EditorView.lineWrapping,
             editorTheme(),
             charDiff(() => mergeRef.current?.b.state.doc ?? null),
             langA.of(langFor(relPath)),
@@ -113,7 +121,6 @@ export function DiffView({
           doc: docs.b,
           extensions: [
             basicSetup,
-            EditorView.lineWrapping,
             editorTheme(),
             diffRuler(() => mergeRef.current?.a.state.doc ?? null),
             charDiff(() => mergeRef.current?.a.state.doc ?? null),

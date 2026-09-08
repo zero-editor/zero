@@ -509,6 +509,8 @@ html.subzero .sidebar-body {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  /* the tree ends where it ends: no rubber band past the last row */
+  overscroll-behavior: none;
 }
 
 /* Folded: the run alone, and nothing about it moves — the same padding

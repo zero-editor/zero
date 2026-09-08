@@ -419,9 +419,20 @@
 }
 
 /* in a diff the wrapper scrolls, not the panes — a pane is document-tall, and
-   a layer that tall is texture memory bought for nothing */
+   a layer that tall is texture memory bought for nothing. Sideways is the
+   pane's own: the diff doesn't wrap (see DiffView.tsx), so a long line scrolls
+   within its side. `overflow-y` stays a no-op — the scroller is as tall as its
+   content, so nothing is ever there to scroll vertically. */
 .cm-host .cm-mergeView .cm-scroller {
   transform: none;
+  overflow-x: auto;
+}
+
+/* reaching the end of a file shouldn't bounce it — the rubber band says
+   "you can scroll further", and there is nothing further */
+.cm-host .cm-scroller,
+.cm-host .cm-mergeView {
+  overscroll-behavior: none;
 }
 
 /* click-to-expand band standing in for skipped unchanged lines */
