@@ -11,6 +11,10 @@ import { focusTerm, targetTerm } from "../lib/termFocus";
 import { projectSession } from "../lib/session";
 import { bootCommand, composeIssuePrompt, inlineCommand, issueKind, issuePromptOf } from "../lib/issuePrompt";
 
+// Closing an issue tab should not discard the last detail we can show.
+const detailCache = new Map<string, LinearIssueDetail>();
+const detailKey = (root: string, id: string) => JSON.stringify([root, id]);
+
 /** Linear descriptions are written in a browser, where fences, tables and
  *  links all render — so unlike a voice memo, this text needs the parts
  *  `miniMarkdown` leaves alone by default. */
@@ -167,7 +171,7 @@ export function IssueView({
   /** other issues this one mentions, opened as tabs — see `issueLinks` */
   issues?: IssueLinks;
 }) {
-  const [issue, setIssue] = useState<LinearIssueDetail | null>(null);
+  const [issue, setIssue] = useState<LinearIssueDetail | null>(() => detailCache.get(detailKey(root, id)) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -176,29 +180,35 @@ export function IssueView({
   const [sent, setSent] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const live = useRef(true);
+  const generation = useRef(0);
 
   useEffect(() => {
     live.current = true;
     return () => {
       live.current = false;
+      generation.current++;
     };
-  }, []);
+  }, [root, id]);
 
   const load = useCallback(async () => {
+    const request = generation.current;
     try {
       const d = await api.linearIssue(root, id);
-      if (live.current) {
-        setIssue(d);
+      if (live.current && request === generation.current) {
+        detailCache.set(detailKey(root, id), d);
+        setIssue((current) => JSON.stringify(current) === JSON.stringify(d) ? current : d);
         setError(null);
       }
     } catch (e) {
-      if (live.current) setError(String(e));
+      if (live.current && request === generation.current) setError(String(e));
     }
   }, [root, id]);
 
   useEffect(() => {
+    setIssue(detailCache.get(detailKey(root, id)) ?? null);
+    setError(null);
     void load();
-  }, [load]);
+  }, [root, id, load]);
 
   // Coming back to a tab that has been sitting open for an hour should not
   // show an hour-old issue. Editing suspends it, so a refetch can't overwrite
@@ -216,7 +226,9 @@ export function IssueView({
     try {
       await api.linearSaveDescription(root, issue.id, text);
       if (!live.current) return;
-      setIssue({ ...issue, description: text });
+      const updated = { ...issue, description: text };
+      detailCache.set(detailKey(root, id), updated);
+      setIssue(updated);
       setEditing(false);
       setError(null);
     } catch (e) {

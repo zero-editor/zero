@@ -293,6 +293,8 @@ export const api = {
   /** the projects holding a token, and the workspace each is connected to */
   linearConnections: () => invoke<LinearConnection[]>("linear_connections"),
   linearIssues: (root: string) => invoke<LinearIssue[]>("linear_issues", { root }),
+  linearIssuesSince: (root: string, since: string) =>
+    invoke<LinearIssue[]>("linear_issues_since", { root, since }),
   /** the team keys — the prefix a bare identifier has to carry to be a link */
   linearTeams: (root: string) => invoke<string[]>("linear_teams", { root }),
   linearIssue: (root: string, id: string) =>

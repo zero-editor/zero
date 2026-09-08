@@ -230,6 +230,7 @@ pub fn run() {
             linear::linear_disconnect,
             linear::linear_connections,
             linear::linear_issues,
+            linear::linear_issues_since,
             linear::linear_issue,
             linear::linear_teams,
             linear::linear_save_description,

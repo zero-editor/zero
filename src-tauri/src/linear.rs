@@ -634,11 +634,32 @@ pub fn linear_disconnect(app: tauri::AppHandle, root: String) -> Result<(), Stri
     save_tokens(&app, &map)
 }
 
-/// The list the panel polls. One request; the local half is git, which is
+/// The full list for opening the panel. One request; the local half is git, which is
 /// three subprocesses and no network.
 #[tauri::command]
 pub async fn linear_issues(app: tauri::AppHandle, root: String) -> Result<Vec<Issue>, String> {
+    fetch_issues(app, root, None).await
+}
+
+#[tauri::command]
+pub async fn linear_issues_since(
+    app: tauri::AppHandle,
+    root: String,
+    since: String,
+) -> Result<Vec<Issue>, String> {
+    fetch_issues(app, root, Some(since)).await
+}
+
+async fn fetch_issues(
+    app: tauri::AppHandle,
+    root: String,
+    since: Option<String>,
+) -> Result<Vec<Issue>, String> {
     let token = read_token(&app, &root)?;
+    let filter = |existing: Value| match &since {
+        Some(since) => json!({ "and": [existing, { "updatedAt": { "gt": since } }] }),
+        None => existing,
+    };
 
     // Two lists in one round trip, which costs one request and 30 of the
     // 3,000,000 complexity an hour buys: the recent window, and the active
@@ -654,7 +675,7 @@ pub async fn linear_issues(app: tauri::AppHandle, root: String) -> Result<Vec<Is
     let data = gql(
         &token,
         &query,
-        json!({ "f": window_filter(), "c": active_cycle_filter() }),
+        json!({ "f": filter(window_filter()), "c": filter(active_cycle_filter()) }),
     )
     .await?;
     let me = data.pointer("/viewer/id").and_then(|x| x.as_str()).unwrap_or("").to_string();

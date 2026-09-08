@@ -31,12 +31,22 @@ import {
   type IssueKind,
 } from "../lib/issuePrompt";
 
-/** How often the list is refetched while you're looking at it. A Linear query
- *  is one request of a few kilobytes against a 2500/hour budget, so this could
- *  be far shorter; what stops it is that nothing here changes on a keystroke.
- *  An issue moves when a person moves it, and a minute-old answer to that is
- *  not a stale one. Coming back to the window refetches regardless. */
-const POLL_MS = 60_000;
+const POLL_MS = 10_000;
+const FULL_SYNC_MS = 5 * 60_000;
+
+// The sidebar unmounts this panel between tabs; its last answer should survive.
+const issueCache = new Map<string, {
+  issues: LinearIssue[];
+  lastSync: string;
+  lastFullSync: number;
+  awaySince: number | null;
+}>();
+
+// An empty workspace has no server timestamp yet. Starting at the epoch keeps
+// the first new issue discoverable without trusting this machine's clock.
+const newestUpdate = (issues: LinearIssue[], since = "1970-01-01T00:00:00.000Z") =>
+  issues.reduce((latest, issue) =>
+    Date.parse(issue.updatedAt) > Date.parse(latest) ? issue.updatedAt : latest, since);
 
 /** Which kinds of state come first. Linear's `position` orders states within a
  *  type but the types themselves have no order in the API, and the one that
@@ -556,8 +566,8 @@ export function IssuesPanel({
   onOpenTerminalOn: (boot: string) => void;
 }) {
   const root = project.root;
-  const [gate, setGate] = useState<Gate>("loading");
-  const [issues, setIssues] = useState<LinearIssue[]>([]);
+  const [gate, setGate] = useState<Gate>(() => issueCache.has(root) ? "ready" : "loading");
+  const [issues, setIssues] = useState<LinearIssue[]>(() => issueCache.get(root)?.issues ?? []);
   const [error, setError] = useState<string | null>(null);
   const [shut, setShut] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -581,53 +591,110 @@ export function IssuesPanel({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [draft, setDraft] = useState("");
   const live = useRef(true);
+  const fetching = useRef(false);
+  const generation = useRef(0);
+  const currentIssues = useRef(issues);
 
   useEffect(() => {
     live.current = true;
+    const cached = issueCache.get(root);
+    currentIssues.current = cached?.issues ?? [];
+    setIssues(currentIssues.current);
+    setGate(cached ? "ready" : "loading");
     return () => {
       live.current = false;
+      generation.current++;
+      fetching.current = false;
+      const cached = issueCache.get(root);
+      if (cached) cached.awaySince ??= Date.now();
     };
-  }, []);
+  }, [root]);
 
-  const load = useCallback(async () => {
-    if (!(await api.linearConnected(root))) {
-      if (live.current) setGate("no-token");
-      return;
-    }
-    setBusy(true);
+  const refresh = useCallback(async (full: boolean) => {
+    if (fetching.current) return;
+    fetching.current = true;
+    const request = generation.current;
+    const current = () => live.current && request === generation.current;
     try {
-      const list = await api.linearIssues(root);
-      if (!live.current) return;
-      setIssues(list);
+      if (full && !(await api.linearConnected(root))) {
+        if (!current()) return;
+        issueCache.delete(root);
+        setGate("no-token");
+        return;
+      }
+      if (!current()) return;
+      const cached = issueCache.get(root);
+      const list = full || !cached
+        ? await api.linearIssues(root)
+        : await api.linearIssuesSince(root, cached.lastSync);
+      if (!current()) return;
+      if (!full && cached && list.length === 0) return;
+      const merged = full || !cached ? list : [...new Map([
+        ...cached.issues.map((i) => [i.id, i] as const),
+        ...list.map((i) => [i.id, i] as const),
+      ]).values()];
+      // Both paths use the displayed order, so touching an issue cannot move
+      // it within its state unless its priority changes.
+      const next = group(merged).flatMap((g) => g.rows);
+      if (JSON.stringify(next) !== JSON.stringify(currentIssues.current)) {
+        currentIssues.current = next;
+        setIssues(next);
+      }
+      issueCache.set(root, {
+        issues: currentIssues.current,
+        lastSync: newestUpdate(list, full ? undefined : cached?.lastSync),
+        lastFullSync: full || !cached ? Date.now() : cached.lastFullSync,
+        awaySince: cached?.awaySince ?? null,
+      });
       setError(null);
       setGate("ready");
     } catch (e) {
-      if (live.current) {
+      if (current()) {
         setError(String(e));
         setGate("ready");
       }
     } finally {
-      if (live.current) setBusy(false);
+      if (current()) {
+        fetching.current = false;
+        setBusy(false);
+      }
     }
   }, [root]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const load = useCallback(() => refresh(true), [refresh]);
+  const wake = useCallback(() => {
+    const cached = issueCache.get(root);
+    // Archived or deleted issues never appear in a delta. A full refetch
+    // after a long absence is what drops them from the cached list.
+    const full = !cached || Date.now() - (cached.awaySince ?? cached.lastFullSync) > FULL_SYNC_MS;
+    if (cached) cached.awaySince = null;
+    void refresh(full);
+  }, [root, refresh]);
 
-  // Only worth polling while it is the panel on screen. Coming back to the
-  // window refetches whatever the interval missed, which is the case that
-  // actually matters: a laptop shut for an hour.
   useEffect(() => {
-    if (gate !== "ready" || !active) return;
-    const t = window.setInterval(() => void load(), POLL_MS);
-    const wake = () => void load();
+    if (!active) return;
+    wake();
+    const away = () => {
+      const cached = issueCache.get(root);
+      if (cached) cached.awaySince ??= Date.now();
+    };
+    // The branch and worktree half of a row is git, and only the full fetch
+    // reads it — so one still runs every few minutes while you are here, or a
+    // branch made for an issue would not show on its row until you left.
+    const t = window.setInterval(() => {
+      const cached = issueCache.get(root);
+      if (!document.hasFocus() || !cached) return;
+      void refresh(Date.now() - cached.lastFullSync > FULL_SYNC_MS);
+    }, POLL_MS);
+    window.addEventListener("blur", away);
     window.addEventListener("focus", wake);
     return () => {
+      away();
       window.clearInterval(t);
+      window.removeEventListener("blur", away);
       window.removeEventListener("focus", wake);
     };
-  }, [gate, active, load]);
+  }, [active, root, refresh, wake]);
 
   const connect = async () => {
     setError(null);
