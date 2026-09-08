@@ -435,6 +435,66 @@ export function collectRects(
   });
 }
 
+/**
+ * The sidebar's split, re-shared so the sidebar draws at `w` percent of the
+ * field again. Shares are renormalised among the *visible* children of a
+ * split when drawn, so a terminal hidden or shown beside the sidebar — or
+ * one closed, or one opened — stretches or squeezes the sidebar with it,
+ * though nothing touched it. This solves for the stored share that lands
+ * the sidebar back where it was, and lets its siblings take the difference.
+ * The one limit: the siblings keep at least a usable pane each, so a wide
+ * terminal reappearing beside a narrow editor does push into the sidebar
+ * rather than crush the editor — but only that far, and no further.
+ * Null when there is nothing to correct.
+ */
+export function pinnedSidebar(
+  root: LayoutNode,
+  hidden: ReadonlySet<string>,
+  w: number,
+  hostPx: number
+): { path: number[]; sizes: number[] } | null {
+  const path = pathOf(root, SIDEBAR);
+  if (!path || path.length === 0) return null;
+  const parentPath = path.slice(0, -1);
+  const parent = nodeAt(root, parentPath);
+  if (!parent || parent.type !== "split" || parent.dir !== "row") return null;
+  const idx = path[path.length - 1];
+  const sizes = sizesOf(parent);
+  const vis = parent.children.map((c) => !subtreeHidden(c, hidden));
+  if (!vis[idx]) return null;
+  const drawn: { id: string; rect: Rect }[] = [];
+  collectRects(root, { x: 0, y: 0, w: 100, h: 100 }, [], hidden, drawn, []);
+  const r = drawn.find((p) => p.id === SIDEBAR)?.rect;
+  if (!r || !(r.w > 0)) return null;
+  const visSum = sizes.reduce((a, s, i) => (vis[i] ? a + s : a), 0);
+  const others = visSum - sizes[idx];
+  const nOthers = vis.filter(Boolean).length - 1;
+  if (others <= 0 || nOthers <= 0) return null;
+  // the split's own width, in percent of the field
+  const hostW = (r.w * visSum) / sizes[idx];
+  const minFrac = Math.min(0.15, 60 / Math.max((hostPx * hostW) / 100, 1));
+  const t = Math.min(Math.max(w / hostW, 0.01), Math.max(1 - nOthers * minFrac, 0.01));
+  const want = (t * others) / (1 - t);
+  // the siblings take the difference in proportion — except that none may
+  // come out under the minimum, so a narrow editor beside a wide terminal
+  // is topped up from the widest sibling rather than crushed
+  const next = sizes.map((v, i) => (i === idx ? want : v));
+  const total0 = want + others;
+  const floor = minFrac * total0;
+  const vidx = vis.flatMap((v, i) => (v && i !== idx ? [i] : []));
+  for (const i of vidx) {
+    if (next[i] >= floor) continue;
+    const widest = vidx.reduce((a, j) => (next[j] > next[a] ? j : a), vidx[0]);
+    if (widest === i) continue;
+    const give = Math.min(floor - next[i], Math.max(next[widest] - floor, 0));
+    next[i] += give;
+    next[widest] -= give;
+  }
+  if (next.every((v, i) => Math.abs(v - sizes[i]) < 1e-4)) return null;
+  const total = next.reduce((a, b) => a + b, 0);
+  return { path: parentPath, sizes: next.map((v) => v / total) };
+}
+
 /* ---------- boot commands ----------
    Commands to type into a terminal the moment its shell is up, keyed by the
    leaf created to run them. Module state rather than tree state so a restored

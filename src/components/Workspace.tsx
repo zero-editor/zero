@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../App";
 import { closeSeq } from "../lib/closeOrder";
 import { Sidebar, SidebarTab } from "./Sidebar";
@@ -20,6 +20,7 @@ import {
   seatedLeafAtRoot,
   sizesOf,
   pathOf,
+  pinnedSidebar,
   useLayoutTree,
   withSizes,
   type Divider,
@@ -1008,6 +1009,16 @@ export const Workspace = memo(function Workspace({
   const activeMemo = shown?.kind === "memo" ? shown.id : null;
 
   const rootRef = useRef<HTMLDivElement>(null);
+  /** the sidebar's last drawn width, and the layout it was drawn in */
+  const sidebarPin = useRef<{ sig: string; w: number } | null>(null);
+  /** a correction drawn this render, to be written into the tree after it */
+  const pinFix = useRef<{ path: number[]; sizes: number[] } | null>(null);
+  useLayoutEffect(() => {
+    const fix = pinFix.current;
+    if (!fix) return;
+    pinFix.current = null;
+    tree.setSizes(fix.path, fix.sizes);
+  });
 
   // ----- the fold, held in pixels -----
   // The folded sidebar's card: 4px, the 28px run of icons, and no room on the
@@ -1150,9 +1161,39 @@ export const Workspace = memo(function Workspace({
   const termIds = leafIds(tree.root).filter(isTerm);
   if (!terminalVisible) for (const id of termIds) hiddenIds.add(id);
 
+  // The sidebar holds its width through everything that happens beside it.
+  // Its share is renormalised among whatever siblings are visible, so a
+  // terminal hidden, shown, closed or opened in its split would stretch or
+  // squeeze it by the terminal's width. The last drawn width is remembered
+  // against a signature of the tree's leaves and what is hidden; when the
+  // signature moves and the width would, the share is re-solved to hold it
+  // (see pinnedSidebar) — drawn corrected this render, committed after it.
+  // A divider drag changes no signature, so a width the hand set is simply
+  // the next one remembered. Percent of the field rather than pixels: the
+  // field only changes with the window, and that scaling is fine.
+  const sig = `${leafIds(tree.root).join(",")}|${[...hiddenIds].sort().join(",")}`;
+  let drawnRoot = tree.root;
+  const pin = sidebarPin.current;
+  if (pin && pin.sig !== sig) {
+    const fix = pinnedSidebar(
+      tree.root,
+      hiddenIds,
+      pin.w,
+      rootRef.current?.getBoundingClientRect().width ?? 0
+    );
+    if (fix) {
+      drawnRoot = withSizes(tree.root, fix.path, fix.sizes);
+      pinFix.current = fix;
+    }
+  }
+
   const panes: { id: string; rect: Rect }[] = [];
   const dividers: Divider[] = [];
-  collectRects(tree.root, FIELD, [], hiddenIds, panes, dividers);
+  collectRects(drawnRoot, FIELD, [], hiddenIds, panes, dividers);
+  {
+    const r = panes.find((p) => p.id === SIDEBAR)?.rect;
+    sidebarPin.current = { sig, w: r ? r.w : (pin?.w ?? 20) };
+  }
   const rectOf = (id: string) => panes.find((p) => p.id === id)?.rect ?? null;
   /** where the aimed drop would put each pane, while one is aimed */
   const previewPanes: { id: string; rect: Rect }[] | null = previewRoot ? [] : null;
