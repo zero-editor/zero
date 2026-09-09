@@ -435,6 +435,16 @@
   overscroll-behavior: none;
 }
 
+/* ...except inside a diff, where the pane is not the thing that scrolls. A
+   pane's scroller is still a scroll container (CodeMirror gives it
+   `overflow-x: auto`), just one with nothing to scroll vertically, and with
+   `overscroll-behavior: none` WebKit swallows the wheel at that boundary
+   rather than chaining it up to the merge wrapper — so the diff went dead to
+   scrolling. The wrapper keeps `none` above, which is where the bounce lived. */
+.cm-host .cm-mergeView .cm-scroller {
+  overscroll-behavior: auto;
+}
+
 /* click-to-expand band standing in for skipped unchanged lines */
 .cm-host .cm-collapsedLines {
   color: var(--text-faint) !important;
