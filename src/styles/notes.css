@@ -287,3 +287,8 @@
 .md-issue:hover {
   text-decoration: underline;
 }
+
+.note-actions { justify-content: flex-end; }
+.note-actions .note-mode:disabled { opacity: 0.5; cursor: default; }
+.note-run-error { margin: 6px 12px; color: var(--text); font-size: 12px; }
+.note-view > .li-prompt { flex: none; max-height: 45%; overflow: auto; }

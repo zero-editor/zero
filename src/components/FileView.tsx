@@ -13,7 +13,13 @@ import { pokeGit } from "../lib/gitStatus";
 import { minimalChange } from "../lib/minimalChange";
 import { notePaste } from "../lib/notePaste";
 import { noteLive, issueLinks, type IssueLinks } from "../lib/noteLive";
+import { PromptEditor } from "./PromptEditor";
+import { contextMenu } from "../lib/contextMenu";
+import { projectSession, saveProject } from "../lib/session";
+import { bootCommand, inlineCommand } from "../lib/issuePrompt";
 import { onNoteEnd } from "../lib/notes";
+
+const DEFAULT_NOTE_PROMPT = "Work through the actionable items in this note. Mark completed items and leave questions beside anything unclear. Preserve unrelated notes and do not mark unfinished work complete.";
 
 /**
  * Markdown has two faces: the source, and the live one — the editor with its
@@ -44,7 +50,9 @@ export function FileView({
   note,
   issues,
   onOpenFile,
+  onOpenTerminalOn,
 }: {
+  onOpenTerminalOn: (boot: string) => void;
   absPath: string;
   line?: number;
   visible: boolean;
@@ -81,7 +89,38 @@ export function FileView({
   const onOpenFileRef = useRef(onOpenFile);
   onOpenFileRef.current = onOpenFile;
 
+  const [editingPrompt, setEditingPrompt] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [noteReady, setNoteReady] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const launchingRef = useRef(false);
+  const flushNoteRef = useRef<(() => Promise<void>) | null>(null);
+  const promptForNote = () => (note && projectSession(note).notePrompt?.trim()) || DEFAULT_NOTE_PROMPT;
+  const saveNotePrompt = (body: string) => {
+    if (note) saveProject(note, { notePrompt: body.trim() });
+    setEditingPrompt(false);
+  };
+  const runNote = async (body = promptForNote()) => {
+    if (!note || !flushNoteRef.current || launchingRef.current) return;
+    launchingRef.current = true;
+    setRunning(true);
+    setNoteError(null);
+    try {
+      await flushNoteRef.current();
+      const prompt = `${body.trim() || DEFAULT_NOTE_PROMPT}\n\nRead and update the note at this exact path: ${JSON.stringify(absPath)}`;
+      const path = await api.linearPromptFile(note, `note-${absPath.slice(note.length + 1)}`, prompt).catch(() => null);
+      onOpenTerminalOn(path ? bootCommand(path) : inlineCommand(prompt));
+    } catch (error) {
+      setNoteError(`Could not run note: ${String(error)}`);
+    } finally {
+      launchingRef.current = false;
+      setRunning(false);
+    }
+  };
+
   useEffect(() => {
+    setNoteReady(false);
     let disposed = false;
     let offEnd: (() => void) | null = null;
 
@@ -95,21 +134,29 @@ export function FileView({
      * it and make the whole feature something you cannot trust to catch things.
      */
     let saveTimer = 0;
-    const autosave = () => {
-      if (!note) return;
+    // Serialize saves so a pending autosave cannot overwrite the version Run reads.
+    let saving = Promise.resolve();
+    const saveNote = () => {
       window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => {
+      const next = saving.catch(() => {}).then(async () => {
         const view = viewRef.current;
         if (disposed || !view) return;
         const text = view.state.doc.toString();
         if (text === lastLoadedRef.current) return;
-        api.writeFile(absPath, text).then(() => {
-          if (disposed) return;
-          // both, or the refresh below reads the file it just wrote as somebody
-          // else's change and dispatches it back over the cursor
-          dirtyRef.current = false;
-          lastLoadedRef.current = text;
-        });
+        await api.writeFile(absPath, text);
+        if (disposed) return;
+        lastLoadedRef.current = text;
+        dirtyRef.current = view.state.doc.toString() !== text;
+        setNoteError(null);
+      });
+      saving = next;
+      return next;
+    };
+    const autosave = () => {
+      if (!note) return;
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        void saveNote().catch((error) => setNoteError(`Could not save note: ${String(error)}`));
       }, 700);
     };
     // the language sits in a compartment so a mode that has to be fetched can
@@ -172,6 +219,10 @@ export function FileView({
             {
               key: "Mod-s",
               run: (view) => {
+                if (note) {
+                  void saveNote().catch((error) => setNoteError(`Could not save note: ${String(error)}`));
+                  return true;
+                }
                 const text = view.state.doc.toString();
                 api.writeFile(absPath, text).then(() => {
                   dirtyRef.current = false;
@@ -193,6 +244,8 @@ export function FileView({
       // the jump below is the first press, whose request arrived before there
       // was anything to receive it.
       if (note) {
+        flushNoteRef.current = saveNote;
+        setNoteReady(true);
         goToEnd(viewRef.current);
         offEnd = onNoteEnd(absPath, () => {
           if (viewRef.current) goToEnd(viewRef.current);
@@ -255,6 +308,7 @@ export function FileView({
 
     return () => {
       disposed = true;
+      flushNoteRef.current = null;
       offEnd?.();
       window.clearTimeout(saveTimer);
       offSettings();
@@ -302,6 +356,35 @@ export function FileView({
         }
       }}
     >
+      {note && (
+        <>
+          <div className="note-modes note-actions">
+            <button
+              className="note-mode"
+              disabled={running || !noteReady}
+              title="Run a prompt on this note — right-click to edit it"
+              onClick={() => void runNote()}
+              onContextMenu={(e) => contextMenu(e, [
+                { text: "Edit Prompt…", run: () => { setDraft(promptForNote()); setEditingPrompt(true); } },
+                { text: "Reset Prompt to Default", run: () => saveNotePrompt("") },
+              ])}
+            >
+              {running ? "Starting…" : "▶ Run"}
+            </button>
+          </div>
+          {editingPrompt && (
+            <PromptEditor
+              value={draft}
+              note="Runs on this note · shared by all notes in this project · empty restores the default"
+              onChange={setDraft}
+              onCancel={() => setEditingPrompt(false)}
+              onSave={saveNotePrompt}
+              onRun={(body) => { saveNotePrompt(body); void runNote(body); }}
+            />
+          )}
+          {noteError && <p className="note-run-error" role="alert">{noteError}</p>}
+        </>
+      )}
       {!note && (
         <div className="note-modes" role="tablist">
           {(["source", "live"] as const).map((m) => (

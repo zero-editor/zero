@@ -70,6 +70,8 @@ export interface ProjectSession {
    *  names belong to the workspace its token opens, the same way the token
    *  itself does. */
   linearPrompts: Record<string, string>;
+  /** Shared run prompt for the project’s scratch notes. Empty uses the default. */
+  notePrompt: string;
   /** what an issue row's own run button says, by the kind of state the row is
    *  in — `triage`, `todo` or `review` — and only the edited ones, same as the
    *  above. One template per kind rather than per row: what differs between
@@ -262,6 +264,7 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     docPanes: validDocPanes(p.docPanes),
     activePane: typeof p.activePane === "string" ? p.activePane : undefined,
     linearPrompts: validPrompts(p.linearPrompts),
+    notePrompt: typeof p.notePrompt === "string" ? p.notePrompt : undefined,
     linearIssuePrompts: validIssuePrompts(p.linearIssuePrompts, p.linearIssuePrompt),
     linearFilter: validFilter(p.linearFilter),
   };

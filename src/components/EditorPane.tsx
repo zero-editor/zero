@@ -459,6 +459,7 @@ export function EditorPane({
                   // from the tree behaves exactly like one ⌘⌥N opened — and
                   // with notes switched off it is only the ordinary file,
                   // still openable, still saveable, pasting into it verbatim
+                  onOpenTerminalOn={onOpenTerminalOn}
                   note={notesOn && isNote(v.absPath, root) ? root : undefined}
                   issues={issues}
                   onOpenFile={onOpenFile}
