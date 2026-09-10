@@ -124,6 +124,15 @@ pub(crate) fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
     finish(out)
 }
 
+/// The `origin` remote's URL, or None when there isn't one. Read with the
+/// repository's program-naming keys overridden like every other poll, since a
+/// terminal's cwd is whatever got cloned.
+pub(crate) fn origin_url(cwd: &str) -> Option<String> {
+    let url = run_git(cwd, &["remote", "get-url", "origin"]).ok()?;
+    let url = url.trim();
+    (!url.is_empty()).then(|| url.to_string())
+}
+
 /// For commands only ever run because you asked for them, where the
 /// repository's own filters, hooks and credential helpers have to work.
 fn run_git_trusted(cwd: &str, args: &[&str]) -> Result<String, String> {

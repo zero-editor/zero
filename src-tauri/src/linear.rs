@@ -700,6 +700,31 @@ async fn fetch_issues(
 /// The workspace's team keys — the `ECL` in `ECL-141`. What turns a bare
 /// identifier in a note into a link: only a token whose prefix is a team here
 /// is one, so `UTF-8` and `SHA-256` stay the text they are.
+/// The workspace slug and team keys, for lighting up `ECL-260` in a terminal;
+/// None when the project isn't connected or Linear can't be reached, which
+/// reads as "plain text" rather than as an error anyone sees.
+pub async fn refs(app: &tauri::AppHandle, root: &str) -> Option<crate::links::LinearRefs> {
+    let token = read_token(app, root).ok()?;
+    let data = gql(
+        &token,
+        "{ organization { urlKey } teams(first: 100) { nodes { key } } }",
+        json!({}),
+    )
+    .await
+    .ok()?;
+    let url_key = data.pointer("/organization/urlKey")?.as_str()?.to_string();
+    if url_key.is_empty() {
+        return None;
+    }
+    let teams = data
+        .pointer("/teams/nodes")?
+        .as_array()?
+        .iter()
+        .filter_map(|t| t.get("key")?.as_str().map(str::to_string))
+        .collect();
+    Some(crate::links::LinearRefs { url_key, teams })
+}
+
 #[tauri::command]
 pub async fn linear_teams(app: tauri::AppHandle, root: String) -> Result<Vec<String>, String> {
     let token = read_token(&app, &root)?;

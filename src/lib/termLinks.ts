@@ -2,9 +2,10 @@ import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { api } from "./api";
 
 /**
- * Links that aren't declared as links: bare URLs, and file paths sitting in
- * ordinary output. (OSC 8 hyperlinks are a different mechanism — the terminal
- * parses those itself and hands them to `linkHandler`.)
+ * Links that aren't declared as links: bare URLs, file paths, and the short
+ * references — `#732`, `ECL-260` — sitting in ordinary output. (OSC 8
+ * hyperlinks are a different mechanism — the terminal parses those itself and
+ * hands them to `linkHandler`.)
  *
  * Paths are confirmed against the disk before they light up. Any heuristic
  * loose enough to catch `src/lib/api.ts` also catches `e.g.` and `v1.2`, so
@@ -223,6 +224,118 @@ export async function resolveOne(cwd: string, raw: string): Promise<ResolvedPath
   return (await resolve(cwd, [raw])).get(raw) ?? null;
 }
 
+// ─── short references ────────────────────────────────────────────────────────
+
+/** Mirrors src-tauri/src/links.rs. */
+export interface ProjectLinks {
+  /** `https://github.com/owner/repo`, or null when origin isn't GitHub */
+  repo: string | null;
+  /** the connected Linear workspace; null when the project has none */
+  linear: { urlKey: string; teams: string[] } | null;
+}
+
+/**
+ * `PR #732`, `#732`, `ECL-260` — the way agents and status lines name things.
+ *
+ * They arrive as text. Claude Code strips OSC 8 hyperlinks from its status
+ * line (measured: the sequence goes in, a bare label comes out), so a label
+ * is a link only if the terminal already knows where labels like it lead —
+ * the project's GitHub remote for numbers, its Linear workspace for keys. A
+ * number is never a link in a project with no GitHub remote, and a key only
+ * when it names a team the workspace actually has, so `UTF-8` stays prose.
+ */
+const REF_TTL_MS = 10 * 60_000;
+const projectLinks = new Map<string, { at: number; value: Promise<ProjectLinks> }>();
+const NO_LINKS: ProjectLinks = { repo: null, linear: null };
+
+function linksFor(cwd: string): Promise<ProjectLinks> {
+  const hit = projectLinks.get(cwd);
+  if (hit && Date.now() - hit.at < REF_TTL_MS) return hit.value;
+  const value = api.projectLinks(cwd).catch(() => NO_LINKS);
+  projectLinks.set(cwd, { at: Date.now(), value });
+  return value;
+}
+
+/** a Linear key: the team's letters, a dash, the number */
+const ISSUE_RE = /\b([A-Z][A-Z0-9]{1,9})-(\d{1,6})\b/g;
+
+/**
+ * A pull request or issue number. `PR #732`, `PR 732`, `pull request 732`,
+ * `issue #9`, a bare `#732` not glued to a word (so `C#12` and `&#39;` stay
+ * out), or `owner/repo#732` for one in another repository.
+ */
+const NUMBER_RE =
+  /\b(?:PR|pull request|pull|issue)\s?#?(\d{1,7})\b|(?<![\w#&/.:])#(\d{1,7})\b|\b([\w.-]+\/[\w.-]+)#(\d{1,7})\b/g;
+
+interface Ref {
+  span: Span;
+  url: string;
+}
+
+function findRefs(text: string, links: ProjectLinks): Ref[] {
+  const refs: Ref[] = [];
+  if (links.linear) {
+    const { urlKey, teams } = links.linear;
+    for (const m of text.matchAll(ISSUE_RE)) {
+      if (!teams.includes(m[1])) continue;
+      refs.push({
+        span: { text: m[0], start: m.index, end: m.index + m[0].length },
+        url: `https://linear.app/${urlKey}/issue/${m[1]}-${m[2]}`,
+      });
+    }
+  }
+  if (links.repo) {
+    for (const m of text.matchAll(NUMBER_RE)) {
+      const n = m[1] ?? m[2] ?? m[4];
+      // `/pull/N` is also how GitHub reaches an issue: it redirects
+      const repo = m[3] ? `https://github.com/${m[3]}` : links.repo;
+      refs.push({
+        span: { text: m[0], start: m.index, end: m.index + m[0].length },
+        url: `${repo}/pull/${n}`,
+      });
+    }
+  }
+  return refs;
+}
+
+// ─── the hover ───────────────────────────────────────────────────────────────
+
+/**
+ * Where a link goes, shown while the pointer is on it — a terminal has no
+ * status bar, and a label like `PR #732` says nothing about which repository.
+ * The `xterm-hover` class is xterm's own: mouse events over the element don't
+ * fall through and re-trigger the link under it. It sits above the pointer so
+ * it never ends up under it.
+ */
+export function showLinkTip(term: Terminal, e: MouseEvent, url: string): void {
+  const host = term.element;
+  if (!host) return;
+  hideLinkTip(term);
+  const tip = document.createElement("div");
+  tip.className = "term-link-tip xterm-hover";
+  tip.textContent = url;
+  const box = host.getBoundingClientRect();
+  tip.style.left = `${Math.max(0, e.clientX - box.left)}px`;
+  tip.style.top = `${e.clientY - box.top}px`;
+  host.appendChild(tip);
+  // keep it inside the pane when the link sits at the right edge
+  const over = tip.getBoundingClientRect().right - box.right;
+  if (over > 0) tip.style.left = `${Math.max(0, e.clientX - box.left - over - 4)}px`;
+}
+
+export function hideLinkTip(term: Terminal): void {
+  term.element?.querySelectorAll(".term-link-tip").forEach((el) => el.remove());
+}
+
+/** the decorations and hover every link here shares */
+function linkChrome(term: Terminal, url: string): Pick<ILink, "decorations" | "hover" | "leave"> {
+  return {
+    decorations: { pointerCursor: true, underline: true },
+    hover: (e) => showLinkTip(term, e, url),
+    leave: () => hideLinkTip(term),
+  };
+}
+
 /**
  * @param cwd    the project root — where relative paths are resolved from
  * @param onFile a file inside the project: open it here rather than leaving
@@ -238,13 +351,13 @@ export function pathLinkProvider(
       if (!flat.text.trim()) return callback(undefined);
 
       const urls = findAll(flat.text, URL_RE);
+      const open = (url: string) => api.openUrl(url).catch((err) => console.warn(`link: ${err}`));
       const links: ILink[] = urls.map((span) => ({
         range: rangeOf(flat, span),
         text: span.text,
-        decorations: { pointerCursor: true, underline: true },
+        ...linkChrome(term, span.text),
         activate: (e, uri) => {
-          if (!e.metaKey) return;
-          api.openUrl(uri).catch((err) => console.warn(`link: ${err}`));
+          if (e.metaKey) open(uri);
         },
       }));
 
@@ -252,11 +365,10 @@ export function pathLinkProvider(
       const covered = (s: Span) => urls.some((u) => s.start < u.end && u.start < s.end);
       const candidates = findAll(flat.text, PATH_RE).filter((s) => !covered(s));
 
-      if (!candidates.length) return callback(links.length ? links : undefined);
-
       const byRaw = new Map(candidates.map((s) => [splitLineNumber(s.text).path, s]));
-      resolve(cwd, [...byRaw.keys()])
-        .then((hits) => {
+      const paths = byRaw.size ? resolve(cwd, [...byRaw.keys()]) : Promise.resolve(new Map());
+      Promise.all([paths, linksFor(cwd)])
+        .then(([hits, project]) => {
           for (const [raw, span] of byRaw) {
             const hit = hits.get(raw);
             if (!hit) continue;
@@ -264,11 +376,22 @@ export function pathLinkProvider(
             links.push({
               range: rangeOf(flat, span),
               text: span.text,
-              decorations: { pointerCursor: true, underline: true },
+              ...linkChrome(term, hit.abs),
               activate: (e) => {
                 if (!e.metaKey) return;
                 if (hit.inside) onFile(hit.abs, line);
                 else api.revealPath(hit.abs).catch((err) => console.warn(`reveal: ${err}`));
+              },
+            });
+          }
+          for (const ref of findRefs(flat.text, project)) {
+            if (covered(ref.span)) continue;
+            links.push({
+              range: rangeOf(flat, ref.span),
+              text: ref.span.text,
+              ...linkChrome(term, ref.url),
+              activate: (e) => {
+                if (e.metaKey) open(ref.url);
               },
             });
           }

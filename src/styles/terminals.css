@@ -396,3 +396,22 @@
   fill: currentColor;
   opacity: 0.85;
 }
+
+/* where a hovered link goes. Above the pointer, so it is never under it; the
+   hover is also xterm's cue that mouse events over it belong to us. */
+.term-pane .term-link-tip {
+  position: absolute;
+  z-index: 5;
+  transform: translateY(calc(-100% - 8px));
+  max-width: min(60ch, 90%);
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font: 11px/1.5 var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}

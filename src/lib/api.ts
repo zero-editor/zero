@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ResolvedPath } from "./termLinks";
+import type { ProjectLinks, ResolvedPath } from "./termLinks";
 
 export interface RecentProject {
   path: string;
@@ -320,6 +320,8 @@ export const api = {
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   resolvePaths: (cwd: string, paths: string[]) =>
     invoke<ResolvedPath[]>("resolve_paths", { cwd, paths }),
+  /** where `#732` and `ECL-260` point for this project — see termLinks */
+  projectLinks: (root: string) => invoke<ProjectLinks>("project_links", { root }),
   /* The four verbs the right-click menu adds. Each resolves with the path it
      made, so the caller can open what it just asked for; each rejects rather
      than overwriting anything, with a message written to be shown as-is. */

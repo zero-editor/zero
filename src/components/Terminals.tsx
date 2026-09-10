@@ -10,7 +10,7 @@ import { forgetTerm, setFocusedTerm } from "../lib/termFocus";
 import { titleState, useAgentPanes } from "../lib/agentStatus";
 import { watchFileDrops } from "../lib/fileDrop";
 import { attachSmoothScroll } from "../lib/smoothTermScroll";
-import { pathLinkProvider, pathTextAt, resolveOne } from "../lib/termLinks";
+import { pathLinkProvider, pathTextAt, resolveOne, showLinkTip, hideLinkTip } from "../lib/termLinks";
 import { contextMenuAt, fileEntries } from "../lib/contextMenu";
 import { takeBoot, type LayoutTree, type Rect } from "../lib/layout";
 
@@ -552,10 +552,15 @@ function TerminalPane({
       smoothScrollDuration: 0,
       // OSC 8 hyperlinks — the escape sequence that carries a URI behind text
       // that reads as something else ("PR #9422"). xterm parses them either
-      // way; without a handler they're simply inert, which is why clicking one
-      // did nothing.
+      // way; without a handler they're simply inert. ⌘-click like every other
+      // link in the pane, so a plain click still selects; the hover says where
+      // it goes, since the text deliberately doesn't.
       linkHandler: {
-        activate: (_e, uri) => openLink(uri),
+        activate: (e, uri) => {
+          if (e.metaKey) openLink(uri);
+        },
+        hover: (e, uri) => showLinkTip(term, e, uri),
+        leave: () => hideLinkTip(term),
       },
     });
     termRef.current = term;

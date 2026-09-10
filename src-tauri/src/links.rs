@@ -122,6 +122,72 @@ pub fn resolve_paths(cwd: String, paths: Vec<String>) -> Vec<ResolvedPath> {
         .collect()
 }
 
+// ─── short references ────────────────────────────────────────────────────────
+
+/// Where the short references a terminal prints point.
+///
+/// `PR #732`, `#732` and `ECL-260` are how agents and status lines name things,
+/// and they arrive as plain text: Claude Code strips OSC 8 hyperlinks from its
+/// status line (measured — the sequence goes in, the label comes out bare), so
+/// a label can only become a link if the terminal already knows where such
+/// labels lead. This is that knowledge, for one project.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectLinks {
+    /// `https://github.com/owner/repo`, from the `origin` remote. None when
+    /// there is no remote or it isn't GitHub — numbers then stay plain text.
+    pub repo: Option<String>,
+    /// the connected Linear workspace, or None: issue keys light up only for
+    /// team keys the workspace actually has, so `UTF-8` never does.
+    pub linear: Option<LinearRefs>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinearRefs {
+    /// the workspace slug in `https://linear.app/<slug>/issue/ECL-260`
+    pub url_key: String,
+    pub teams: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn project_links(app: tauri::AppHandle, root: String) -> ProjectLinks {
+    let r = root.clone();
+    let repo = tauri::async_runtime::spawn_blocking(move || crate::git::origin_url(&r))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|url| github_repo(&url));
+    let linear = crate::linear::refs(&app, &root).await;
+    ProjectLinks { repo, linear }
+}
+
+/// `https://github.com/owner/repo` for any of the ways a GitHub remote is
+/// written — scp-style, ssh://, https://, with or without `.git` — and None for
+/// anything else, since a number is only a PR where GitHub is the host.
+fn github_repo(remote: &str) -> Option<String> {
+    let rest = remote
+        .trim()
+        .trim_start_matches("ssh://")
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("git@")
+        .trim_start_matches("git://");
+    let path = rest
+        .strip_prefix("github.com/")
+        .or_else(|| rest.strip_prefix("github.com:"))?;
+    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = path.split('/');
+    let (owner, repo) = (parts.next()?, parts.next()?);
+    let ok = |s: &str| {
+        !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    };
+    if !ok(owner) || !ok(repo) || parts.next().is_some() {
+        return None;
+    }
+    Some(format!("https://github.com/{owner}/{repo}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +264,28 @@ mod tests {
             "https://exa mple.com",
         ] {
             assert!(!is_web_url(bad), "{bad} should never reach /usr/bin/open");
+        }
+    }
+
+    #[test]
+    fn github_remotes_in_every_spelling() {
+        for r in [
+            "git@github.com:zero-editor/zero.git",
+            "https://github.com/zero-editor/zero.git",
+            "https://github.com/zero-editor/zero",
+            "ssh://git@github.com/zero-editor/zero.git",
+            "git://github.com/zero-editor/zero.git/",
+        ] {
+            assert_eq!(github_repo(r).as_deref(), Some("https://github.com/zero-editor/zero"), "{r}");
+        }
+        for r in [
+            "git@gitlab.com:zero-editor/zero.git",
+            "https://github.com/zero-editor",
+            "https://github.com/zero-editor/zero/extra",
+            "https://github.com/zero-editor/ze ro",
+            "",
+        ] {
+            assert_eq!(github_repo(r), None, "{r}");
         }
     }
 }
