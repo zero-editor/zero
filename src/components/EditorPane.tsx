@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { View } from "./Workspace";
 import { DiffView } from "./DiffView";
 import { ImageDiffView } from "./ImageDiffView";
@@ -84,11 +84,14 @@ function Breadcrumb({
   root,
   onOpenFile,
   onRevealInTree,
+  actionsRef,
 }: {
   view: View;
   root: string;
   onOpenFile: (abs: string) => void;
   onRevealInTree: (abs: string) => void;
+  /** where a view's own buttons land on this line — a note's Run, today */
+  actionsRef: (el: HTMLElement | null) => void;
 }) {
   const abs = viewAbs(view, root);
   const parts = viewPath(view, root).split("/");
@@ -126,6 +129,14 @@ function Breadcrumb({
         <FileIconSpan name={name} />
         {name}
       </span>
+      {/* the right end of the line, for whatever the view portals in — kept
+          out of the click and the context menu, which belong to the path */}
+      <span
+        className="editor-path-actions"
+        ref={actionsRef}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.stopPropagation()}
+      />
     </div>
   );
 }
@@ -182,6 +193,9 @@ export function EditorPane({
    *  record button off the same object the panel does */
   memos: Memos;
 }) {
+  // the breadcrumb's right end, once mounted, for the active view to portal
+  // its buttons into
+  const [pathActions, setPathActions] = useState<HTMLElement | null>(null);
   const {
     stripRef,
     drag,
@@ -390,6 +404,7 @@ export function EditorPane({
             root={root}
             onOpenFile={onOpenFile}
             onRevealInTree={onRevealInTree}
+            actionsRef={setPathActions}
           />
         )}
         <div className="editor-body">
@@ -460,6 +475,7 @@ export function EditorPane({
                   // with notes switched off it is only the ordinary file,
                   // still openable, still saveable, pasting into it verbatim
                   onOpenTerminalOn={onOpenTerminalOn}
+                  actionsHost={i === activeView ? pathActions : null}
                   note={notesOn && isNote(v.absPath, root) ? root : undefined}
                   issues={issues}
                   onOpenFile={onOpenFile}

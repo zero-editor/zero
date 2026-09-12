@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
@@ -51,8 +52,13 @@ export function FileView({
   issues,
   onOpenFile,
   onOpenTerminalOn,
+  actionsHost,
 }: {
   onOpenTerminalOn: (boot: string) => void;
+  /** the right end of the pane's path line, when this is the active view —
+   *  a note's Run button sits there, on the line that names the file, rather
+   *  than on a row of its own under it */
+  actionsHost?: HTMLElement | null;
   absPath: string;
   line?: number;
   visible: boolean;
@@ -358,9 +364,9 @@ export function FileView({
     >
       {note && (
         <>
-          <div className="note-modes note-actions">
+          {actionsHost && createPortal(
             <button
-              className="note-mode"
+              className="note-mode note-run"
               disabled={running || !noteReady}
               title="Run a prompt on this note — right-click to edit it"
               onClick={() => void runNote()}
@@ -370,8 +376,9 @@ export function FileView({
               ])}
             >
               {running ? "Starting…" : "▶ Run"}
-            </button>
-          </div>
+            </button>,
+            actionsHost,
+          )}
           {editingPrompt && (
             <PromptEditor
               value={draft}

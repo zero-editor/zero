@@ -288,7 +288,10 @@
   text-decoration: underline;
 }
 
-.note-actions { justify-content: flex-end; }
-.note-actions .note-mode:disabled { opacity: 0.5; cursor: default; }
+/* A note's Run sits on the path line, at its right end — the file's name and
+   what can be done about it on one line rather than two. */
+.editor-path-actions { margin-left: auto; flex: none; display: flex; padding-left: 8px; }
+.note-run { padding: 0 4px; margin: -4px 0; }
+.note-run:disabled { opacity: 0.5; cursor: default; }
 .note-run-error { margin: 6px 12px; color: var(--text); font-size: 12px; }
 .note-view > .li-prompt { flex: none; max-height: 45%; overflow: auto; }
