@@ -80,11 +80,27 @@ const TITLE_IDLE: u8 = 2;
 /// state at all; its bundled titlebar-spinner extension puts a braille frame
 /// first, so a leading spinner frame counts as working from any agent.
 ///
+/// Codex, measured against 0.154.0 with its default `tui.terminal_title =
+/// ["spinner", "project"]`: a braille frame while working, but not always
+/// first — `⠇ renaming... ⠇ | cx` at the start of a turn, then
+/// `renaming... ⠴ | cx` — and a plain `cx` or `Reply hi | cx` once it is
+/// waiting on you. So a spinner frame *anywhere* counts as working, and a
+/// title with no state from an agent that was spinning a moment ago means
+/// it has stopped. That second rule is what reads Codex as done at all: its
+/// TUI keeps redrawing while idle, so the output-activity fallback never
+/// sees it go quiet and a project tab spins for as long as the session is
+/// open. It is keyed to the braille family, which Claude never uses — its
+/// ◐ is followed by its own ✳, and a plain title mid-run (a subcommand
+/// retitling) still means "nothing to read" there.
+///
 /// Any other title (the shell's own, say) means no agent is speaking, and the
 /// caller falls back to the timing heuristic.
 struct TitleScanner {
     state: TitleScan,
     buf: Vec<u8>,
+    /// a braille-spinner title has been seen, so a plain one now is the
+    /// agent that set it having stopped
+    spun: bool,
 }
 
 enum TitleScan {
@@ -102,7 +118,7 @@ const TITLE_MAX: usize = 512;
 
 impl TitleScanner {
     fn new() -> Self {
-        Self { state: TitleScan::Ground, buf: Vec::new() }
+        Self { state: TitleScan::Ground, buf: Vec::new(), spun: false }
     }
 
     /// Feed one chunk of pty output; sequences may split anywhere across
@@ -170,13 +186,22 @@ impl TitleScanner {
 
     /// None for an OSC that isn't a title at all (hyperlinks, colors) — those
     /// say nothing about any agent. A real title that carries no state is
-    /// Some(TITLE_UNKNOWN): the shell has retitled, the agent no longer speaks.
-    fn classify(&self) -> Option<u8> {
+    /// Some(TITLE_UNKNOWN): the shell has retitled, the agent no longer
+    /// speaks — unless the last state it spoke was a braille spinner, in
+    /// which case it has just stopped, and that is Some(TITLE_IDLE).
+    fn classify(&mut self) -> Option<u8> {
         // OSC 0 sets icon and title, 1 and 2 each half; both agents use 0 today
         let title = [b"0;".as_slice(), b"1;", b"2;"]
             .iter()
             .find_map(|p| self.buf.strip_prefix(*p))?;
-        Some(classify_title(&String::from_utf8_lossy(title)))
+        let title = String::from_utf8_lossy(title);
+        let state = classify_title(&title);
+        if title.chars().any(is_spinner) {
+            self.spun = true;
+        } else if state == TITLE_UNKNOWN && self.spun {
+            return Some(TITLE_IDLE);
+        }
+        Some(state)
     }
 }
 
@@ -201,6 +226,8 @@ fn classify_title(title: &str) -> u8 {
             Some(c) if is_spinner(c) => TITLE_WORKING,
             _ => TITLE_UNKNOWN,
         },
+        // codex puts its frame after the task label once it has one
+        _ if title.chars().any(is_spinner) => TITLE_WORKING,
         _ => TITLE_UNKNOWN,
     }
 }
@@ -1301,12 +1328,40 @@ mod tests {
         // no label yet: the state is a trailing separator
         assert_eq!(feed(&mut s, "\x1b]0;π ⠋\x07"), Some(TITLE_WORKING));
         assert_eq!(feed(&mut s, "\x1b]0;π >\x07"), Some(TITLE_IDLE));
-        // tui.titleState off, and pi's own static title: nothing to read
+        // tui.titleState off, and pi's own static title: nothing to read —
+        // from a session that has never spun; after one that has, see
+        // codex_titles_classify
+        let mut s = TitleScanner::new();
         assert_eq!(feed(&mut s, "\x1b]0;π: fix the bug\x07"), Some(TITLE_UNKNOWN));
         assert_eq!(feed(&mut s, "\x1b]0;π - zero\x07"), Some(TITLE_UNKNOWN));
         assert_eq!(feed(&mut s, "\x1b]0;π\x07"), Some(TITLE_UNKNOWN));
         // pi's titlebar-spinner extension leads with the frame
         assert_eq!(feed(&mut s, "\x1b]0;⠙ π - zero\x07"), Some(TITLE_WORKING));
+    }
+
+    #[test]
+    fn codex_titles_classify() {
+        let mut s = TitleScanner::new();
+        // before anything has spun, a plain title is nobody's state
+        assert_eq!(feed(&mut s, "\x1b]0;cx\x07"), Some(TITLE_UNKNOWN));
+        assert_eq!(feed(&mut s, "\x1b]0;⠇ renaming... ⠇ | cx\x07"), Some(TITLE_WORKING));
+        // the frame moves off the front once the task has a label
+        assert_eq!(feed(&mut s, "\x1b]0;renaming... ⠴ | cx\x07"), Some(TITLE_WORKING));
+        // and goes altogether when it is your turn
+        assert_eq!(feed(&mut s, "\x1b]0;cx\x07"), Some(TITLE_IDLE));
+        assert_eq!(feed(&mut s, "\x1b]0;Reply hi | cx\x07"), Some(TITLE_IDLE));
+        // pi's titlebar spinner reads the same way: frame, then none
+        assert_eq!(feed(&mut s, "\x1b]0;⠙ π - zero\x07"), Some(TITLE_WORKING));
+        assert_eq!(feed(&mut s, "\x1b]0;π - zero\x07"), Some(TITLE_IDLE));
+    }
+
+    #[test]
+    fn a_plain_title_after_claude_is_still_unknown() {
+        let mut s = TitleScanner::new();
+        assert_eq!(feed(&mut s, "\x1b]0;◐ Fix the bug\x07"), Some(TITLE_WORKING));
+        // claude says idle with ✳ itself; a plain title mid-run is a
+        // subcommand, and the activity guess takes over
+        assert_eq!(feed(&mut s, "\x1b]0;git\x07"), Some(TITLE_UNKNOWN));
     }
 
     #[test]

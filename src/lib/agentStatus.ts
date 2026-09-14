@@ -14,12 +14,13 @@ export interface ProjectAgents {
   agent: Agent | null;
 }
 
-// Claude Code and omp say which state they're in themselves: each retitles
-// the terminal (OSC 0) with a spinner glyph while working and a mark of its
-// own once it's waiting on you — a permission prompt included. The backend
-// reads that out of the pty stream, and when it has been seen it is believed
-// outright. The two thresholds below are the fallback for a session that
-// never set a title — Codex and pi never do — guessing from output activity:
+// The agents say which state they're in themselves: each retitles the
+// terminal (OSC 0) with a spinner glyph while working and, once it's waiting
+// on you — a permission prompt included — either a mark of its own (Claude,
+// omp) or no glyph at all (Codex, pi). The backend reads that out of the pty
+// stream, and when it has been seen it is believed outright. The two
+// thresholds below are the fallback for a session whose title has never
+// carried a state, guessing from output activity:
 // a guess that flickers, since an agent can go quiet mid-task (a silent tool
 // call, a slow API turn) for longer than any threshold that still feels
 // responsive.
@@ -63,17 +64,20 @@ const sameStatus = (a: Record<string, ProjectAgents>, b: Record<string, ProjectA
 export const agentOf = (s: AgentStat): Agent | null =>
   s.agent ?? (s.codex ? "codex" : s.running ? "claude" : null);
 
-/** the agents that say what they are doing in their own terminal title;
- *  the rest are read from output activity alone */
+/** the agents whose pane reads its own title straight from xterm rather
+ *  than waiting on the poll — the ones with an idle mark of their own to
+ *  read. Codex and pi say idle by dropping the spinner, which only the
+ *  daemon, having seen the spinner, can tell from a title that never had
+ *  one; their panes take the daemon's word through the poll. */
 const TITLED: readonly (Agent | null)[] = ["claude", "omp"];
 
-/** whether one row reads as mid-task: the agent's own title when it has set
- *  one, the output-activity guess otherwise. Codex and pi never set a title
- *  with a state in it, so even if a previous Claude run left one behind
- *  their panes are classified from their output. */
+/** whether one row reads as mid-task: the agent's own title when it has
+ *  carried a state, the output-activity guess otherwise. The guess alone
+ *  never reads Codex as done — its TUI keeps redrawing while idle — which
+ *  is why the title is believed for every agent. */
 const isWorking = (s: AgentStat) => {
   const active = s.quiet_ms < QUIET_MS && s.burst_ms >= MIN_BURST_MS;
-  return TITLED.includes(agentOf(s)) ? (s.title_working ?? active) : active;
+  return s.title_working ?? active;
 };
 
 const isSpinner = (c: string) => c >= "\u2800" && c <= "\u28ff";
@@ -97,6 +101,8 @@ export function titleState(title: string): PaneAgent | null {
     if (sep === ">" || sep === "!") return "done";
     if (sep !== undefined && isSpinner(sep)) return "working";
   }
+  // codex puts its frame after the task label once it has one
+  if ([...t].some(isSpinner)) return "working";
   return null;
 }
 

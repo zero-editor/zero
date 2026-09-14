@@ -676,17 +676,14 @@ pub fn cli(kill: bool) -> ! {
                         Some(true) => "codex",
                         _ => "claude",
                     });
-                    // Claude and omp say in their own title whether they are
-                    // working. Codex and pi never set one, so asking the title
-                    // would answer "waiting on you" all the way through a
-                    // turn; they get the same output-activity fallback the tab
-                    // strip gives them, thresholds included —
-                    // src/lib/agentStatus.ts is where they are explained.
+                    // Every agent says in its own title whether it is
+                    // working, when it has said anything; a session whose
+                    // title has never carried a state gets the same
+                    // output-activity fallback the tab strip gives it,
+                    // thresholds included — src/lib/agentStatus.ts is where
+                    // they are explained.
                     let active = quiet_ms < 1500 && s["burst_ms"].as_u64().unwrap_or(0) >= 600;
-                    let working = match agent {
-                        "claude" | "omp" => s["title_working"].as_bool().unwrap_or(active),
-                        _ => active,
-                    };
+                    let working = s["title_working"].as_bool().unwrap_or(active);
                     let what = match (s["running"].as_bool(), working) {
                         (Some(true), true) => format!("{agent}, working"),
                         (Some(true), _) => format!("{agent}, waiting on you"),
