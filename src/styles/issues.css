@@ -499,6 +499,125 @@ button.li-mark:hover {
   gap: 5px;
 }
 
+/* ── what the checkout says ────────────────────────────────────────────── */
+
+/* Two rows, key left and value right on one baseline. The keys share a column
+   so the values line up; the column is fixed rather than measured because the
+   keys are two words that never change. */
+.iv-local {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 16px;
+}
+
+.iv-local-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.iv-key {
+  flex: none;
+  width: 84px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.iv-val {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.iv-val.dim {
+  color: var(--text-faint);
+}
+
+/* A value that is also an action: the branch name to copy, the pull request
+   to open. It reads as text until hovered, so the rows stay a table and not a
+   row of buttons. */
+.iv-inline {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.iv-inline:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.iv-inline.open {
+  color: var(--green);
+}
+
+.iv-inline.draft {
+  color: var(--text-faint);
+}
+
+.iv-inline.merged {
+  color: var(--accent);
+}
+
+.iv-inline.closed {
+  color: var(--red);
+}
+
+.iv-error {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--red);
+}
+
+/* ── section headings ──────────────────────────────────────────────────── */
+
+/* The heading is the same small caps as the row keys, so "Description" and
+   "branch" read as the same kind of thing: a name for what follows. The edit
+   affordance beside it only appears on hover, as the panel rows' do. */
+.iv-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 18px 0 6px;
+  font-size: 11px;
+}
+
+.iv-section-title {
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.iv-quiet {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.iv-section:hover .iv-quiet,
+.iv-quiet:focus-visible {
+  opacity: 1;
+}
+
+.iv-quiet:hover {
+  color: var(--text);
+}
+
 
 /* One cell, two labels, one on top of the other: the button is always as wide
    as the wider of them, so confirming a send moves nothing. Grid rather than
