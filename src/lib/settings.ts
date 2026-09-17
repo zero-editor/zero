@@ -70,6 +70,11 @@ export interface Settings {
    *  carry the icon. Connecting and disconnecting stay per project, in the
    *  panel, because a token is a project's own. */
   linear: boolean;
+  /** Whether project-wide search is in the rail: the magnifier, ⌘⇧F and
+   *  ⌘⇧H. Off is for someone who searches from a terminal instead and would
+   *  rather not carry the icon; the panel's own find-in-file (⌘F) is the
+   *  editor's and stays. */
+  search: boolean;
   /** Whether voice memos exist in this app: the mic in the rail, ⌘⇧M, the
    *  keys that only answer mid-recording, and the threads a memo opens as.
    *
@@ -105,6 +110,7 @@ const DEFAULTS: Settings = {
   // an icon for a service its owner may not use. `parse` keeps it on for
   // anyone who already had it — see there.
   linear: false,
+  search: true,
   memos: true,
   notes: true,
 };
@@ -140,6 +146,7 @@ function parse(raw: string | null): Settings {
     // and taking a tab away from someone using it is not a default's job.
     // Only an install with nothing stored at all is new enough to be asked.
     linear: typeof blob.linear === "boolean" ? blob.linear : true,
+    search: typeof blob.search === "boolean" ? blob.search : DEFAULTS.search,
     memos: typeof blob.memos === "boolean" ? blob.memos : DEFAULTS.memos,
     notes: typeof blob.notes === "boolean" ? blob.notes : DEFAULTS.notes,
   };

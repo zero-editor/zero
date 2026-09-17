@@ -274,8 +274,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
         {pane === "extensions" && (
           <div className="settings-group">
-            {/* zero's own two first and the outside one last, which is also
+            {/* zero's own first and the outside one last, which is also
                 the only one with anything underneath it */}
+            <Switch
+              name="Search"
+              on={settings.search}
+              hint="on — the magnifier is in the sidebar, ⌘⇧F"
+              set={(search) => updateSettings({ search })}
+            />
             <Switch
               name="Voice memos"
               on={settings.memos}

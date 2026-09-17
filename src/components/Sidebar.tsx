@@ -117,8 +117,13 @@ const TABS: { id: SidebarTab; title: string }[] = [
 /** The rail, minus anything switched off in Preferences. Filtered rather than
  *  hidden with CSS so the tabs keep dividing the strip evenly between however
  *  many there are. */
-const railTabs = (on: { linear: boolean; memos: boolean }) =>
-  TABS.filter((t) => (t.id !== "issues" || on.linear) && (t.id !== "memos" || on.memos));
+const railTabs = (on: { linear: boolean; memos: boolean; search: boolean }) =>
+  TABS.filter(
+    (t) =>
+      (t.id !== "issues" || on.linear) &&
+      (t.id !== "memos" || on.memos) &&
+      (t.id !== "search" || on.search),
+  );
 
 /** The rail's own way to switch one of these off, on the icon itself.
  *
@@ -129,6 +134,7 @@ const railTabs = (on: { linear: boolean; memos: boolean }) =>
  *  offer a right-click, and `files` answers with something else entirely. */
 const TURN_OFF: Partial<Record<SidebarTab, { text: string; patch: Partial<Settings> }>> = {
   issues: { text: "Turn Off Linear", patch: { linear: false } },
+  search: { text: "Turn Off Search", patch: { search: false } },
   memos: { text: "Turn Off Voice Memos", patch: { memos: false } },
 };
 
@@ -181,7 +187,7 @@ export function Sidebar({
   onOpenTerminalOn: (boot: string) => void;
 }) {
   // which of the optional three this rail has any icons for
-  const { linear, memos: memosOn, notes: notesOn } = useSettings();
+  const { linear, memos: memosOn, notes: notesOn, search: searchOn } = useSettings();
 
   // The memos tab is the only one that has anything to say while you're not
   // looking at it, and this dot is all of it — no titlebar presence, no
@@ -207,7 +213,7 @@ export function Sidebar({
   return (
     <div className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-tabs">
-        {railTabs({ linear, memos: memosOn }).map((t) => (
+        {railTabs({ linear, memos: memosOn, search: searchOn }).map((t) => (
           <button
             key={t.id}
             className={`sidebar-tab ${tab === t.id ? "active" : ""}`}
@@ -216,8 +222,8 @@ export function Sidebar({
             // Two kinds of right-click, and no third: the files icon stands
             // for a thing rather than a view — it is the project's folders —
             // and the optional tabs offer the way out of being in the rail at
-            // all. `scm` and `search` have nothing to say that clicking them
-            // doesn't already do, and get the webview's own menu.
+            // all. `scm` has nothing to say that clicking it doesn't already
+            // do, and gets the webview's own menu.
             onContextMenu={(e) => {
               if (t.id === "files") {
                 onTab("files");
@@ -287,7 +293,7 @@ export function Sidebar({
             onRemoveFolder={onRemoveFolder}
           />
         </div>
-        {tab === "search" && (
+        {searchOn && tab === "search" && (
           <SearchPanel
             search={search}
             onOpenView={onOpenView}

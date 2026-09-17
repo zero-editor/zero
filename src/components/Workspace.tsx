@@ -249,7 +249,7 @@ export const Workspace = memo(function Workspace({
   // by a tab you aren't on, about a recording that outlives every panel
   // Which of the optional halves of the app this window has — the rail is
   // built from it, and so is what the two shortcuts below do.
-  const { memos: memosOn, linear: linearOn } = useSettings();
+  const { memos: memosOn, linear: linearOn, search: searchOn } = useSettings();
   const memos = useMemos(
     project.root,
     memosOn,
@@ -684,9 +684,13 @@ export const Workspace = memo(function Workspace({
   }, [memosOn]);
 
   useEffect(() => {
-    if ((sidebarTab === "memos" && !memosOn) || (sidebarTab === "issues" && !linearOn))
+    if (
+      (sidebarTab === "memos" && !memosOn) ||
+      (sidebarTab === "issues" && !linearOn) ||
+      (sidebarTab === "search" && !searchOn)
+    )
       setSidebarTab("files");
-  }, [sidebarTab, memosOn, linearOn]);
+  }, [sidebarTab, memosOn, linearOn, searchOn]);
 
   // Closed tabs, newest last, with the slot — and now the pane — each one
   // held. Kept in a ref rather than in state: nothing renders from it, and a
@@ -901,6 +905,7 @@ export const Workspace = memo(function Workspace({
       } else if (meta && e.shiftKey && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "h")) {
         // ⌘⇧F searches, ⌘⇧H arrives with the replace field already open — the
         // same split VS Code and Cursor make
+        if (!getSettings().search) return;
         e.preventDefault();
         showSidebar();
         setSidebarTab("search");
