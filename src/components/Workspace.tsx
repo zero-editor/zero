@@ -10,6 +10,7 @@ import {
   EDITOR,
   SIDEBAR,
   collectRects,
+  evenSizes,
   isEditorPane,
   isTerm,
   leafIds,
@@ -1655,6 +1656,28 @@ export const Workspace = memo(function Workspace({
     document.body.classList.add(d.dir === "row" ? "dragging-col" : "dragging-row");
   };
 
+  /**
+   * Double-click a seam and its whole split shares itself out evenly — the
+   * two panes either side of a lone seam, or all five of a row, since a seam
+   * belongs to the split rather than to its neighbours (see evenSizes).
+   *
+   * Nothing special is needed to let it through: the two presses underneath
+   * start gestures that never move, and a gesture that never moves commits
+   * nothing. The panes then glide to their new shares on the layout's own
+   * easing, because by the time this fires both have let go of `dragging-*`
+   * — the class that takes the glide off for a resize tracking the pointer.
+   * The folded sidebar sits it out: its width is a rail held in pixels, and
+   * an equal share would only be corrected back a frame later.
+   */
+  const equalizeSplit = (d: Divider) => {
+    const node = nodeAt(tree.root, d.path);
+    if (!node) return;
+    const held = new Set(hiddenIds);
+    if (sidebarCollapsed) held.add(SIDEBAR);
+    const next = evenSizes(node, held);
+    if (next) tree.setSizes(d.path, next);
+  };
+
   /** the arming mousemove for a wrapper whose pill lives here — the
    *  sidebar's and each document pane's; `reach` ducks under whatever chrome
    *  the card keeps at its top (a document pane's tabs sit lower than the
@@ -1775,6 +1798,7 @@ export const Workspace = memo(function Workspace({
           className={`term-divider ${d.dir}`}
           style={seamStyle(d)}
           onMouseDown={(e) => startDividerResize(e, d)}
+          onDoubleClick={() => equalizeSplit(d)}
         />
       ))}
       {/* the line a true split shows, along the edge it would cut — re-seats

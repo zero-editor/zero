@@ -436,6 +436,29 @@ export function collectRects(
 }
 
 /**
+ * One split shared out evenly — what double-clicking a seam asks for. Every
+ * visible child of that split, not only the two the seam runs between: a seam
+ * is a fact about the whole split, and evening out two of five panes would
+ * leave the row as uneven as it found it.
+ *
+ * `held` children keep the share they have and are divided around: a hidden
+ * pane holds the room it is owed for when it comes back, and the folded
+ * sidebar is a rail held in pixels rather than a pane taking a share. Null
+ * when the split is already even, so a second double-click is not a write.
+ */
+export function evenSizes(node: LayoutNode, held: ReadonlySet<string>): number[] | null {
+  if (node.type !== "split") return null;
+  const sizes = sizesOf(node);
+  const shares = node.children.map((c) => !subtreeHidden(c, held));
+  const n = shares.filter(Boolean).length;
+  if (n < 2) return null;
+  const sum = sizes.reduce((a, s, i) => (shares[i] ? a + s : a), 0);
+  if (!(sum > 0)) return null;
+  const next = sizes.map((s, i) => (shares[i] ? sum / n : s));
+  return next.every((v, i) => Math.abs(v - sizes[i]) < 1e-4) ? null : next;
+}
+
+/**
  * The sidebar's split, re-shared so the sidebar draws at `w` percent of the
  * field again. Shares are renormalised among the *visible* children of a
  * split when drawn, so a terminal hidden or shown beside the sidebar — or
