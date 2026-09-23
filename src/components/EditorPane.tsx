@@ -6,7 +6,7 @@ import { FileView } from "./FileView";
 import { ImageView } from "./ImageView";
 import { IssueView } from "./IssueView";
 import type { IssueLinks } from "../lib/noteLive";
-import { MemoThread } from "./MemoThread";
+import { MemoDraft, MemoThread } from "./MemoThread";
 import { NewFileView } from "./NewFileView";
 import { isImage } from "../lib/imageFile";
 import { contextMenu, fileEntries, type Entry } from "../lib/contextMenu";
@@ -29,8 +29,12 @@ const ISSUE_GLYPH = (
   </svg>
 );
 
+/** what a draft memo's tab and breadcrumb call it, before it is anything */
+const NEW_MEMO = "new memo";
+
 function viewLabel(v: View, memos: Memos): string {
   if (v.kind === "new") return v.name;
+  if (v.kind === "memo-new") return NEW_MEMO;
   // The memo's own title, live: a merge renames it, and the tab is where that
   // name is said — the thread below draws no title of its own, precisely so
   // this one isn't a second copy of it. Gone from the list and it is down to
@@ -50,6 +54,7 @@ function viewLabel(v: View, memos: Memos): string {
 
 function viewAbs(v: View, root: string): string {
   if (v.kind === "new") return v.name;
+  if (v.kind === "memo-new") return NEW_MEMO;
   // a thread is a reading of a file, and this is the file — which is worth
   // saying in the one line of chrome that says where you are
   if (v.kind === "memo") return memoPaths(root, v.id).md;
@@ -63,13 +68,15 @@ function viewAbs(v: View, root: string): string {
 /** the file a view is of, and null for the one kind that isn't on disk yet —
  *  an untitled buffer has a name but nowhere to be revealed */
 function viewFile(v: View, root: string): string | null {
-  return v.kind === "new" || v.kind === "issue" ? null : viewAbs(v, root);
+  return v.kind === "new" || v.kind === "memo-new" || v.kind === "issue"
+    ? null
+    : viewAbs(v, root);
 }
 
 // path shown in the breadcrumb: relative to the project when it lives inside it
 function viewPath(v: View, root: string): string {
   const abs = viewAbs(v, root);
-  if (v.kind === "new" || v.kind === "issue") return abs;
+  if (v.kind === "new" || v.kind === "memo-new" || v.kind === "issue") return abs;
   if (abs.startsWith(root + "/")) return abs.slice(root.length + 1);
   // A linked worktree sits beside the project rather than inside it, so the
   // rule above misses it and the whole home path comes back — half of which is
@@ -450,6 +457,11 @@ export function EditorPane({
                   memos={memos}
                   visible={i === activeView}
                   onOpenFile={onOpenFile}
+                />
+              ) : v.kind === "memo-new" ? (
+                <MemoDraft
+                  memos={memos}
+                  onCreated={(id) => onReplace(i, { kind: "memo", key: `memo:${id}`, id })}
                 />
               ) : v.kind === "new" ? (
                 <NewFileView

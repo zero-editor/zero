@@ -458,7 +458,7 @@ const probeOnce = () =>
  * may be pressed twice while the mic is being told something — but the word is
  * now the one that was actually asked for.
  */
-export type MemoAction = "start" | "stop" | "pause" | "resume" | "cancel" | "import";
+export type MemoAction = "start" | "stop" | "pause" | "resume" | "cancel" | "import" | "write";
 
 /** What the import picker offers: the formats Core Audio reads, because that
  *  is what the backend converts through. Anything else fails at the press with
@@ -501,14 +501,23 @@ export interface Memos {
    * age of a `recording_since` that has been sitting still since.
    */
   frozen: number | null;
-  start: () => void;
+  /** Resolves with the new memo's id, or null when it didn't start — which the
+   *  draft thread needs, since it becomes that memo's thread the moment there
+   *  is one. The panel's floor ignores it. */
+  start: () => Promise<string | null>;
   /** record a follow-up onto a finished memo: the same mic, the same stop
    *  button, and a merge at the end instead of a cleanup */
   startTake: (id: string) => void;
   /** Pick an audio file recorded somewhere else and put it through the same
    *  pipeline — as a new memo, or with `into` as a follow-up onto a finished
-   *  one. The mic is never involved, so this works while it's busy. */
-  importMemo: (into?: string) => void;
+   *  one. The mic is never involved, so this works while it's busy. The id, or
+   *  null for a dismissed picker or a failure, as `start`. */
+  importMemo: (into?: string) => Promise<string | null>;
+  /** Words instead of a recording — as a new memo, or with `into` as a
+   *  follow-up — through the rest of the same pipeline. The id, or null when it
+   *  failed, in which case the notice says why and the text is the caller's to
+   *  keep. */
+  write: (text: string, into?: string) => Promise<string | null>;
   stop: () => void;
   /** hold the recording open with the mic switched off; `resume` picks it up
    *  where it stopped, with no silence recorded in between */
@@ -724,12 +733,15 @@ export function useMemos(
     [list]
   );
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     setLevel(root, 0); // no stale reading from the last recording on the new dot
-    void run("start", async () => {
+    let id: string | null = null;
+    await run("start", async () => {
       // this recording becomes the one being waited on, from here to ready
-      follow(await api.memoRecordStart(root));
+      id = await api.memoRecordStart(root);
+      follow(id);
     });
+    return id;
   }, [run, root, follow]);
 
   // The same shape as `start`, and deliberately so: a take is a recording like
@@ -749,8 +761,9 @@ export function useMemos(
   // ready. A dismissed picker is a decision, not an error, so it runs the
   // action to its quiet end rather than throwing something for the notice.
   const importMemo = useCallback(
-    (into?: string) => {
-      void run("import", async () => {
+    async (into?: string) => {
+      let id: string | null = null;
+      await run("import", async () => {
         const title = into ? "import a follow-up recording" : "import a voice recording";
         // Never the dialog plugin, in any build. Its file panel takes zero
         // down: macOS 26 hands back a NULL `NSOpenPanel` and objc2 panics on
@@ -769,8 +782,24 @@ export function useMemos(
         // extensions the plugin's filters would have.
         const path = await api.pickFile(title, AUDIO_EXTENSIONS);
         if (typeof path !== "string") return;
-        follow(await api.memoImport(root, path, into));
+        id = await api.memoImport(root, path, into);
+        follow(id);
       });
+      return id;
+    },
+    [run, root, follow]
+  );
+
+  // The follow once more, now without the transcriber as well as the mic: the
+  // words are already words, so what is waited on is the cleanup or the merge.
+  const write = useCallback(
+    async (text: string, into?: string) => {
+      let id: string | null = null;
+      await run("write", async () => {
+        id = await api.memoWrite(root, text, into);
+        follow(id);
+      });
+      return id;
     },
     [run, root, follow]
   );
@@ -866,6 +895,7 @@ export function useMemos(
     start,
     startTake,
     importMemo,
+    write,
     stop,
     pause,
     resume,

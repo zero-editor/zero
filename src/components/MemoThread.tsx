@@ -1,4 +1,13 @@
-import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { api, type Memo } from "../lib/api";
 import {
   clock,
@@ -18,7 +27,15 @@ import {
 } from "../lib/memos";
 import { miniMarkdown } from "../lib/miniMarkdown";
 import { useSettings } from "../lib/settings";
-import { CopyGlyph, ImportGlyph, MemoControls, MicGlyph, PauseGlyph, PlayGlyph } from "./MemoPanel";
+import {
+  CopyGlyph,
+  ImportGlyph,
+  MemoControls,
+  MicGlyph,
+  PauseGlyph,
+  PlayGlyph,
+  SendGlyph,
+} from "./MemoPanel";
 
 /**
  * A memo as the exchange it actually is: what you said, what came back, take by
@@ -27,9 +44,11 @@ import { CopyGlyph, ImportGlyph, MemoControls, MicGlyph, PauseGlyph, PlayGlyph }
  * The files stay the source of truth and this view stays a reading of them —
  * every turn on screen is a file in `.zero/memos/`, re-read rather than cached
  * anywhere, and the breadcrumb above opens the document as the file it also is.
- * Nothing here writes: it plays a take back, and it works the mic — start,
- * stop, pause, throw away — which are the panel's verbs, done through the
- * panel's hook so that the mic stays one resource with one owner.
+ * Nothing here writes a file itself: it plays a take back, it works the mic —
+ * start, stop, pause, throw away — and it takes words typed or pasted into the
+ * box at its foot, which become a take like a recording would. All of those
+ * are the panel's verbs, done through the panel's hook so that the mic stays
+ * one resource with one owner and a written take follows the same path.
  *
  * It draws no title of its own. The tab says what this memo is called and the
  * document's own `# ` heading says it again a line below; a third copy in
@@ -192,6 +211,218 @@ async function readThread(
   return { raws, docs, calls };
 }
 
+/**
+ * The one control at the foot of a thread: a chat box. Words go in at the top —
+ * typed as a reply, or a transcript made somewhere else pasted whole — and
+ * everything else a memo can be given sits on the box's own bottom edge, the
+ * way every chat app arranges it: a recording from a file on the left, and on
+ * the right the mic beside the arrow that sends. Enter sends and ⇧Enter breaks
+ * the line.
+ *
+ * There used to be a box above a bar of buttons, which was two controls for
+ * one act — adding the next turn — and read as a form. One box says what this
+ * is: the place the next thing you say goes, whichever way you say it.
+ *
+ * While a recording is live here, the box *is* the recording: the text gives
+ * way to the mic's controls, the same cluster the panel's floor grows, until
+ * the recording ends. The words that were in it are kept, not thrown away.
+ *
+ * It grows with what is in it up to a limit and scrolls past that — a pasted
+ * ten-minute transcript is a normal thing to put here, and it must not push the
+ * thread off the top of the pane.
+ *
+ * Typing is never what's blocked. A memo still merging can't take another turn
+ * yet, and the box says why in its placeholder while it's empty — but the next
+ * thing can be drafted while the last one comes back, and only the send waits.
+ * What was typed is cleared once the backend has it and not before: a send
+ * that failed leaves the words where they were, with the reason under them.
+ */
+function MemoComposer({
+  placeholder,
+  blocked,
+  notice,
+  autoFocus,
+  onSend,
+  tools,
+  mic,
+  live,
+}: {
+  placeholder: string;
+  /** why a send can't happen right now, or null when it can */
+  blocked: string | null;
+  /** the hook's notice, which is where a failed send's reason lands */
+  notice: string | null;
+  autoFocus?: boolean;
+  /** true once the words are the pipeline's */
+  onSend: (text: string) => Promise<boolean>;
+  /** the left end of the box's edge */
+  tools?: ReactNode;
+  /** the right end, beside send */
+  mic?: ReactNode;
+  /** a recording in progress here: drawn in place of everything else */
+  live?: ReactNode;
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failedSend, setFailedSend] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  // `auto` first, so a box that was grown by a paste shrinks again when it's
+  // emptied; the stylesheet's max-height is where growing stops
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text, live]);
+
+  const ready = blocked === null && !sending && text.trim() !== "";
+  const send = async () => {
+    if (!ready) return;
+    setSending(true);
+    setFailedSend(false);
+    const ok = await onSend(text);
+    setSending(false);
+    if (ok) setText("");
+    else setFailedSend(true);
+  };
+
+  return (
+    <>
+      <div
+        className={`memo-compose ${live ? "live" : ""}`}
+        // the whole box is the target, as it is in every chat: a click on its
+        // padding or its empty edge puts the cursor in the text
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            e.preventDefault();
+            ref.current?.focus();
+          }
+        }}
+      >
+        {live ? (
+          live
+        ) : (
+          <>
+            <textarea
+              ref={ref}
+              rows={1}
+              value={text}
+              autoFocus={autoFocus}
+              placeholder={blocked ?? placeholder}
+              readOnly={sending}
+              onChange={(e) => {
+                setText(e.target.value);
+                setFailedSend(false);
+              }}
+              onKeyDown={(e) => {
+                // an IME mid-word uses Enter to commit the word, not the message
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <div className="memo-compose-edge">
+              {tools}
+              <span className="memo-compose-gap" />
+              {mic}
+              <button
+                className={`memo-icon-btn memo-send ${ready ? "ready" : ""}`}
+                title={blocked ?? "send (↵)"}
+                aria-label="send"
+                disabled={!ready}
+                onClick={() => void send()}
+              >
+                <SendGlyph />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+      {failedSend && notice && <div className="memo-compose-err">{notice}</div>}
+    </>
+  );
+}
+
+/**
+ * A memo before it has any words: an empty thread and the box at its foot,
+ * opened from the pencil on the panel's floor. What is sent from here is the
+ * new memo's first take, and the tab becomes that memo's thread the moment it
+ * exists — the same tab, so the place you were typing in is the place the
+ * answer arrives.
+ *
+ * The box is the thread's box, mic and file included, so a memo begun here can
+ * still be said rather than written: those make a memo exactly as the floor's
+ * buttons do, and hand this tab over to it the same way.
+ */
+export function MemoDraft({
+  memos,
+  onCreated,
+}: {
+  memos: Memos;
+  /** the memo this draft turned into, to be shown in its place */
+  onCreated: (id: string) => void;
+}) {
+  const other = memos.recording;
+  const holder = memos.elsewhere;
+  // the thread's rule for the mic: somebody else's recording is a reason, and
+  // it is said rather than left as a dead button
+  const micBlocked = other
+    ? other.title
+      ? `recording ${other.title}…`
+      : "the mic is busy"
+    : holder
+      ? `recording in ${projectName(holder)}`
+      : null;
+  const handOver = (id: string | null) => {
+    if (id) onCreated(id);
+    return id !== null;
+  };
+
+  return (
+    <div className="memo-thread">
+      <div className="memo-thread-scroll">
+        <div className="memo-thread-col memo-draft">
+          <p>Write it, or paste a transcript you already have.</p>
+          <p>It comes back distilled, the way a recording does — and you can keep going from there, in words or out loud.</p>
+        </div>
+      </div>
+      <div className="memo-thread-foot">
+        <MemoComposer
+          placeholder="write or paste a memo…"
+          blocked={null}
+          notice={memos.notice}
+          autoFocus
+          onSend={async (text) => handOver(await memos.write(text))}
+          tools={
+            <button
+              className="memo-icon-btn"
+              title="import an audio file — it becomes a memo like any recording"
+              aria-label="import an audio file"
+              disabled={memos.busy}
+              onClick={async () => void handOver(await memos.importMemo())}
+            >
+              <ImportGlyph />
+            </button>
+          }
+          mic={
+            <button
+              className="memo-icon-btn"
+              title={micBlocked ?? "record this memo instead"}
+              aria-label="record"
+              disabled={memos.busy || micBlocked !== null}
+              onClick={async () => void handOver(await memos.start())}
+            >
+              <MicGlyph />
+            </button>
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 export function MemoThread({
   root,
   id,
@@ -291,8 +522,9 @@ export function MemoThread({
   }, [since, frozen]);
   const elapsed = since ? ((frozen ?? now) - Date.parse(since)) / 1000 : 0;
 
-  // a word in place of `copy` for a beat, saying what happened
-  const [flash, setFlash] = useState<string | null>(null);
+  // A word beside the copy glyph for a beat, saying what happened — and which
+  // turn it happened to, now that every answer has a copy of its own.
+  const [flash, setFlash] = useState<{ k: number; word: string } | null>(null);
   useEffect(() => {
     if (!flash) return;
     const t = window.setTimeout(() => setFlash(null), 1400);
@@ -414,23 +646,18 @@ export function MemoThread({
     [heard, id, root]
   );
 
-  const doc = (answered > 0 ? thread?.docs[answered - 1] : null) ?? null;
-  const copy = useCallback(async () => {
-    // the document is the paste payload; before there is one the newest
-    // transcript is, which is the whole point of keeping it
-    const said = [...(thread?.raws ?? [])].reverse().find((r) => r?.trim());
-    const text = doc?.trim() ? doc : (said ?? null);
-    if (!text?.trim()) {
-      setFlash("nothing yet");
-      return;
-    }
+  // Copy lives under each answer, the way it does in every chat: the document
+  // as that take left it is a paste payload in its own right, and the newest
+  // one — the memo as it now stands — is simply the last of them. A transcript
+  // is copied the ordinary way, by selecting it.
+  const copy = useCallback(async (k: number, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setFlash("copied");
+      setFlash({ k, word: "copied" });
     } catch {
-      setFlash("couldn't copy");
+      setFlash({ k, word: "couldn't copy" });
     }
-  }, [doc, thread]);
+  }, []);
 
   // Bottom is where the newest turn is, so that's where a thread opens — and
   // where it stays as things land, unless you have scrolled up to read
@@ -505,10 +732,18 @@ export function MemoThread({
   };
   const blocked = why();
 
-  // Only the states this button is still drawn in: while the mic is here, the
-  // cluster has the words and this button isn't there to say any of them.
-  const followLabel =
-    memos.doing === "start" ? "starting…" : (blocked ?? "record a follow-up");
+  /**
+   * Why a written follow-up can't be sent, or null when it can. The mic's
+   * reasons are not this box's: somebody recording in another project has
+   * nothing to do with typing here. What is left is this memo itself — the
+   * recording being made onto it, or the pipeline that still has it.
+   */
+  const textBlocked = (): string | null => {
+    if (mine) return "recording a follow-up…";
+    if (!memo || memo.status === "ready") return null;
+    if (wrong) return "retry first";
+    return work ?? "working…";
+  };
 
   return (
     <div className="memo-thread">
@@ -565,21 +800,33 @@ export function MemoThread({
                   </div>
                 )}
                 {answer && <MemoDoc text={answer} />}
-                {/* developer mode: the call that produced this turn, as the
-                    file it is — every argument and the whole of stdin, runnable
-                    — opened like any other file, because it is one. Offered
-                    only when it is on disk: a memo from before the record was
-                    kept has no such file, and a button that opens nothing is
-                    a promise the thread can't keep. */}
-                {developer && answer && thread.calls[i] && (
-                  <div className="memo-turn-dev">
+                {/* What can be done with an answer, on the line under it:
+                    copy it, and in developer mode open the call that produced
+                    it — every argument and the whole of stdin, runnable —
+                    as the file it is. The call is offered only when it is on
+                    disk: a memo from before the record was kept has no such
+                    file, and a button that opens nothing is a promise the
+                    thread can't keep. */}
+                {answer && (
+                  <div className="memo-turn-acts">
                     <button
-                      className="memo-thread-act"
-                      title="open the exact claude call that produced this turn"
-                      onClick={() => onOpenFile(memoCall(root, id, k))}
+                      className="memo-icon-btn"
+                      title="copy this document"
+                      aria-label="copy this document"
+                      onClick={() => void copy(k, thread.docs[i] ?? answer)}
                     >
-                      claude call
+                      <CopyGlyph />
                     </button>
+                    {flash?.k === k && <span className="memo-turn-flash">{flash.word}</span>}
+                    {developer && thread.calls[i] && (
+                      <button
+                        className="memo-thread-act"
+                        title="open the exact claude call that produced this turn"
+                        onClick={() => onOpenFile(memoCall(root, id, k))}
+                      >
+                        claude call
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -659,78 +906,52 @@ export function MemoThread({
         }}
       />
 
-      {/* Both of this thread's verbs on one bar, at the end of the thing they
-          are about: the one that takes a memo out of zero, and the one that puts
-          more into it. They were a header strip and a footer button, which is
-          the two things you do to a whole memo at opposite ends of it.
-
-          Both are real bordered buttons of the same height, and they stopped
-          being equal halves when copy stopped being a word. Two overlapping
-          rectangles centred in half a bar is a glyph in a field, and the half it
-          was taking is the half the other button actually needs: `recording in
-          <project>` and `record a follow-up` are the longest labels in this
-          feature and they were the ones being ellipsised. Copy keeps enough
-          width for the words it flashes back and gives away the rest — which is
-          the same shape the panel's floor now has, a wide verb with a small
-          glyph beside it.
-
-          The flash stays words. `copied` and `nothing yet` are messages about
-          what just happened, not controls, and there is no icon for `nothing
-          yet` that isn't a riddle.
-
-          Copy outlives the memo's row: a memo whose files are still on disk
-          after the list let go of it can't be talked over any more, but it can
-          still be taken somewhere else, and that is the moment you'd want to. */}
-      <div className="memo-thread-foot">
-        <div className="memo-thread-bar">
-          <button
-            className="memo-thread-btn copy"
-            title="copy the memo's text"
-            aria-label="copy the memo's text"
-            onClick={copy}
-          >
-            {flash ? <span className="memo-btn-label">{flash}</span> : <CopyGlyph />}
-          </button>
-          {/* While this memo is the one being recorded, this end of the bar is
-              the mic's controls — the same cluster the panel's floor grows, in
-              the same place the button that started it stood.
-
-              The mic rides in front of the label in every state, including the
-              ones that say why the button can't be pressed. It doesn't replace
-              those words and mustn't: a blocked control that only shows a glyph
-              is a control that looks broken. It warms them, and it says at a
-              glance which of the two buttons is the one about talking. */}
-          {memo &&
-            (mine ? (
-              <MemoControls root={root} memos={memos} elapsed={elapsed} />
-            ) : (
-              <>
-                <button
-                  className="memo-thread-btn"
-                  title={blocked ?? "record a follow-up — it revises this memo"}
-                  disabled={memos.busy || blocked !== null}
-                  onClick={() => memos.startTake(id)}
-                >
-                  <MicGlyph />
-                  <span className="memo-btn-label">{followLabel}</span>
-                </button>
-                {/* A follow-up said somewhere else, arriving as a file. Gated
-                    only on the memo being finished, not on the mic: another
-                    project mid-ramble greys the button beside this one for a
-                    reason that doesn't apply here. */}
-                <button
-                  className="memo-thread-btn import"
-                  title="import an audio file as a follow-up — it revises this memo"
-                  aria-label="import an audio file as a follow-up"
-                  disabled={memos.busy || memo.status !== "ready"}
-                  onClick={() => memos.importMemo(id)}
-                >
-                  <ImportGlyph />
-                </button>
-              </>
-            ))}
+      {/* The box every next turn goes in by — typed, pasted, said into the
+          mic or brought in as a file — or, while this memo is the one being
+          recorded, the mic's controls in its place. Only for a memo the list
+          still has: one whose row has gone can be read and copied from, but
+          not talked to. */}
+      {memo && (
+        <div className="memo-thread-foot">
+          <MemoComposer
+            placeholder="reply to this memo…"
+            blocked={textBlocked()}
+            notice={memos.notice}
+            onSend={async (text) => (await memos.write(text, id)) !== null}
+            live={mine ? <MemoControls root={root} memos={memos} elapsed={elapsed} /> : undefined}
+            tools={
+              // a follow-up said somewhere else, arriving as a file — gated
+              // only on the memo being finished, since the mic is not involved
+              <button
+                className="memo-icon-btn"
+                title="import an audio file as a follow-up — it revises this memo"
+                aria-label="import an audio file as a follow-up"
+                disabled={memos.busy || memo.status !== "ready"}
+                onClick={() => void memos.importMemo(id)}
+              >
+                <ImportGlyph />
+              </button>
+            }
+            mic={
+              // the reason it can't be pressed, when there is one, is its
+              // tooltip — and, for the pipeline's reasons, the box's placeholder
+              <button
+                className="memo-icon-btn"
+                title={
+                  memos.doing === "start"
+                    ? "starting…"
+                    : (blocked ?? "record a follow-up — it revises this memo")
+                }
+                aria-label="record a follow-up"
+                disabled={memos.busy || blocked !== null}
+                onClick={() => memos.startTake(id)}
+              >
+                <MicGlyph />
+              </button>
+            }
+          />
         </div>
-      </div>
+      )}
     </div>
   );
 }
