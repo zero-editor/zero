@@ -29,6 +29,12 @@
 //! its files sit beside the memo's rather than over them, and the merged
 //! document is written through a temp file and a rename.
 //!
+//! A memo can also be *written*. Text typed or pasted into a thread — as a
+//! memo of its own or as a take — is saved as the transcript a recording would
+//! have produced and enters at `transcribed`, one arrow in: no audio, no
+//! transcriber, and from there the same cleanup or merge. A transcript with no
+//! recording beside it is how the files say which kind a memo is.
+//!
 //! Two kinds of thread do the work, both of them ours rather than Tauri's. A
 //! recording gets a reader thread per invocation that turns the helper's NDJSON
 //! into `app.emit` (the `pty.rs` pattern). Transcription and cleanup share a
@@ -191,6 +197,10 @@ struct MemoFile {
 /// One follow-up recording. Its own audio and its own transcript, both named
 /// after the memo they belong to; the document they end up in is the memo's.
 ///
+/// Or one follow-up *written*: a take typed or pasted into the thread has a
+/// transcript and no audio at all, because the words were never spoken — and
+/// from its transcript on it is exactly the take a recording would have been.
+///
 /// Appended the moment the take starts rather than when it finishes, because
 /// the frontend needs `created` while the recording is still running — it is
 /// what the timer counts from. `duration_s` is 0.0 until the helper says
@@ -198,7 +208,10 @@ struct MemoFile {
 /// first recording.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 struct Take {
-    audio: String,
+    /// `None` for a written take. Skipped when absent, so a spoken take's json
+    /// is the shape it always was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audio: Option<String>,
     raw: String,
     created: String,
     #[serde(default)]
@@ -561,14 +574,17 @@ fn stem_is_ours(stem: &str) -> bool {
         })
 }
 
-/// A stem no file in `dir` is using yet. The caf is a recording's first file
-/// and the m4a an import's only one, so those two and the json are the names
-/// that can already be claiming a stem.
+/// A stem no file in `dir` is using yet. The caf is a recording's first file,
+/// the m4a an import's and the raw a written memo's, so those three and the
+/// json are the names that can already be claiming a stem.
 fn new_stem(dir: &Path) -> String {
     let front = stamp(now_secs() + local_offset());
     for _ in 0..64 {
         let stem = format!("{front}-{}", hex4());
-        if ["json", "caf", "m4a"].iter().all(|ext| !dir.join(format!("{stem}.{ext}")).exists()) {
+        if ["json", "caf", "m4a", "raw.txt"]
+            .iter()
+            .all(|ext| !dir.join(format!("{stem}.{ext}")).exists())
+        {
             return stem;
         }
     }
@@ -1530,7 +1546,7 @@ fn transcribe_job(ctx: &JobCtx, root: &str, id: &str) {
     // disk yet is the whole of what says the follow-up is the one waiting.
     let take = memo.takes.last().filter(|t| !dir.join(&t.raw).exists()).cloned();
     let (audio, out) = match &take {
-        Some(take) => (Some(take.audio.clone()), dir.join(&take.raw)),
+        Some(take) => (take.audio.clone(), dir.join(&take.raw)),
         None => (memo.audio.clone(), dir.join(format!("{id}.raw.txt"))),
     };
     let Some(audio) = audio else {
@@ -1676,9 +1692,20 @@ fn cleanup_job(ctx: &JobCtx, root: &str, id: &str) {
         }
     };
 
+    // Written words were never heard, so the floor below is not theirs: it is
+    // there to tell a mic that caught a cough from one that caught a sentence,
+    // and "yes, ship it" typed as a follow-up is a short answer, not silence.
+    // Only a written transcript with nothing in it at all — which the command
+    // refuses, so this is a file emptied by hand — is the silence path's.
+    let written = match &take {
+        Some(take) => take.audio.is_none(),
+        None => memo.audio.is_none(),
+    };
+    let floor = if written { 1 } else { MIN_TRANSCRIPT };
+
     // nobody said anything: there is nothing for an LLM to be concise about,
     // and the call would cost tokens to produce an empty document
-    if transcript.trim().chars().count() < MIN_TRANSCRIPT {
+    if transcript.trim().chars().count() < floor {
         match take {
             // A follow-up nobody spoke into is not a memo of silence, because
             // there is already a memo here. The take goes — files and entry —
@@ -1689,7 +1716,8 @@ fn cleanup_job(ctx: &JobCtx, root: &str, id: &str) {
                 memo.status = READY.to_string();
                 memo.error = None;
                 ctx.publish(root, &dir, &memo);
-                notice(ctx.app, root, "no speech in the follow-up — memo unchanged");
+                let said = if written { "nothing in the follow-up" } else { "no speech in the follow-up" };
+                notice(ctx.app, root, &format!("{said} — memo unchanged"));
             }
             None => {
                 memo.status = READY.to_string();
@@ -2593,16 +2621,19 @@ impl TakeArt {
 impl Artifacts {
     /// How far the files themselves say this memo got. A memo can never claim
     /// more than this — a `ready` whose `.md` was deleted is a `transcribed`.
+    ///
+    /// The audio is the memo, except where there never was any: a transcript
+    /// with no recording beside it is a memo that was written rather than said,
+    /// and it starts life at level 2. A recording with nothing behind it is
+    /// still level 1, and nothing at all — a json, a stub — is still nothing.
     fn level(&self) -> u8 {
-        if self.audio.is_none() {
-            return 0;
-        }
         if !self.raw {
-            return 1;
+            return if self.audio.is_some() { 1 } else { 0 };
         }
         // a transcript of silence is finished: there is no `.md` coming, and
-        // demoting it would re-run the pipeline forever
-        if self.md || self.raw_len < MIN_TRANSCRIPT as u64 {
+        // demoting it would re-run the pipeline forever. Only a recording can
+        // be silent — a written memo that short is simply short.
+        if self.md || (self.audio.is_some() && self.raw_len < MIN_TRANSCRIPT as u64) {
             3
         } else {
             2
@@ -2726,8 +2757,8 @@ fn fold_takes(memo: &mut MemoFile, art: &Artifacts) {
     // the json being written leaves an m4a where the entry still says caf
     for (i, take) in memo.takes.iter_mut().enumerate() {
         if let Some(found) = art.takes.get(&take_no(i)).and_then(|t| t.audio.as_ref()) {
-            if take.audio != *found {
-                take.audio = found.clone();
+            if take.audio.as_ref() != Some(found) {
+                take.audio = Some(found.clone());
             }
         }
     }
@@ -2738,11 +2769,15 @@ fn fold_takes(memo: &mut MemoFile, art: &Artifacts) {
     // `unwrap_or(1)`: with no takes at all the memo is on take 1, its own
     while last_take_no(memo).unwrap_or(1) < highest {
         let n = take_no(memo.takes.len());
-        let audio = art
-            .takes
-            .get(&n)
-            .and_then(|t| t.audio.clone())
-            .unwrap_or_else(|| format!("{}.caf", take_stem(&memo.id, n)));
+        // A transcript with no recording is a written take, and has none to
+        // name. Anything else missing its audio is a recording the helper was
+        // about to open, under the name it opens.
+        let found = art.takes.get(&n);
+        let audio = match found.and_then(|t| t.audio.clone()) {
+            Some(audio) => Some(audio),
+            None if found.is_some_and(|t| t.raw) => None,
+            None => Some(format!("{}.caf", take_stem(&memo.id, n))),
+        };
         memo.takes.push(Take {
             audio,
             raw: take_raw_name(&memo.id, n),
@@ -2774,6 +2809,12 @@ fn reconcile_one(
         // audio is the memo, and there isn't one
         return None;
     }
+    // A transcript on its own is a written memo only under a name this program
+    // minted. `notes.raw.txt` dropped in by hand is somebody's file, and
+    // believing it would put a stranger's text through a `claude` call.
+    if art.audio.is_none() && !stem_is_ours(stem) {
+        return None;
+    }
 
     let mut memo = match existing {
         Some(memo) => memo,
@@ -2784,7 +2825,8 @@ fn reconcile_one(
                 .then(|| md_title(dir, stem))
                 .flatten()
                 .or_else(|| {
-                    (art.raw && art.raw_len < MIN_TRANSCRIPT as u64).then(|| NO_SPEECH.to_string())
+                    let silent = art.audio.is_some() && art.raw && art.raw_len < MIN_TRANSCRIPT as u64;
+                    silent.then(|| NO_SPEECH.to_string())
                 }),
             created: iso(art.mtime),
             duration_s: 0.0,
@@ -2989,7 +3031,7 @@ fn begin_take(app: &tauri::AppHandle, root: &str, id: &str) -> Result<(PathBuf, 
     memo.takes.push(Take {
         // the caf is what the helper opens; the stopped event says what it
         // finally became, exactly as it does for a memo's first recording
-        audio: format!("{}.caf", take_stem(id, n)),
+        audio: Some(format!("{}.caf", take_stem(id, n))),
         raw: take_raw_name(id, n),
         created: iso(now_secs()),
         duration_s: 0.0,
@@ -3176,13 +3218,110 @@ pub async fn memo_import(
             import_audio(&src, &dir.join(&audio))?;
             let duration_s = audio_duration(&dir.join(&audio));
             memo.takes.push(Take {
-                audio,
+                audio: Some(audio),
                 raw: take_raw_name(&id, n),
                 created: iso(now_secs()),
                 duration_s,
             });
             memo.attempts = Attempts::default();
             memo.status = RECORDED.to_string();
+            memo.error = None;
+            publish(&app, &shared, &root, &dir, &memo);
+            auto_advance(&shared, &app, &root, &memo);
+            Ok(id)
+        }
+    }
+}
+
+// ── writing instead of talking ───────────────────────────────────────────────
+
+/// More than any transcript a person has pasted, and less than a mistake —
+/// a file dropped on the box by accident, say — can cost a `claude` call.
+const MAX_WRITTEN: usize = 1024 * 1024;
+
+/// Words that arrive as text — typed into the thread, or a transcript made
+/// somewhere else and pasted — as a memo of their own, or as a follow-up onto
+/// the finished memo `into` names.
+///
+/// Text is what transcription produces, so it enters the pipeline one arrow
+/// later than a recording does: written down as the raw a transcribe would
+/// have left, at `transcribed`, and from there it is the same cleanup or the
+/// same merge, retried from the same checkpoint. There is no audio and never
+/// will be; that absence is the whole of how a written memo differs on disk,
+/// and it is what [`Artifacts::level`] reads it by. No probe and no mic: none
+/// of this touches the transcriber.
+///
+/// Resolves with the memo's id, exactly as `memo_record_start` and
+/// `memo_import` do, so the frontend follows it the same way.
+#[tauri::command]
+pub async fn memo_write(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, MemoManager>,
+    root: String,
+    text: String,
+    into: Option<String>,
+) -> Result<String, String> {
+    // the edges are whitespace a paste drags along; the inside is the text
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("there is nothing to send".into());
+    }
+    if text.len() > MAX_WRITTEN {
+        return Err("that is more than a megabyte of text — too much for one memo".into());
+    }
+    let body = format!("{text}\n");
+    let shared = state.0.clone();
+
+    match into {
+        // the first write pressing record makes — the directory, the ignore
+        // line, the vocabulary — and then the transcript a recording would
+        // have ended in, before the json that points at it
+        None => {
+            let dir = create_memos_dir(&app, &root)?;
+            let _ = ensure_zero_md(&app, &root);
+            let id = new_stem(&dir);
+            write_atomic(&dir.join(format!("{id}.raw.txt")), &body)?;
+            let memo = MemoFile {
+                id: id.clone(),
+                title: None,
+                created: iso(now_secs()),
+                duration_s: 0.0,
+                status: TRANSCRIBED.to_string(),
+                audio: None,
+                interrupted: false,
+                takes: Vec::new(),
+                attempts: Attempts::default(),
+                error: None,
+            };
+            publish(&app, &shared, &root, &dir, &memo);
+            auto_advance(&shared, &app, &root, &memo);
+            Ok(id)
+        }
+        // `memo_import`'s follow-up rules, for the same reasons: only a
+        // finished memo takes one, the attempts reset because this is a new
+        // run, and the take is appended once its file is safely in place
+        Some(id) => {
+            if !valid_id(&id) {
+                return Err("not a memo id".into());
+            }
+            let dir = memos_dir(&root);
+            let mut memo = load_memo(&dir, &id).ok_or("no such memo")?;
+            if memo.status != READY {
+                return Err(format!(
+                    "can only add to a finished memo — this one is {}",
+                    memo.status
+                ));
+            }
+            let _ = ensure_zero_md(&app, &root);
+            let n = take_no(memo.takes.len());
+            let raw = take_raw_name(&id, n);
+            // a take number can come back after a dropped take, and the one
+            // that comes back must not inherit anything the last one left
+            remove_take_files(&dir, &id, n);
+            write_atomic(&dir.join(&raw), &body)?;
+            memo.takes.push(Take { audio: None, raw, created: iso(now_secs()), duration_s: 0.0 });
+            memo.attempts = Attempts::default();
+            memo.status = TRANSCRIBED.to_string();
             memo.error = None;
             publish(&app, &shared, &root, &dir, &memo);
             auto_advance(&shared, &app, &root, &memo);
@@ -3461,7 +3600,7 @@ impl RecordReader {
                 }
                 let Some(take) = memo.takes.last_mut() else { return };
                 if let Some(audio) = audio {
-                    take.audio = audio;
+                    take.audio = Some(audio);
                 }
                 take.duration_s = duration.unwrap_or(take.duration_s);
                 // the memo's own `duration_s` stays the length of the recording
@@ -3782,7 +3921,7 @@ mod tests {
         for i in 0..n {
             let take = take_no(i);
             memo.takes.push(Take {
-                audio: format!("{}.m4a", take_stem(id, take)),
+                audio: Some(format!("{}.m4a", take_stem(id, take))),
                 raw: take_raw_name(id, take),
                 created: "2026-08-13T15:02:44Z".to_string(),
                 duration_s: 7.0,
@@ -4226,6 +4365,65 @@ Here are the terms I corrected:
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A memo that was written rather than said has a transcript and no
+    /// recording, which used to be the shape of nothing at all. It has to
+    /// survive every list — at the checkpoint its files support, never mistaken
+    /// for silence however short — while a stranger's `.raw.txt` stays a
+    /// stranger's, and a written take folds back in without inventing audio.
+    #[test]
+    fn a_written_memo_is_a_memo_without_audio() {
+        let dir = temp("written");
+        let none = HashSet::new();
+
+        // no json, as after a crash between the raw landing and the json
+        write(&dir, "2026-09-23-1000-aaaa.raw.txt", "a pasted transcript, long enough\n");
+        // finished, and the json lost
+        write(&dir, "2026-09-23-1000-bbbb.raw.txt", "another transcript\n");
+        write(&dir, "2026-09-23-1000-bbbb.md", "# Written, then distilled\n\nbody");
+        // short, which is an answer and not a cough
+        write(&dir, "2026-09-23-1000-cccc.raw.txt", "yes\n");
+        // somebody's own file, under a name nobody minted
+        write(&dir, "notes.raw.txt", "a person's scratch text, not a memo\n");
+        // a finished memo with a written take on it whose json entry was lost
+        write(&dir, "2026-09-23-1000-dddd.m4a", "\0\0audio");
+        write(&dir, "2026-09-23-1000-dddd.raw.txt", "the spoken first take, long enough");
+        write(&dir, "2026-09-23-1000-dddd.md", "# Spoken\n\nbody");
+        write(&dir, "2026-09-23-1000-dddd.2.raw.txt", "and a typed follow-up");
+        save_memo(&dir, &memo("2026-09-23-1000-dddd", READY)).unwrap();
+
+        let found: BTreeMap<String, MemoFile> = reconcile_dir(&dir, &none)
+            .into_iter()
+            .map(|m| (m.id.clone(), m))
+            .collect();
+        let status = |id: &str| found.get(id).map(|m| m.status.as_str());
+
+        assert_eq!(status("2026-09-23-1000-aaaa"), Some(TRANSCRIBED), "kept, and waiting for cleanup");
+        assert_eq!(next_stage(&found["2026-09-23-1000-aaaa"]), Some(Stage::Cleanup));
+        assert_eq!(found["2026-09-23-1000-aaaa"].audio, None);
+        assert_eq!(status("2026-09-23-1000-bbbb"), Some(READY));
+        assert_eq!(found["2026-09-23-1000-bbbb"].title.as_deref(), Some("Written, then distilled"));
+        assert_eq!(status("2026-09-23-1000-cccc"), Some(TRANSCRIBED), "short is not silent");
+        assert_ne!(found["2026-09-23-1000-cccc"].title.as_deref(), Some(NO_SPEECH));
+        assert_eq!(status("notes"), None, "a stranger's transcript is nobody's memo");
+        assert!(dir.join("notes.raw.txt").exists(), "and nobody's to sweep");
+
+        let takes = &found["2026-09-23-1000-dddd"].takes;
+        assert_eq!(takes.len(), 1, "the typed take is folded in");
+        assert_eq!(takes[0].audio, None, "with no recording invented for it");
+        assert_eq!(takes[0].raw, "2026-09-23-1000-dddd.2.raw.txt");
+
+        // and a written take's json is the spoken one's minus the audio field,
+        // which a spoken take still carries exactly as it always did
+        let mut both = with_takes("2026-09-23-1000-eeee", READY, 2);
+        both.takes[1].audio = None;
+        let json = serde_json::to_string(&both).unwrap();
+        assert_eq!(json.matches("\"audio\"").count(), 2, "the memo's and the spoken take's: {json}");
+        let back: MemoFile = serde_json::from_str(&json).unwrap();
+        assert!(back == both, "and it reads back as itself");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Every way a memo can be found in a state nobody is maintaining: killed
     /// mid-stage, half-written, edited by hand, or missing its json entirely.
     #[test]
@@ -4543,7 +4741,7 @@ Here are the terms I corrected:
         audio("take-cleaning.2");
         raw("take-cleaning.2");
         let mut cleaning = with_takes("take-cleaning", CLEANING, 1);
-        cleaning.takes[0].audio = "take-cleaning.2.caf".to_string();
+        cleaning.takes[0].audio = Some("take-cleaning.2.caf".to_string());
         save(&cleaning);
 
         // numbered files with no entry naming them: a json that predates them,
@@ -4623,7 +4821,7 @@ Here are the terms I corrected:
         assert_eq!(status("take-cleaning"), Some(TRANSCRIBED));
         assert_eq!(next_stage(&found["take-cleaning"]), Some(Stage::Cleanup), "which is the merge");
         assert_eq!(
-            found["take-cleaning"].takes[0].audio, "take-cleaning.2.m4a",
+            found["take-cleaning"].takes[0].audio.as_deref(), Some("take-cleaning.2.m4a"),
             "the files correct a name the json never got to update"
         );
 

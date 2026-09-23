@@ -397,6 +397,13 @@ export const api = {
    *  reason. The source file is never touched. */
   memoImport: (root: string, path: string, into?: string) =>
     invoke<string>("memo_import", { root, path, into: into ?? null }),
+  /** Text instead of a recording — typed, or a transcript pasted in — as a new
+   *  memo, or with `into` as a follow-up onto a finished one. It skips the
+   *  transcriber and lands where a transcription would have, so the cleanup or
+   *  the merge that follows is the one a recording gets. Resolves with the
+   *  memo's id, as the two above do. */
+  memoWrite: (root: string, text: string, into?: string) =>
+    invoke<string>("memo_write", { root, text, into: into ?? null }),
   /* The mic is one resource, so the three below take no arguments: there is one
      recording to act on and the backend already knows which it is. Same shape
      as `memoRecordStop`, for the same reason. */

@@ -273,112 +273,40 @@
   text-overflow: ellipsis;
 }
 
-/* Everything you can do to a whole memo, on one bar at the end of it, aligned
-   to the column it is about. Both are the same bordered chip at the same
-   height — copy used to be a bare word next to one, the shape of a footnote
-   beside a headline, and it isn't a footnote: taking the text out of zero is
-   what a memo gets recorded for about as often as saying more into it.
-   They were equal halves while copy was a word. As a glyph it needs the width
-   of the longest thing it flashes back and not a pixel more, and the pixels it
-   gives up go to the only labels in this feature long enough to be ellipsised
-   — `record a follow-up`, `recording in <project>`. */
 .memo-thread-foot {
   flex: none;
   padding: 0 18px 14px;
 }
 
-.memo-thread-bar {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  width: 100%;
-  max-width: 68ch;
-  margin: 0 auto;
-}
-
-/* The bordered chip this window uses for a thing you are actually meant to
-   press — the launcher's open button, the commit button — at the size the foot
-   of a document can carry two of.
-   Present in every state a memo has, and disabled with a reason in the ones the
-   follow-up can't be pressed in — it used to be absent while the pipeline was
-   still running, and a button that isn't there is one you conclude is broken
-   rather than busy. Which is also why the mic glyph goes in front of those
-   reasons rather than instead of them. */
-.memo-thread-btn {
-  /* `auto` rather than `0`: the basis is the label, which is what lets the two
-     chips shrink against each other when the pane gets narrower than the bar
-     wants to be. With a zero basis the copy chip's fixed width was taken off
-     the top and the follow-up got whatever was left — 26px of it, in a pane
-     narrow enough — which is a button that has stopped being one. */
-  flex: 1 1 auto;
-  min-width: 0;
+/* The line under an answer: the copy glyph, and in developer mode the call
+   that produced it as a `memo-thread-act` word. Left, under the text it acts
+   on, the way every chat puts it — and pulled in by the square's own padding so
+   the glyph lines up with the document's left edge rather than sitting 5px in
+   from it. */
+.memo-turn-acts {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 12px;
-  color: var(--text-dim);
+  gap: 4px;
+  margin-top: 6px;
+  margin-left: -6px;
 }
 
-/* 100px, which is what `couldn't copy` needs and three pixels more than it
-   takes: the chip holds a glyph nearly always and a word for fourteen hundred
-   milliseconds after a press, and a button that changes width to deliver a
-   message is a message you watch instead of read. It gives the width back only
-   when the pane is too narrow for both chips, and never grows — the space past
-   a hundred pixels belongs to the labels next door. */
-.memo-thread-btn.copy {
-  flex: 0 1 100px;
-  min-width: 34px;
-}
-
-/* The bar's third verb: a follow-up arriving as a file instead of through the
-   mic. A chip like its neighbours — this bar is real bordered buttons, and a
-   bare icon square among them reads as a satellite — at the width the copy
-   chip shrinks to, because it too holds exactly one glyph. */
-.memo-thread-btn.import {
-  flex: 0 0 34px;
-  min-width: 34px;
-  padding: 7px 0;
-}
-
-.memo-thread-btn:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--bg-raised);
-}
-
-/* the mic is elsewhere, the pipeline still has this memo, or a call hasn't come
-   back yet — the title says which */
-.memo-thread-btn:disabled {
+.memo-turn-acts .memo-icon-btn {
   color: var(--text-faint);
-  cursor: default;
 }
 
-.memo-btn-label {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.memo-turn-acts .memo-icon-btn:hover {
+  color: var(--text);
 }
 
-/* While this memo is the one being recorded, the cluster stands in the
-   follow-up's half and takes exactly it — the same half, so the bar doesn't
-   redraw itself around the fact that a mic is on. */
-.memo-thread-bar .memo-controls {
-  flex: 1 1 0;
-  min-width: 0;
+.memo-turn-acts .memo-thread-act {
+  margin-left: auto;
 }
 
-/* developer mode's one line under a turn: the call that produced it, as a
-   `memo-thread-act` word at the right edge, the way `retry` sits — faint until
-   hovered, because it is for the person working on zero, not on the memo, and
-   the document above it is the thing being read */
-.memo-turn-dev {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 2px;
+/* what the press did, for a beat — a message, not a control */
+.memo-turn-flash {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 /* deleted, from here or from the panel or with rm. Quiet, because it is the
@@ -388,4 +316,113 @@
   padding: 12px;
   font-size: 12px;
   color: var(--text-faint);
+}
+
+/* The one control at the foot of a thread: a chat box. The text on top, and
+   on the box's own bottom edge the square icon buttons the rest of this
+   feature already uses — import on the left, mic and send on the right. It
+   wears zero's prose-field dress rather than a chat app's: the field ground,
+   a hairline, the panel radius, and the accent on the border while the cursor
+   is in it — exactly the Linear prompt box, the other place in zero where you
+   write a paragraph and send it somewhere. */
+.memo-compose {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 68ch;
+  margin: 0 auto;
+  padding: 8px 5px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--bg-field);
+  cursor: text;
+  transition: border-color 0.12s ease;
+}
+
+.memo-compose:focus-within {
+  border-color: var(--accent);
+}
+
+/* It grows with what is typed or pasted and stops at a height that still
+   leaves the thread above readable — a whole transcript scrolls inside the box
+   rather than shoving the conversation off the top of the pane. */
+.memo-compose textarea {
+  width: 100%;
+  max-height: 38vh;
+  padding: 0 5px 0 0;
+  resize: none;
+  overflow-y: auto;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.memo-compose textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.memo-compose-edge {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  margin-left: -5px;
+  cursor: default;
+}
+
+.memo-compose-gap {
+  flex: 1;
+}
+
+/* Send is the one square here that changes when there is something to send:
+   faint while the box is empty, the accent once it isn't — the way the panel
+   marks anything live, a colour and no fill. */
+.memo-send.ready {
+  color: var(--accent);
+}
+
+/* While a recording is live here the box is its controls: the cluster the
+   panel's floor grows, with the done chip's own border dropped, since it now
+   sits inside one. */
+.memo-compose.live {
+  padding: 4px;
+  cursor: default;
+}
+
+.memo-compose.live .memo-stop {
+  border-color: transparent;
+  padding: 5px 6px;
+}
+
+/* a send that didn't land: the reason, under the words it left in the box */
+.memo-compose-err {
+  max-width: 68ch;
+  margin: 6px auto 0;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--red);
+}
+
+/* the empty thread a written memo starts as: what the box below is for, said
+   once in the middle of the space the conversation will fill */
+.memo-draft {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  max-width: 44ch;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.memo-draft p + p {
+  margin-top: 0.6em;
 }

@@ -29,7 +29,8 @@ import type { View } from "./Workspace";
  * The button that starts all of it sits on the floor of the panel rather than
  * over the list, where it was tried first and read as one more line of chrome
  * between you and the memos. A compose bar, in the place everything that takes
- * dictation puts one, with the door to ZERO.md under it.
+ * dictation puts one, with the door to ZERO.md under it — and a pencil beside
+ * it, for a memo that starts as words typed or pasted rather than said.
  */
 
 /** The helper's RMS, curved for the eye: speech sits around 0.05–0.2 on a 0–1
@@ -156,7 +157,26 @@ const ImportGlyph = () => (
   </Glyph>
 );
 
-export { PlayGlyph, PauseGlyph, CopyGlyph, MicGlyph, ImportGlyph };
+/** A memo begun in words: a pencil, at the same slant and stroke as the rest
+ *  of the set. Beside the record button on the floor, it opens a blank thread
+ *  to type or paste into — the other way a memo starts. */
+const PenGlyph = () => (
+  <Glyph>
+    <path d="M10.6 3.1a1.5 1.5 0 0 1 2.1 2.1L5.6 12.3l-2.9.8.8-2.9Z" />
+    <path d="M9.5 4.2l2.1 2.1" />
+  </Glyph>
+);
+
+/** Send, as every chat has drawn it: an arrow going up and away. The shaft is
+ *  the mic's stem length and the head the import arrow's, turned over. */
+const SendGlyph = () => (
+  <Glyph>
+    <path d="M8 13V3.4" />
+    <path d="M4.3 7.1 8 3.4l3.7 3.7" />
+  </Glyph>
+);
+
+export { PlayGlyph, PauseGlyph, CopyGlyph, MicGlyph, ImportGlyph, SendGlyph };
 
 /**
  * The dot, and nothing but the dot: a mic is on.
@@ -384,7 +404,7 @@ export function MemoPanel({
     <div className="memo-panel">
       <div className="memo-list">
         {rows.length === 0 && !recording && (
-          <div className="memo-empty">press record, ramble, press stop.</div>
+          <div className="memo-empty">press record, ramble, press stop — or write one.</div>
         )}
 
         {rows.map((m) => {
@@ -503,12 +523,26 @@ export function MemoPanel({
               className="memo-record"
               title="record a voice memo"
               disabled={memos.busy || elsewhere !== null}
-              onClick={memos.start}
+              onClick={() => void memos.start()}
             >
               <MemoDot live={false} />
               <span className="memo-record-label">{recordLabel}</span>
             </button>
           )}
+
+          {/* A memo that starts as words rather than a recording: a blank
+              thread with the cursor in it, to type into or paste a transcript
+              made somewhere else. One per project — pressing it again goes
+              back to the draft rather than opening a second. Never greyed:
+              neither the mic nor the pipeline has anything to do with it. */}
+          <button
+            className="memo-icon-btn"
+            title="write a memo — type or paste text instead of recording"
+            aria-label="write a memo"
+            onClick={() => onOpenView({ kind: "memo-new", key: "memo-new" })}
+          >
+            <PenGlyph />
+          </button>
 
           {/* The other way a recording arrives: made somewhere else, picked as
               a file. It rides beside the mic in both states — the mic is never

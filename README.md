@@ -171,9 +171,16 @@ any other: same transcription, same distillation, same merge. It is converted
 to the format a recording ends in on the way, so nothing downstream knows the
 difference, and the file you picked is only ever read.
 
+Nor is talking. A memo is a chat, and the box at the foot of its thread takes
+words as readily as its mic takes a voice: type a follow-up, or paste a
+transcript you already have, and it is merged exactly as a recorded one would
+be. The pencil beside the record button starts a memo the same way — a blank
+thread to write or paste into, no recording required. Written words skip the
+transcriber and nothing else: the same distillation, the same merge.
+
 Clicking a memo opens it as its thread — what you said, what came back, take
-by take, oldest at the top, with the button that records the next take at the
-bottom of it. It is still files all the way down, all of them in
+by take, oldest at the top, with a chat box at the bottom for the next one —
+typed, pasted, or said into the mic beside it. It is still files all the way down, all of them in
 `<project>/.zero/memos/`: the audio, the raw transcript of every take, the
 document, a copy of the document as each take left it, and the exact `claude`
 call that produced each one — a shell script that runs it again, every
@@ -483,13 +490,13 @@ discovered:
   `TERM_SESSION_ID` it inherited from whatever launched it — otherwise macOS's
   shell-session integration greets every new terminal with "Restored session:"
   and saves history into `~/.zsh_sessions` on behalf of someone else's window.
-- **It writes `<project>/.zero/`** the first time you record or import a voice
-  memo in that project — the audio and both transcripts — **and a
+- **It writes `<project>/.zero/`** the first time you record, import or write
+  a memo in that project — the audio and both transcripts — **and a
   `<project>/ZERO.md`** beside it, the vocabulary that project is transcribed
   against, which is meant to be committed the way a CLAUDE.md is. They are the
   first things zero has ever put inside a project of its own accord, and they
-  appear only if you press record, import a recording, or open that file from
-  the panel.
+  appear only if you press record, import a recording, send a written memo, or
+  open that file from the panel.
 - **It appends `.zero/memos/` to that project's `.gitignore`** at the same
   moment, once, under a comment saying which program added it. The recordings
   stay on your machine; `ZERO.md` is outside that line, so the project's words

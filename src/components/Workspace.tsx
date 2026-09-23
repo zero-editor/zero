@@ -69,6 +69,11 @@ export type View =
   // over the thread opens the document — which is what keeps this a reading of
   // a memo rather than a second place it lives.
   | { kind: "memo"; key: string; id: string }
+  // A memo that doesn't exist yet: the blank thread the panel's pencil opens,
+  // to type or paste into. It becomes a `memo` view in place the moment the
+  // first words are sent, and like an untitled buffer it isn't kept in the
+  // session — there is nothing on disk for it to be a view of.
+  | { kind: "memo-new"; key: string }
   // A Linear issue, read where the code is. `identifier` rides along with the
   // uuid the API wants because the tab has to be able to say ECL-99 before the
   // fetch that would tell it that comes back — a tab restored from a session
@@ -663,12 +668,13 @@ export const Workspace = memo(function Workspace({
     if (memosOn) return;
     // the reopen stack too, or ⌘⇧T would put back the one kind of tab that
     // can no longer draw itself
-    closedRef.current = closedRef.current.filter((c) => c.view.kind !== "memo");
+    const memoish = (v: View) => v.kind === "memo" || v.kind === "memo-new";
+    closedRef.current = closedRef.current.filter((c) => !memoish(c.view));
     setDocPanes((prev) => {
       let changed = false;
       const out: Record<string, DocPane> = {};
       for (const [pid, dp] of Object.entries(prev)) {
-        const views = dp.views.filter((v) => v.kind !== "memo");
+        const views = dp.views.filter((v) => !memoish(v));
         if (views.length === dp.views.length) {
           out[pid] = dp;
           continue;
