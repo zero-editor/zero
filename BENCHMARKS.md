@@ -49,7 +49,7 @@ daemon is the same binary re-executed, so `vt100` and the daemon's own code
 landed inside the main binary rather than beside it.
 
 Two of those five are the icon, and they're most of the 2 MB the bundle grew
-in August 2026: a 428 KB `.icns` for macOS 25 and earlier, and a 1.6 MB
+in August 2026: a 330 KB `.icns` for macOS 25 and earlier, and a 1.8 MB
 `Assets.car` holding the layered macOS 26 icon, which the system renders in
 seven appearances — light, dark, clear light and dark, tinted light and dark,
 and the mono one. That's the price of letting the system compose the icon

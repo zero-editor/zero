@@ -54,6 +54,11 @@ CORNER = [
 # with equal weight top and bottom reads low when it's centred by measurement.
 RX, RY, SIDE, TOP, RISE = 226, 310, 68, 44, 5
 
+# porcelain: a black zero standing on a pale plate. Inverted from the first
+# icon because on macOS 27 depth is a shadow cast onto the plate, and a shadow
+# on a near-black plate has nothing to fall on. Dark appearances flip it back.
+PLATE, INK = "#f1f1f3", "#1d1e22"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -81,37 +86,32 @@ def mark(rx, ry, side, top, cy, fill="url(#ink)"):
 
 
 def legacy_svg():
-    """the whole picture: plate, light, mark, and the mark's own shadow"""
+    """the whole picture: plate, mark, and the shadow the mark casts on it"""
     shape, cy = silhouette(), W / 2 - RISE
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{W}" viewBox="0 0 {W} {W}">
   <defs>
     <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#33343a"/>
-      <stop offset="0.55" stop-color="#1c1d21"/>
-      <stop offset="1" stop-color="#101114"/>
+      <stop offset="0" stop-color="#f8f8f9"/>
+      <stop offset="0.5" stop-color="#ececee"/>
+      <stop offset="1" stop-color="#e2e3e6"/>
     </linearGradient>
     <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#d8dade"/>
+      <stop offset="0" stop-color="#2a2b30"/>
+      <stop offset="1" stop-color="{INK}"/>
     </linearGradient>
     <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.05"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
     </linearGradient>
-    <radialGradient id="lift" cx="0.5" cy="0.42" r="0.62">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
     <clipPath id="body"><path d="{shape}"/></clipPath>
     <filter id="cast" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="10"/>
+      <feGaussianBlur stdDeviation="12"/>
     </filter>
   </defs>
   <g clip-path="url(#body)">
     <path d="{shape}" fill="url(#ground)"/>
-    <rect x="{INSET}" y="{INSET}" width="{BOX}" height="{BOX}" fill="url(#lift)"/>
-    <g opacity="0.55" filter="url(#cast)" transform="translate(0,12)">
+    <g opacity="0.3" filter="url(#cast)" transform="translate(0,14)">
       {mark(RX, RY, SIDE, TOP, cy, fill="#000000")}
     </g>
     {mark(RX, RY, SIDE, TOP, cy)}
@@ -122,14 +122,12 @@ def legacy_svg():
 
 def layer_svg():
     """the mark alone, on the full canvas — macOS 26 draws the rest itself.
-    The same proportions as above, measured against 1024 instead of 824."""
+    The same proportions as above, measured against 1024 instead of 824.
+    Flat, because the layer is glass and the system does its own lighting."""
     k = W / BOX
     r = lambda v: round(v * k)
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{W}" viewBox="0 0 {W} {W}">
-  <defs><linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e6e8ec"/>
-  </linearGradient></defs>
-  {mark(r(RX), r(RY), r(SIDE), r(TOP), W / 2 - r(RISE))}
+  {mark(r(RX), r(RY), r(SIDE), r(TOP), W / 2 - r(RISE), fill=INK)}
 </svg>"""
 
 
@@ -152,6 +150,12 @@ def web_svg():
         f"{mark(rx, ry, r(SIDE), r(TOP), cy, fill='#000')}"
         "</svg>\n"
     )
+
+
+def srgb(hex_colour):
+    """#rrggbb as Icon Composer writes a colour"""
+    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return f"extended-srgb:{r:.5f},{g:.5f},{b:.5f},1.00000"
 
 
 def render(svg, out, size=W):
@@ -223,20 +227,35 @@ def main():
     assets = os.path.join(HERE, "AppIcon.icon", "Assets")
     os.makedirs(assets, exist_ok=True)
     render(layer_svg(), os.path.join(assets, "zero.png"))
+    white = {"solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"}
     open(os.path.join(HERE, "AppIcon.icon", "icon.json"), "w").write(json.dumps({
-        # the ground the mark sits on; the system derives the gradient, the
-        # dark variant and the tinted one from it
-        "fill": {"automatic-gradient": "extended-srgb:0.11373,0.11765,0.13333,1.00000"},
+        # the ground the mark sits on; the system derives the gradient from it.
+        # Dark appearances get the old graphite plate, and the zero goes white
+        # on it below — a black zero on a dark plate is simply not there.
+        "fill-specializations": [
+            {"value": {"automatic-gradient": srgb(PLATE)}},
+            {"appearance": "dark", "value": {"automatic-gradient": srgb(INK)}},
+        ],
         "groups": [{
             "layers": [{
-                "glass": False,
+                # glass is what makes it an object: its own rim of light, and
+                # the shadow below lands on the plate rather than in the artwork.
+                # (image-name-specializations looks like the way to swap in a
+                # white zero, but Icon Composer's renderer ignores it for dark;
+                # recolouring the layer is what it honours.)
+                "fill-specializations": [
+                    {"appearance": "dark", "value": white},
+                    {"appearance": "tinted", "value": white},
+                ],
+                "glass": True,
                 "image-name": "zero.png",
                 "name": "zero",
                 "position": {"scale": 1, "translation-in-points": [0, 0]},
             }],
-            "shadow": {"kind": "neutral", "opacity": 0.5},
+            "shadow": {"kind": "neutral", "opacity": 0.7},
             "specular": True,
-            "translucency": {"enabled": True, "value": 0.5},
+            "specular-highlight-placement": "automatic",
+            "translucency": {"enabled": False, "value": 0},
         }],
         "supported-platforms": {"squares": ["macOS"]},
     }, indent=2) + "\n")
