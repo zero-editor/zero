@@ -655,6 +655,24 @@
   color: var(--text-dim);
 }
 
+/* A folder in no repository: there, so the panel's folders match the tree's,
+   but with nothing to open, collapse or act on — so nothing lights up. */
+.wt-header.wt-outside {
+  cursor: default;
+}
+
+.wt-header.wt-outside:hover {
+  background: none;
+}
+
+.wt-header.wt-outside .wt-folder {
+  color: var(--text-dim);
+}
+
+.wt-header.wt-outside .wt-branch {
+  color: var(--text-faint);
+}
+
 /* A folder's own row in the tree, drawn only when there are several. Heavier
    than the folders under it, because it is a different kind of thing: those
    are directories in a project, this one *is* one. */

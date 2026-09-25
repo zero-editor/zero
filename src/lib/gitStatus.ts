@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, FileChange, Worktree } from "./api";
 import { pokeFiles } from "./fileEvents";
+import { baseName } from "./folders";
 
 export interface WorktreeChanges extends Worktree {
   changes: FileChange[];
@@ -19,12 +20,15 @@ export interface WorktreeChanges extends Worktree {
 export interface GitSnapshot {
   worktrees: WorktreeChanges[];
   error: string | null;
+  /** folders a sweep found in no repository at all — not an error, and not
+   *  the same as "nobody has looked yet", which is also no worktrees */
+  outside: string[];
   /** bumped per completed sweep, so "nothing has changed" is distinguishable
       from "nobody has looked yet" */
   epoch: number;
 }
 
-const EMPTY: GitSnapshot = { worktrees: [], error: null, epoch: 0 };
+const EMPTY: GitSnapshot = { worktrees: [], error: null, outside: [], epoch: 0 };
 
 /**
  * How much of the clock git is allowed. A sweep is one `git worktree list` plus
@@ -115,7 +119,12 @@ async function sweep(root: string) {
     if (prev.epoch > 0 && !prev.error && unchanged(prev.worktrees, withChanges)) {
       publish = false;
     } else {
-      snapshots.set(root, { worktrees: withChanges, error: null, epoch: prev.epoch + 1 });
+      snapshots.set(root, {
+        worktrees: withChanges,
+        error: null,
+        outside: wts.length ? [] : [root],
+        epoch: prev.epoch + 1,
+      });
       if (prev.epoch > 0) void relist(prev.worktrees, withChanges);
     }
     // Worktrees of one repository share its remote-tracking refs, so one
@@ -293,8 +302,14 @@ export function useGitStatusMany(roots: string[], active: boolean): GitSnapshot 
     worktrees: parts.flatMap((p, i) => p.worktrees.map((w) => ({ ...w, owner: mine[i] }))),
     // One unreadable folder is not the whole panel's answer: the others still
     // have something to show, so the error rides along beside them rather than
-    // replacing them.
-    error: parts.find((p) => p.error)?.error ?? null,
+    // replacing them — and says which folder it is about, since beside them is
+    // exactly where it stops being obvious.
+    error: (() => {
+      const i = parts.findIndex((p) => p.error);
+      if (i === -1) return null;
+      return mine.length > 1 ? `${baseName(mine[i])}: ${parts[i].error}` : parts[i].error;
+    })(),
+    outside: parts.flatMap((p) => p.outside),
     // any folder moving moves the whole, which is what memos off `epoch` want
     epoch: parts.reduce((n, p) => n + p.epoch, 0),
   };

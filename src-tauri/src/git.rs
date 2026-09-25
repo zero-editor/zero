@@ -179,10 +179,27 @@ pub struct Worktree {
     pub head: String,
 }
 
+/// Whether `dir` is a folder no repository contains. Decided by looking for a
+/// `.git` rather than by reading git's message, which is translated. A folder
+/// that has gone, or a repository git refuses to read (dubious ownership),
+/// is not this — those still report why.
+fn outside_repo(dir: &str) -> bool {
+    let p = Path::new(dir);
+    p.is_dir() && !p.ancestors().any(|a| a.join(".git").exists())
+}
+
 #[tauri::command]
 pub async fn git_worktrees(root: String) -> Result<Vec<Worktree>, String> {
     blocking(move || {
-        let out = run_git(&root, &["worktree", "list", "--porcelain"])?;
+        let out = match run_git(&root, &["worktree", "list", "--porcelain"]) {
+            Ok(out) => out,
+            // A folder in no repository has no worktrees — an answer, not a
+            // failure. A project can hold a folder of screenshots beside its
+            // repositories, and git's "fatal" about it sat in the changes
+            // panel on every sweep, forever.
+            Err(_) if outside_repo(&root) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
         let mut result = Vec::new();
         let mut path = String::new();
         let mut branch = String::new();
@@ -962,6 +979,26 @@ mod tests {
         assert!(ignored.contains("noise.log"), "file pattern missed: {ignored:?}");
         assert!(!ignored.contains("src"), "plain directory marked ignored: {ignored:?}");
         assert!(!ignored.contains("keep.txt"), "plain file marked ignored: {ignored:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder in no repository lists no worktrees rather than failing, so a
+    /// project holding one beside its repositories isn't told "fatal" forever.
+    /// A folder that isn't there at all still fails, and says why.
+    #[test]
+    fn worktrees_outside_a_repo_are_none() {
+        let dir = std::env::temp_dir().join("zero-outside-repo-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("plain")).unwrap();
+        std::fs::create_dir_all(dir.join("repo/sub")).unwrap();
+        git_base(&dir.join("repo").to_string_lossy()).args(["init", "-q", "."]).output().unwrap();
+        let list = |p: &Path| tauri::async_runtime::block_on(git_worktrees(p.to_string_lossy().to_string()));
+
+        assert_eq!(list(&dir.join("plain")).unwrap().len(), 0);
+        assert_eq!(list(&dir.join("repo")).unwrap().len(), 1);
+        assert_eq!(list(&dir.join("repo/sub")).unwrap().len(), 1);
+        assert!(list(&dir.join("missing")).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

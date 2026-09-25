@@ -225,6 +225,7 @@ export function WorktreePanel({
   // so it only takes the panel when nothing came back at all.
   if (error && worktrees.length === 0)
     return <div className="panel-error">not a git repo?<br />{error}</div>;
+  if (!multi && git.outside.length) return <div className="panel-error">not a git repository</div>;
 
   const fileRow = (wt: WtState, c: FileChange, staged: boolean) => {
     const fileKey = `file:${wt.path}/${c.path}`;
@@ -503,6 +504,33 @@ export function WorktreePanel({
           </div>
         );
       })}
+      {/* A folder no repository holds has nothing for this panel to list, but
+          it is still one of the project's folders — so it keeps a row, dim and
+          inert, rather than vanishing or reporting git's "fatal" forever. Its
+          menu is the one place here it can be dropped from the project. */}
+      {multi &&
+        git.outside.map((dir) => (
+          <div key={dir} className="wt-group">
+            <div
+              className="wt-header wt-outside"
+              title={`${dir} — not a git repository`}
+              onContextMenu={(e) =>
+                contextMenu(e, [
+                  dir !== project.root && {
+                    text: "Remove from Project",
+                    run: () => onRemoveFolder(dir),
+                  },
+                  "sep",
+                  ...fileEntries(dir, { root: project.root, isDir: true, writes: "none" }),
+                ])
+              }
+            >
+              <span className="chevron" />
+              <span className="wt-folder">{baseName(dir)}</span>
+              <span className="wt-branch">no git</span>
+            </div>
+          </div>
+        ))}
       {error && <div className="panel-error" role="alert">
         {error}
         {failed.length > 0 && (
