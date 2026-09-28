@@ -14,7 +14,8 @@ showing up as a cost, not Cursor being badly built.
 Machine   Apple M3 Max · 36 GB · macOS 26.5.1
 Cursor    3.17.19, with the extensions I actually have installed
           (3.15.6 for the cold-launch row only)
-zero      0.25.0 (0.1.0 for the cold-launch row only)
+zero      0.25.0 (0.1.0 for the cold-launch row only; disk, JS and
+          code re-measured on 0.58.4, 2026-09-28)
 Project   the zero repo itself — 29.5k lines, a git worktree, node_modules
           present
 Method    3 launches each, median reported, apps quit between runs;
@@ -27,9 +28,9 @@ Method    3 launches each, median reported, apps quit between runs;
 | | zero | Cursor | |
 |---|---:|---:|---|
 | App bundle | **20 MB** | 845 MB | 42× |
-| Installer | **8.1 MB** dmg | — | |
+| Installer | **8.2 MB** dmg | — | |
 | Files in the bundle | **7** | 17,021 | |
-| Shipped JS | **1.5 MB** loaded, 2.8 MB in all | 265 MB across 11,995 files | 180× |
+| Shipped JS | **1.6 MB** loaded, 2.9 MB in all | 265 MB across 11,995 files | 170× |
 | Electron/WebKit runtime | 0 (system WebKit) | 257 MB bundled | |
 | Bundled extensions | 0 | 116 | |
 
@@ -55,7 +56,7 @@ seven appearances — light, dark, clear light and dark, tinted light and dark,
 and the mono one. That's the price of letting the system compose the icon
 instead of drawing it ourselves, and it is a real 11% of the app.
 
-Two JS numbers, because the syntax highlighting split them apart: 1.5 MB is
+Two JS numbers, because the syntax highlighting split them apart: 1.6 MB is
 what loads to draw the window, and the other 1.3 MB is 115 lazy chunks — most
 of them language modes — fetched only when a file of that kind is opened. Both
 live inside the binary; neither adds a file to the bundle.
@@ -65,7 +66,7 @@ a measuring mistake — `find … | xargs du -ch | tail -1` splits into several
 xargs batches on a tree this size and `tail -1` reports only the last one. The
 sum of every `.js` file in the bundle is 265 MB, and one file alone
 (`workbench.glass.main.js`) is 46.9 MB. The error was in Cursor's favour, and
-the corrected ratio is the 180× in the table.
+the corrected ratio was 180× (170× since the frontend grew to 1.6 MB).
 
 ```sh
 du -sh /Applications/Cursor.app                     # bundle
@@ -242,7 +243,7 @@ that is false.
 
 | | zero | Cursor |
 |---|---:|---|
-| Source | **38,097 lines** (18,408 TS/TSX · 12,638 Rust · 6,243 CSS · 808 Swift) | closed, VS Code fork |
+| Source | **42,956 lines** (21,804 TS/TSX · 13,418 Rust · 6,926 CSS · 808 Swift) | closed, VS Code fork |
 | npm dependencies | **30** direct, 77 in the production tree | — |
 | Rust crates | 492 | — |
 
