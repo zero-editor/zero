@@ -74,6 +74,21 @@
   line-height: 1.5;
 }
 
+/* a file the editor won't open as text — the same quiet line the image view
+   puts under a picture, centred where the text would have been */
+.file-unreadable {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-align: center;
+  background: var(--bg);
+}
+
 /* ===== image diff ===== */
 
 /* Two stages side by side, sharing the checkerboard and the fit-or-1:1 click

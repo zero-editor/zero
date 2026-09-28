@@ -52,11 +52,33 @@ const MAX_BYTES = 4 * 1024 * 1024;
  *  without someone adding a favicon to a checkout mid-session */
 const cache = new Map<string, Promise<string | null>>();
 
+/**
+ * Where to look, best first. A monorepo keeps its site under `apps/<name>/`,
+ * so a repository that moved there — `public/` becoming `apps/web/public/` —
+ * would otherwise lose its icon overnight. Those come after the root's own
+ * source directories and before the bare root; `packages/*` are libraries,
+ * whose icons are rarely the project's. An app called `web` goes first,
+ * being the usual home of the favicon when there are several.
+ */
+async function searchDirs(root: string): Promise<string[]> {
+  const apps = (await api.listDir(`${root}/apps`).catch(() => []))
+    .filter((e) => e.is_dir && !e.name.startsWith("."))
+    .map((e) => e.name)
+    .sort((a, b) => Number(b === "web") - Number(a === "web") || a.localeCompare(b));
+  const own = DIRS.filter(Boolean);
+  return [
+    ...own.map((d) => `${root}/${d}`),
+    ...apps.flatMap((app) => own.map((d) => `${root}/apps/${app}/${d}`)),
+    root,
+  ];
+}
+
 async function findIcon(root: string): Promise<string | null> {
   let best: { path: string; score: number } | null = null;
 
-  for (let d = 0; d < DIRS.length; d++) {
-    const dir = DIRS[d] ? `${root}/${DIRS[d]}` : root;
+  const dirs = await searchDirs(root);
+  for (let d = 0; d < dirs.length; d++) {
+    const dir = dirs[d];
     const entries = await api.listDir(dir).catch(() => []);
     for (const e of entries) {
       if (e.is_dir) continue;
@@ -68,7 +90,7 @@ async function findIcon(root: string): Promise<string | null> {
       // The name outranks the directory, because it is the better evidence
       // of shape: a favicon is square by definition, and a `logo.png` is
       // usually a wordmark — at 13px a smear, whichever folder it was in.
-      const score = name * 10000 + (DIRS.length - d) * 100 + ext;
+      const score = name * 1e6 + (dirs.length - d) * 100 + ext;
       if (!best || score > best.score) best = { path: `${dir}/${e.name}`, score };
     }
   }

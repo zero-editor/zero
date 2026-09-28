@@ -910,10 +910,23 @@ pub async fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
     .await
 }
 
+/// A file as text, or `Err("binary:<bytes>")` when it isn't text.
+///
+/// Valid UTF-8 is not the test on its own: a run of NUL bytes is valid UTF-8,
+/// and five megabytes of them handed to the editor is one line of five million
+/// control-character widgets — the renderer grew by 200 MB a second until
+/// macOS killed it, and the restored tab opened it again on the reload. A NUL
+/// anywhere is git's test for binary too, and `contains` on bytes is a memchr,
+/// so scanning the whole file is cheap next to reading it.
 #[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
     blocking(move || {
-        std::fs::read_to_string(&path).map_err(|e| e.to_string())
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let len = bytes.len();
+        if bytes.contains(&0) {
+            return Err(format!("binary:{len}"));
+        }
+        String::from_utf8(bytes).map_err(|_| format!("binary:{len}"))
     })
     .await
 }
@@ -1153,5 +1166,26 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&marker);
+    }
+
+    /// Five megabytes of NULs is valid UTF-8, and handing it to the editor as
+    /// text hung the renderer until macOS killed it — see `read_file`.
+    #[test]
+    fn read_file_refuses_what_isnt_text() {
+        let dir = std::env::temp_dir().join("zero-read-file-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let read = |name: &str, bytes: &[u8]| {
+            let p = dir.join(name);
+            std::fs::write(&p, bytes).unwrap();
+            tauri::async_runtime::block_on(read_file(p.to_string_lossy().to_string()))
+        };
+
+        assert_eq!(read("nul.pdf", &[0; 4096]), Err("binary:4096".into()));
+        assert_eq!(read("late-nul.txt", b"text, then\0"), Err("binary:11".into()));
+        assert_eq!(read("latin1.txt", &[0x63, 0x61, 0x66, 0xe9]), Err("binary:4".into()));
+        assert_eq!(read("ok.txt", "caf\u{e9}\n".as_bytes()), Ok("caf\u{e9}\n".into()));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

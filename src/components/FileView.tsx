@@ -19,6 +19,7 @@ import { contextMenu } from "../lib/contextMenu";
 import { projectSession, saveProject } from "../lib/session";
 import { bootCommand, inlineCommand } from "../lib/issuePrompt";
 import { onNoteEnd } from "../lib/notes";
+import { humanSize } from "../lib/imageFile";
 
 const DEFAULT_NOTE_PROMPT = "Work through the actionable items in this note. Mark completed items and leave questions beside anything unclear. Preserve unrelated notes and do not mark unfinished work complete.";
 
@@ -100,6 +101,8 @@ export function FileView({
   const [noteReady, setNoteReady] = useState(false);
   const [running, setRunning] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
+  // why there is no editor: the file isn't text, or couldn't be read at all
+  const [unreadable, setUnreadable] = useState<string | null>(null);
   const launchingRef = useRef(false);
   const flushNoteRef = useRef<(() => Promise<void>) | null>(null);
   const promptForNote = () => (note && projectSession(note).notePrompt?.trim()) || DEFAULT_NOTE_PROMPT;
@@ -189,8 +192,12 @@ export function FileView({
       });
     };
 
-    api.readFile(absPath).then((content) => {
-      if (disposed || !hostRef.current) return;
+    setUnreadable(null);
+    api.readFile(absPath).catch((e) => {
+      if (!disposed) setUnreadable(unreadableReason(absPath, String(e)));
+      return null;
+    }).then((content) => {
+      if (content === null || disposed || !hostRef.current) return;
       lastLoadedRef.current = content;
       viewRef.current = new EditorView({
         parent: hostRef.current,
@@ -349,6 +356,7 @@ export function FileView({
     view.focus();
   }, [mode, md, note, absPath]);
 
+  if (unreadable) return <div className="file-unreadable">{unreadable}</div>;
   if (!md) return <div className="cm-host" ref={hostRef} />;
 
   return (
@@ -443,6 +451,16 @@ function noteKeys() {
       },
     ]),
   );
+}
+
+/** what to say in place of the editor — `read_file` answers `binary:<bytes>`
+ *  for a file that isn't text, and anything else is the read's own error */
+function unreadableReason(absPath: string, error: string): string {
+  const m = /^binary:(\d+)$/.exec(error);
+  if (!m) return error;
+  const dot = absPath.lastIndexOf(".");
+  const ext = dot > absPath.lastIndexOf("/") ? absPath.slice(dot + 1).toUpperCase() : "";
+  return [humanSize(Number(m[1])), ext, "binary — not shown as text"].filter(Boolean).join("  ·  ");
 }
 
 /** the cursor after everything already written, where the next paste goes */
