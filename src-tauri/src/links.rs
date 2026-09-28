@@ -7,6 +7,8 @@
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Hand a link to the default browser.
 ///
@@ -122,10 +124,19 @@ pub struct ResolvedPath {
 /// because neither thing a link can do needs one: `inside` is what gates
 /// opening a file here, and it's true only under the project root, while
 /// everything else is handed to Finder, which reveals but doesn't read.
+///
+/// Async, because the fallback below can run git, and a sync command runs on
+/// the main thread.
 #[tauri::command]
-pub fn resolve_paths(cwd: String, paths: Vec<String>) -> Vec<ResolvedPath> {
-    let root = std::fs::canonicalize(&cwd).unwrap_or_else(|_| PathBuf::from(&cwd));
+pub async fn resolve_paths(cwd: String, paths: Vec<String>) -> Vec<ResolvedPath> {
+    crate::git::blocking(move || resolve_all(&cwd, paths)).await
+}
+
+fn resolve_all(cwd: &str, paths: Vec<String>) -> Vec<ResolvedPath> {
+    let root = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from(cwd));
     let home = std::env::var("HOME").ok().map(PathBuf::from);
+    // listed at most once per call, and only if something needs it
+    let mut files: Option<Arc<Vec<String>>> = None;
 
     paths
         .into_iter()
@@ -136,7 +147,14 @@ pub fn resolve_paths(cwd: String, paths: Vec<String>) -> Vec<ResolvedPath> {
             } else {
                 root.join(expanded)
             };
-            let abs = std::fs::canonicalize(&joined).ok()?;
+            let abs = match std::fs::canonicalize(&joined) {
+                Ok(abs) => abs,
+                Err(_) if is_bare(&raw) => {
+                    let files = files.get_or_insert_with(|| project_files(&root));
+                    std::fs::canonicalize(root.join(by_suffix(files, &raw)?)).ok()?
+                }
+                Err(_) => return None,
+            };
             let dir = abs.is_dir();
             if !dir && !abs.is_file() {
                 return None;
@@ -150,6 +168,45 @@ pub fn resolve_paths(cwd: String, paths: Vec<String>) -> Vec<ResolvedPath> {
             })
         })
         .collect()
+}
+
+/// How long a project's file list stands in for asking git again. Hovering
+/// prose sends a fresh line of misses every few rows — `e.g.`, `v1.2` — and
+/// each would otherwise be a `git ls-files`, 45 ms in a 8,000-file monorepo.
+/// A file made since is found once this runs out.
+const FILES_TTL: Duration = Duration::from_secs(5);
+
+fn project_files(root: &Path) -> Arc<Vec<String>> {
+    static CACHE: Mutex<Option<(PathBuf, Instant, Arc<Vec<String>>)>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, when, files)) = cache.as_ref() {
+        if at == root && when.elapsed() < FILES_TTL {
+            return files.clone();
+        }
+    }
+    let files = Arc::new(crate::git::project_files(&root.to_string_lossy()).unwrap_or_default());
+    *cache = Some((root.to_path_buf(), Instant::now(), files.clone()));
+    files
+}
+
+/// A name that says nothing about where it starts — `hero-pattern.webp`,
+/// `shared/hero-pattern.webp` — as agents write them when they mean a file
+/// somewhere down the tree. One anchored with `/`, `~` or `.` meant exactly
+/// that place, so it is never searched for.
+fn is_bare(raw: &str) -> bool {
+    !raw.starts_with(['/', '~', '.'])
+}
+
+/// The one project file whose path ends in `raw`, whole components only, so
+/// `pattern.webp` finds `…/hero/pattern.webp` but not `…/hero-pattern.webp`.
+/// Two or more and it is no answer: a link to the wrong file is worse than
+/// none, and `index.ts` in a monorepo is dozens.
+fn by_suffix<'a>(files: &'a [String], raw: &str) -> Option<&'a str> {
+    let raw = raw.trim_end_matches('/');
+    let tail = format!("/{raw}");
+    let mut hits = files.iter().filter(|f| f.as_str() == raw || f.ends_with(&tail));
+    let one = hits.next()?;
+    hits.next().is_none().then_some(one.as_str())
 }
 
 // ─── short references ────────────────────────────────────────────────────────
@@ -235,7 +292,7 @@ mod tests {
         std::fs::write(base.join("outside.txt"), "x").unwrap();
 
         let cwd = root.to_string_lossy().to_string();
-        let ask = |p: &str| resolve_paths(cwd.clone(), vec![p.to_string()]);
+        let ask = |p: &str| resolve_all(&cwd, vec![p.to_string()]);
 
         let hit = ask("src/api.ts");
         assert_eq!(hit.len(), 1, "a file under the root should resolve");
@@ -259,6 +316,32 @@ mod tests {
         assert_eq!(ask(&abs).len(), 1);
 
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Names written relative to somewhere down the tree, the way agents
+    /// write them.
+    #[test]
+    fn bare_names_are_found_by_suffix() {
+        let files: Vec<String> = [
+            "apps/web/public/images/shared/hero-pattern.webp",
+            "apps/web/public/images/home/hero/pattern.webp",
+            "apps/web/public/images/home/studio/pattern.webp",
+            "apps/web/public/images/funders/funders-pattern-mobile.webp",
+        ]
+        .map(String::from)
+        .to_vec();
+        let find = |raw| by_suffix(&files, raw);
+
+        assert_eq!(find("funders-pattern-mobile.webp"), Some(files[3].as_str()));
+        assert_eq!(find("shared/hero-pattern.webp"), Some(files[0].as_str()));
+        assert_eq!(find("home/hero/pattern.webp"), Some(files[1].as_str()));
+        assert_eq!(find("pattern.webp"), None, "two of them: no guessing");
+        assert_eq!(find("mobile.webp"), None, "whole components only");
+        assert_eq!(find("e.g."), None);
+
+        assert!(is_bare("shared/hero-pattern.webp"));
+        assert!(!is_bare("./hero-pattern.webp"), "anchored here, meant here");
+        assert!(!is_bare("~/x.webp"));
     }
 
     /// `open` launches a package, so only an extensionless folder opens.
