@@ -318,6 +318,7 @@ export const api = {
   sessionSave: (json: string) => invoke<void>("session_save", { json }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
+  openFolder: (path: string) => invoke<void>("open_folder", { path }),
   resolvePaths: (cwd: string, paths: string[]) =>
     invoke<ResolvedPath[]>("resolve_paths", { cwd, paths }),
   /** where `#732` and `ECL-260` point for this project — see termLinks */

@@ -592,13 +592,16 @@ function TerminalPane({
         if (!hit) return;
         void contextMenuAt([
           // only what's inside the project opens here; ⌘-click follows the
-          // same rule, and a file from somewhere else is Finder's
-          hit.inside && {
-            text: "Open",
-            run: () => onOpenFileRef.current(hit.abs),
-          },
+          // same rule, and a file from somewhere else is Finder's — as is
+          // every folder
+          hit.dir
+            ? { text: "Open in Finder", run: () => api.openFolder(hit.abs) }
+            : hit.inside && {
+                text: "Open",
+                run: () => onOpenFileRef.current(hit.abs),
+              },
           "sep",
-          ...fileEntries(hit.abs, { root: cwd }),
+          ...fileEntries(hit.abs, { root: cwd, isDir: hit.dir }),
         ]);
       });
     };

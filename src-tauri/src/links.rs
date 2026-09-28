@@ -67,6 +67,32 @@ fn nearest_existing(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Open a folder in a Finder window — what ⌘-clicking a directory in the
+/// terminal means, since a folder has nothing to open in the editor.
+///
+/// Only a plain folder. A package is a directory too — `.app` is the one that
+/// matters — and `open` on one launches it, so anything whose name carries an
+/// extension (every package does) is revealed instead, landing a folder up
+/// rather than running something the terminal printed.
+#[tauri::command]
+pub fn open_folder(path: String) -> Result<(), String> {
+    let abs = std::fs::canonicalize(&path).map_err(|_| format!("no such folder: {path}"))?;
+    if !abs.is_dir() {
+        return Err(format!("not a folder: {path}"));
+    }
+    let s = abs.to_str().ok_or("path is not valid UTF-8")?;
+    if !is_plain_folder(&abs) {
+        return spawn_open(&["-R", s]);
+    }
+    spawn_open(&["-a", "Finder", s])
+}
+
+/// No extension, so it can't be a package. A folder that merely has a dot in
+/// its name is revealed rather than opened, which costs one level.
+fn is_plain_folder(abs: &Path) -> bool {
+    abs.extension().is_none()
+}
+
 fn spawn_open(args: &[&str]) -> Result<(), String> {
     std::process::Command::new("/usr/bin/open")
         .args(args)
@@ -80,6 +106,8 @@ pub struct ResolvedPath {
     /// echoed back so the frontend can match it to what it asked about
     pub raw: String,
     pub abs: String,
+    /// a folder: ⌘-click opens it in Finder rather than in the editor
+    pub dir: bool,
     /// under `cwd`, so the app can open it itself instead of leaving
     pub inside: bool,
 }
@@ -88,7 +116,7 @@ pub struct ResolvedPath {
 ///
 /// The frontend matches anything path-shaped, which necessarily also matches
 /// `e.g.` and `v1.2`; this is the pass that decides what was really a path.
-/// Directories are excluded, having nothing useful to open.
+/// Folders count too — they open in Finder, never in the editor.
 ///
 /// Existing is the only test. There's no boundary on where a path may lead,
 /// because neither thing a link can do needs one: `inside` is what gates
@@ -109,13 +137,15 @@ pub fn resolve_paths(cwd: String, paths: Vec<String>) -> Vec<ResolvedPath> {
                 root.join(expanded)
             };
             let abs = std::fs::canonicalize(&joined).ok()?;
-            if !abs.is_file() {
+            let dir = abs.is_dir();
+            if !dir && !abs.is_file() {
                 return None;
             }
             let inside = abs.starts_with(&root);
             Some(ResolvedPath {
                 raw,
                 abs: abs.to_str()?.to_string(),
+                dir,
                 inside,
             })
         })
@@ -215,7 +245,12 @@ mod tests {
         assert_eq!(hit.len(), 1, "a real file outside the root still resolves");
         assert!(!hit[0].inside, "but it belongs to Finder");
 
-        assert!(ask("src").is_empty(), "a directory has nothing to open");
+        let hit = ask("src");
+        assert_eq!(hit.len(), 1, "a folder is a link too");
+        assert!(hit[0].dir, "and it says so, so it goes to Finder");
+        let hit = ask("src/");
+        assert_eq!(hit.len(), 1, "with or without the trailing slash");
+        assert!(!ask("src/api.ts")[0].dir);
         assert!(ask("e.g.").is_empty(), "prose that merely looks path-shaped");
         assert!(ask("v1.2").is_empty(), "nor a version number");
 
@@ -224,6 +259,14 @@ mod tests {
         assert_eq!(ask(&abs).len(), 1);
 
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// `open` launches a package, so only an extensionless folder opens.
+    #[test]
+    fn packages_are_revealed_not_opened() {
+        assert!(is_plain_folder(Path::new("/Users/me/Projects/darkmode-bg-patterns")));
+        assert!(!is_plain_folder(Path::new("/Applications/Safari.app")));
+        assert!(!is_plain_folder(Path::new("/tmp/Thing.bundle")));
     }
 
     /// What the right-click menu leans on: a file that isn't there any more

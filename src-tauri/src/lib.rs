@@ -196,6 +196,7 @@ pub fn run() {
             opaque::set_opaque,
             links::open_url,
             links::reveal_path,
+            links::open_folder,
             links::resolve_paths,
             files::create_entry,
             files::rename_entry,

@@ -107,6 +107,8 @@ function splitLineNumber(raw: string): { path: string; line?: number } {
 export interface ResolvedPath {
   raw: string;
   abs: string;
+  /** a folder, which opens in Finder wherever it is */
+  dir: boolean;
   /** under the project root, so it can open here instead of in Finder */
   inside: boolean;
 }
@@ -379,7 +381,8 @@ export function pathLinkProvider(
               ...linkChrome(term, hit.abs),
               activate: (e) => {
                 if (!e.metaKey) return;
-                if (hit.inside) onFile(hit.abs, line);
+                if (hit.dir) api.openFolder(hit.abs).catch((err) => console.warn(`open: ${err}`));
+                else if (hit.inside) onFile(hit.abs, line);
                 else api.revealPath(hit.abs).catch((err) => console.warn(`reveal: ${err}`));
               },
             });
