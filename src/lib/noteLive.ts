@@ -1,4 +1,4 @@
-import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType, keymap } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import {
   EditorSelection,
@@ -6,6 +6,7 @@ import {
   Extension,
   Facet,
   Line,
+  Prec,
   Range,
   StateField,
   Text,
@@ -134,90 +135,156 @@ class Rule extends WidgetType {
 }
 
 type Align = "left" | "center" | "right" | null;
-type Grid = { head: string[]; align: Align[]; rows: string[][] };
 
 /**
- * A pipe table drawn as a table, in place of its lines, whenever the cursor
- * is somewhere else. Built by hand from the tree's own rows and cells rather
- * than through React — a widget is made inside the editor's update, and a
- * render that lands a tick later would leave the editor measuring an empty
- * box. Cells are text: a `**` or a backtick inside one stays as typed. Click
- * anywhere on it and the cursor goes to the source, which is the table's
- * edit mode; ⌘-click a link in it and the link opens.
+ * A pipe table is drawn on its own lines rather than in place of them. The
+ * first version swapped the lines for a drawn table and swapped them back,
+ * monospaced, while the cursor was anywhere in it — so clicking a cell moved
+ * every cell, and the one aimed at was somewhere else by the time it was
+ * reached. Now the pipes are hidden like any other mark and each cell is a
+ * box as wide as its column: the cursor goes into the cell it lands on and
+ * nothing around it moves. The delimiter row is folded into the header line,
+ * where its rule is the header's underline.
+ *
+ * A column is as wide as its widest cell, measured rather than laid out —
+ * the lines of a table are separate lines, and nothing in CSS lines up boxes
+ * across them, so the widths have to be known before the lines are drawn.
+ * The table then fills the width of the editor: extra room goes to the
+ * columns in proportion to what they hold, and a table too wide to fit gives
+ * it back from the columns with room to spare first, wrapping text inside
+ * its cells, the way a browser lays out a table at 100%. Both are arithmetic
+ * on the editor's width, so they are written as CSS against it (`cqw`) and
+ * follow a resize without anything here being told about one.
+ *
+ * Cells are text, as they always were: a `**` or a backtick in one stays as
+ * typed, because a hidden mark would make a cell narrower than it measures.
  */
-class TableWidget extends WidgetType {
-  constructor(readonly grid: Grid, readonly key: string) {
-    super();
+
+/** a cell's right padding (`.nl-cell`), plus two pixels so a width a hair
+ *  short of the drawn text never wraps its last letter */
+const CELL_PAD = 14 + 2;
+/** a long word wraps rather than hold a column this wide when the table has
+ *  to shrink — a url shouldn't decide how narrow the others get */
+const WORD_CAP = 96;
+/** the width a table has: the line's reading margin (20px) and CodeMirror's
+ *  right padding (2px) off the editor's, and two to spare for rounding */
+const AVAIL = "(100cqw - 24px)";
+
+/**
+ * Text widths as WebKit sets them. A canvas measures this face a few percent
+ * narrow — nine pixels on a sentence, enough to wrap the last word of the
+ * cell a column was sized to — so the text is set in the page instead, off
+ * screen in the cells' own face and size (`.nl-ruler`): every string a build
+ * hasn't seen before in one layout, and each remembered after that, so a
+ * keystroke in a cell costs one string.
+ */
+const measured = new Map<string, number>();
+let ruler: HTMLElement | null = null;
+const key = (text: string, bold: boolean) => (bold ? "b" : "r") + text;
+
+function measureAll(texts: Iterable<[string, boolean]>) {
+  const todo = new Map<string, [string, boolean]>();
+  for (const [t, b] of texts) if (t && !measured.has(key(t, b))) todo.set(key(t, b), [t, b]);
+  if (!todo.size) return;
+  if (measured.size > 4000) measured.clear();
+  if (!ruler) {
+    ruler = document.createElement("div");
+    ruler.className = "nl-ruler";
+    ruler.setAttribute("aria-hidden", "true");
+    document.body.appendChild(ruler);
   }
-  eq(other: TableWidget) {
-    return other.key === this.key;
-  }
-  toDOM(view: EditorView) {
-    const el = document.createElement("div");
-    el.className = "nl-tablewrap";
-    const table = document.createElement("table");
-    const row = (cells: string[], tag: "th" | "td") => {
-      const tr = document.createElement("tr");
-      cells.forEach((text, n) => {
-        const cell = document.createElement(tag);
-        cell.textContent = text;
-        const a = this.grid.align[n];
-        if (a) cell.style.textAlign = a;
-        tr.appendChild(cell);
-      });
-      return tr;
-    };
-    const thead = document.createElement("thead");
-    thead.appendChild(row(this.grid.head, "th"));
-    table.appendChild(thead);
-    if (this.grid.rows.length) {
-      const tbody = document.createElement("tbody");
-      for (const r of this.grid.rows) tbody.appendChild(row(r, "td"));
-      table.appendChild(tbody);
-    }
-    el.appendChild(table);
-    el.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      const pos = view.posAtDOM(el);
-      view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
-      view.focus();
-    });
+  const spans = [...todo.values()].map(([t, b]) => {
+    const el = document.createElement("span");
+    el.textContent = t;
+    if (b) el.className = "nl-ruler-b";
     return el;
-  }
-  ignoreEvent() {
-    return true;
-  }
+  });
+  ruler.replaceChildren(...spans);
+  [...todo.keys()].forEach((k, i) => measured.set(k, spans[i].getBoundingClientRect().width));
+  ruler.replaceChildren();
 }
 
-/** the rows and cells of a Table node, as the tree already has them: a
- *  TableHeader, a TableDelimiter that carries the alignments, and TableRows,
- *  each of TableCells. Short rows gain empty cells and long ones lose the
- *  extra, the same forgiveness a hand-written table gets everywhere else. */
-function grid(node: SyntaxNode, doc: Text): Grid | null {
-  const cellsOf = (row: SyntaxNode) => {
-    const out: string[] = [];
-    for (let c = row.firstChild; c; c = c.nextSibling)
-      if (c.name === "TableCell") out.push(doc.sliceString(c.from, c.to).trim());
-    return out;
-  };
-  let head: string[] | null = null;
-  const align: Align[] = [];
-  const rows: string[][] = [];
-  for (let child = node.firstChild; child; child = child.nextSibling) {
-    if (child.name === "TableHeader") head = cellsOf(child);
-    else if (child.name === "TableDelimiter") {
-      for (const cell of doc.sliceString(child.from, child.to).split("|")) {
-        const t = cell.trim();
-        if (!t) continue;
-        const l = t.startsWith(":");
-        const r = t.endsWith(":");
-        align.push(l && r ? "center" : r ? "right" : l ? "left" : null);
-      }
-    } else if (child.name === "TableRow") rows.push(cellsOf(child));
+const widthOf = (text: string, bold: boolean) => (text ? (measured.get(key(text, bold)) ?? 0) : 0);
+
+/**
+ * One cell of a row, as positions: `from`–`to` is what it shows and `end` is
+ * where it stops, at the next pipe. A cell with text shows the text, trimmed;
+ * one without shows the whitespace it has, so there is somewhere in it to
+ * click and type.
+ */
+type Slot = { from: number; to: number; end: number; empty: boolean };
+
+/** the cells of a TableHeader or TableRow, read off its TableCells and pipes.
+ *  A leading or trailing pipe opens or closes a row without making a cell;
+ *  two pipes with nothing between them do make one, an empty one. */
+function slots(row: SyntaxNode): Slot[] {
+  const out: Slot[] = [];
+  let start = row.from;
+  let cell: SyntaxNode | null = null;
+  let opened = false;
+  for (let c = row.firstChild; c; c = c.nextSibling) {
+    if (c.name === "TableCell") cell = c;
+    else if (c.name === "TableDelimiter") {
+      if (cell) out.push({ from: cell.from, to: cell.to, end: c.from, empty: false });
+      else if (opened) out.push({ from: start, to: c.from, end: c.from, empty: true });
+      opened = true;
+      cell = null;
+      start = c.to;
+    }
   }
-  if (!head) return null;
-  return { head, align, rows: rows.map((r) => head!.map((_, n) => r[n] ?? "")) };
+  if (cell) out.push({ from: cell.from, to: cell.to, end: row.to, empty: false });
+  return out;
+}
+
+/** the alignments the delimiter row asks for, one per column */
+function alignments(delim: SyntaxNode, doc: Text): Align[] {
+  const out: Align[] = [];
+  for (const cell of doc.sliceString(delim.from, delim.to).split("|")) {
+    const t = cell.trim();
+    if (!t) continue;
+    const l = t.startsWith(":");
+    const r = t.endsWith(":");
+    out.push(l && r ? "center" : r ? "right" : l ? "left" : null);
+  }
+  return out;
+}
+
+/**
+ * Each column's width, as CSS. `max` is the widest cell and `min` the longest
+ * word (capped), both with the cell's padding. With room to spare every
+ * column grows in proportion to `max`; short of room, each gives up the
+ * share of its `max - min` that the shortfall needs — linear in the
+ * editor's width either way, which is what lets it be one `calc`.
+ */
+function columnWidths(max: number[], min: number[]): string[] {
+  const sMax = max.reduce((a, b) => a + b, 0);
+  const sMin = min.reduce((a, b) => a + b, 0);
+  const n = (x: number) => +x.toFixed(4);
+  return max.map((hi, i) => {
+    const lo = min[i];
+    const b = sMax > sMin ? (hi - lo) / (sMax - sMin) : 0;
+    const shrink = b
+      ? `clamp(${n(lo)}px, calc(${n(lo - b * sMin)}px + ${n(b)} * ${AVAIL}), ${n(hi)}px)`
+      : `${n(hi)}px`;
+    const grow = `max(0px, calc(${n(hi / sMax)} * ${AVAIL} - ${n(hi)}px))`;
+    return `calc(${shrink} + ${grow})`;
+  });
+}
+
+/** a cell with no characters at all — `||` — still has a box */
+class EmptyCell extends WidgetType {
+  constructor(readonly style: string) {
+    super();
+  }
+  eq(other: EmptyCell) {
+    return other.style === this.style;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "nl-cell";
+    el.setAttribute("style", this.style);
+    return el;
+  }
 }
 
 const hide = Decoration.replace({});
@@ -347,20 +414,13 @@ function build(view: EditorView): Built {
             for (let n = first; n <= last; n++) out.push(line("nl-codeblock").range(doc.line(n).from));
             return;
           }
-          case "Table": {
-            // drawn as a table by the `tables` field below, which is where a
-            // block-sized replacement is allowed to come from — a plugin may
-            // not change the vertical layout, and one that tries is switched
-            // off along with everything else it draws. Here only the case
-            // where it is being edited: pipes only line up in a monospaced
-            // face. Never into its cells either way — a hidden `**` in one
-            // row would knock its column out of line with the others.
-            const [first, last] = tableLines(node.node, doc);
-            if (cursorIn(sel, first, last))
-              for (let n = first.number; n <= last.number; n++)
-                out.push(line("nl-table").range(doc.line(n).from));
+          case "Table":
+            // drawn by the `tables` field below: folding the delimiter row
+            // into the header line changes the vertical layout, which only
+            // state may do — a plugin that tries is switched off along with
+            // everything else it draws. Never into the cells: a hidden `**`
+            // would leave a cell narrower than it was measured.
             return false;
-          }
           case "QuoteMark":
             out.push(line("nl-quote").range(doc.lineAt(node.from).from));
             hidden(hide, node.from, withSpace(doc, node.to));
@@ -440,55 +500,206 @@ function atomSet(atoms: [number, number][]): DecorationSet {
   return Decoration.set(out);
 }
 
-/** whole lines, first to last — a block widget has to stand in for complete
- *  lines, and a Table node's end can sit on the line break */
-function tableLines(node: SyntaxNode, doc: Text) {
-  return [doc.lineAt(node.from), doc.lineAt(Math.max(node.from, node.to - 1))] as const;
-}
-
-const cursorIn = (
-  sel: { empty: boolean; head: number },
-  first: { from: number },
-  last: { to: number },
-) => sel.empty && sel.head >= first.from && sel.head <= last.to;
+/** where a table row is and where in it the cursor may rest: `from`–`to` is
+ *  the whole line (the header's takes the folded delimiter row with it), and
+ *  `head`–`tail` runs from its first cell to the end of its last */
+type RowSpan = { from: number; to: number; head: number; tail: number };
+type Tables = { decorations: DecorationSet; cells: DecorationSet; atoms: DecorationSet; rows: RowSpan[] };
 
 /**
- * The tables, as a state field rather than part of the plugin: a decoration
- * that replaces whole lines changes the height of the document, and CodeMirror
- * only takes those from state, where they are known before layout. Computed
- * over the whole document rather than the viewport — a document has few
- * tables, and the tree is the same one the plugin reads.
+ * A table's pipes and the space around them, drawn as nothing — and a nothing
+ * of its own, apart from `hide`, so a copy keeps them: a table copied out is
+ * still a table.
+ *
+ * The one thing it does is say where a cursor beside it goes. CodeMirror
+ * draws a cursor at the end of a cell against whatever follows it, and what
+ * follows is this, sitting at the next column's edge — so the cursor at the
+ * end of a word, or after a space just typed, was drawn at the start of the
+ * next cell. It goes against the cell's text instead.
  */
-function buildTables(state: EditorState): DecorationSet {
+class Pipes extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    return document.createElement("span");
+  }
+  get isHidden() {
+    return true;
+  }
+  coordsAt(dom: HTMLElement, pos: number) {
+    return besideCell(dom, pos === 0 ? -1 : 1);
+  }
+}
+
+/** the caret at the end of the cell before `dom` (-1) or the start of the one
+ *  after it (1); null at the ends of a row, where there is no cell */
+function besideCell(dom: HTMLElement, dir: -1 | 1) {
+  const step = (n: Node | null) => (dir < 0 ? n?.previousSibling : n?.nextSibling) ?? null;
+  let cell = step(dom);
+  while (cell?.nodeName === "IMG") cell = step(cell); // cm-widgetBuffer
+  if (!(cell instanceof HTMLElement) || !cell.classList.contains("nl-cell")) return null;
+  let text: globalThis.Text | null = null;
+  const walk = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (!n.nodeValue) continue;
+    text = n as globalThis.Text;
+    if (dir > 0) break;
+  }
+  if (!text) {
+    // an empty cell: its left edge, a line tall
+    const box = cell.getBoundingClientRect();
+    const cs = getComputedStyle(cell);
+    const top = box.top + parseFloat(cs.paddingTop);
+    return { left: box.left, right: box.left, top, bottom: box.bottom - parseFloat(cs.paddingBottom) };
+  }
+  const len = text.nodeValue!.length;
+  const range = document.createRange();
+  if (dir < 0) {
+    const low = /[\udc00-\udfff]/.test(text.nodeValue![len - 1]) && len > 1;
+    range.setStart(text, len - (low ? 2 : 1));
+    range.setEnd(text, len);
+  } else {
+    range.setStart(text, 0);
+    range.setEnd(text, /[\ud800-\udbff]/.test(text.nodeValue![0]) && len > 1 ? 2 : 1);
+  }
+  const rects = range.getClientRects();
+  const r = rects[dir < 0 ? rects.length - 1 : 0];
+  if (!r) return null;
+  const x = dir < 0 ? r.right : r.left;
+  return { left: x, right: x, top: r.top, bottom: r.bottom };
+}
+
+const hidePipe = Decoration.replace({ widget: new Pipes() });
+
+/**
+ * The tables, as a state field rather than part of the plugin: folding the
+ * delimiter row into the header line changes the height of the document,
+ * and CodeMirror only takes that from state, where it is known before
+ * layout. Computed over the whole document rather than the viewport — a
+ * column is as wide as its widest cell, wherever that cell is scrolled to.
+ */
+function buildTables(state: EditorState): Tables {
   const doc = state.doc;
-  const sel = state.selection.main;
-  const out: Range<Decoration>[] = [];
+  type Row = { node: SyntaxNode; header: boolean; cells: Slot[]; texts: string[] };
+  const found: { rows: Row[]; delim: SyntaxNode | null }[] = [];
   parsedTo(state, doc.length).iterate({
     enter: (node) => {
       if (node.name !== "Table") return;
-      const [first, last] = tableLines(node.node, doc);
-      if (!cursorIn(sel, first, last)) {
-        const g = grid(node.node, doc);
-        if (g) {
-          const widget = new TableWidget(g, doc.sliceString(first.from, last.to));
-          out.push(Decoration.replace({ widget, block: true }).range(first.from, last.to));
-        }
+      const rows: Row[] = [];
+      let delim: SyntaxNode | null = null;
+      for (let c = node.node.firstChild; c; c = c.nextSibling) {
+        if (c.name === "TableHeader" || c.name === "TableRow") {
+          const cells = slots(c);
+          const texts = cells.map((s) => (s.empty ? "" : doc.sliceString(s.from, s.to)));
+          rows.push({ node: c, header: c.name === "TableHeader", cells, texts });
+        } else if (c.name === "TableDelimiter") delim = c;
       }
+      found.push({ rows, delim });
       return false;
     },
   });
-  return Decoration.set(out, true);
+  // every cell and every word in one, before any of them is read
+  const words = (text: string) => text.split(/\s+/);
+  measureAll(
+    found.flatMap(({ rows }) =>
+      rows.flatMap((r) => r.texts.flatMap((t) => [t, ...words(t)].map((x): [string, boolean] => [x, r.header]))),
+    ),
+  );
+
+  const sel = state.selection.main;
+  // a space typed at the end of a cell shows while the cursor is past it —
+  // nothing moves, the box is as wide either way — and goes back to being
+  // padding when the cursor leaves
+  const cursor = sel.empty ? sel.head : -1;
+  const decos: Range<Decoration>[] = [];
+  const cells: Range<Decoration>[] = [];
+  const atoms: Range<Decoration>[] = [];
+  const spans: RowSpan[] = [];
+  for (const { rows, delim } of found) {
+    const max: number[] = [];
+    const min: number[] = [];
+    for (const r of rows)
+      r.texts.forEach((text, i) => {
+        const word = Math.max(0, ...words(text).map((w) => widthOf(w, r.header)));
+        max[i] = Math.max(max[i] ?? 0, widthOf(text, r.header) + CELL_PAD);
+        min[i] = Math.max(min[i] ?? 0, Math.min(word, WORD_CAP) + CELL_PAD);
+      });
+    const align = delim ? alignments(delim, doc) : [];
+    const cols = columnWidths(max, min).map((width, i) => {
+      const style = `width: ${width}` + (align[i] ? `; text-align: ${align[i]}` : "");
+      return { style, mark: Decoration.mark({ class: "nl-cell", attributes: { style } }) };
+    });
+
+    rows.forEach((r, n) => {
+      const ln = doc.lineAt(r.node.from);
+      // the header line takes the delimiter row with it: the row's rule is
+      // the header's underline, and it holds nothing to put a cursor in
+      const end = r.header && delim ? doc.lineAt(delim.from).to : ln.to;
+      // an indent goes with the leading pipe; a `> ` is the quote's own
+      let pos = doc.sliceString(ln.from, r.node.from).trim() ? r.node.from : ln.from;
+      const cls = ["nl-trow", r.header && "nl-thead", n === 0 && "nl-tfirst", n === rows.length - 1 && "nl-tlast"];
+      decos.push(line(cls.filter(Boolean).join(" ")).range(ln.from));
+      const gap = (to: number) => {
+        if (to <= pos) return;
+        decos.push(hidePipe.range(pos, to));
+        atoms.push(hidePipe.range(pos, to));
+      };
+      const head = r.cells.length ? r.cells[0].from : pos;
+      for (const [i, c] of r.cells.entries()) {
+        const to = !c.empty && cursor > c.to && cursor <= c.end ? cursor : c.to;
+        gap(c.from);
+        if (to > c.from) cells.push(cols[i].mark.range(c.from, to));
+        else cells.push(Decoration.widget({ widget: new EmptyCell(cols[i].style) }).range(c.from));
+        pos = to;
+      }
+      const tail = pos;
+      gap(end);
+      spans.push({ from: ln.from, to: end, head, tail });
+    });
+  }
+  return {
+    decorations: Decoration.set(decos, true),
+    cells: Decoration.set(cells, true),
+    atoms: Decoration.set(atoms, true),
+    rows: spans,
+  };
 }
 
-const tables = StateField.define<DecorationSet>({
+const tables = StateField.define<Tables>({
   create: buildTables,
-  update(set, tr) {
-    if (tr.docChanged || tr.selection || syntaxTree(tr.state) !== syntaxTree(tr.startState))
+  update(value, tr) {
+    if (tr.docChanged || syntaxTree(tr.state) !== syntaxTree(tr.startState)) return buildTables(tr.state);
+    // the cursor only changes what a table draws while it is in one
+    if (tr.selection && (rowAt(value.rows, tr.startState.selection.main.head) || rowAt(value.rows, tr.selection.main.head)))
       return buildTables(tr.state);
-    return set;
+    return value;
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => [
+    EditorView.decorations.from(f, (v) => v.decorations),
+    // a cell wraps around every other mark rather than being split by one —
+    // the highlighter's `**`, a search match running over a pipe — since a
+    // split cell is two boxes, each a column wide
+    EditorView.outerDecorations.from(f, (v) => v.cells),
+    // the pipes are stepped over like any other hidden mark: a press at the
+    // end of one cell lands at the start of the next
+    EditorView.atomicRanges.of((view) => view.state.field(f, false)?.atoms ?? Decoration.none),
+  ],
 });
+
+/** the table row whose line holds `pos`, if there is one */
+function rowAt(rows: readonly RowSpan[], pos: number): RowSpan | null {
+  let lo = 0;
+  let hi = rows.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const r = rows[mid];
+    if (pos < r.from) hi = mid - 1;
+    else if (pos > r.to) lo = mid + 1;
+    else return r;
+  }
+  return null;
+}
 
 const plugin = ViewPlugin.fromClass(
   class {
@@ -527,6 +738,12 @@ const plugin = ViewPlugin.fromClass(
  * far side of it: a step left off the first character is a deliberate walk
  * out of the line, and the step after that one reaches the line above.
  *
+ * A table row has the same thing at both ends — a leading pipe in front of
+ * its first cell, a trailing one after its last, and text typed beyond
+ * either is a new column — so a row keeps the cursor between them the same
+ * way, and only a second step past an end leaves it. A click is never a
+ * step: it lands in the cell nearest to it.
+ *
  * Selection-only transactions, because after an edit the cursor is already
  * where the edit put it — and reading the tree of the document a transaction
  * is about to produce means building its state inside a filter, which is the
@@ -536,9 +753,19 @@ const cursorPastMarkup = EditorState.transactionFilter.of((tr) => {
   if (!tr.selection || tr.docChanged) return tr;
   const state = tr.startState;
   const was = state.selection.main.head;
+  const rows = state.field(tables, false)?.rows ?? [];
+  const click = tr.isUserEvent("select.pointer");
   let moved = false;
   const ranges = tr.selection.ranges.map((r) => {
     if (!r.empty) return r;
+    const row = rowAt(rows, r.head);
+    if (row) {
+      if (r.head >= row.head && r.head <= row.tail) return r;
+      if (!click && ((r.head === row.from && was === row.head) || (r.head === row.to && was === row.tail)))
+        return r;
+      moved = true;
+      return r.head < row.head ? EditorSelection.cursor(row.head, 1) : EditorSelection.cursor(row.tail, -1);
+    }
     const line = state.doc.lineAt(r.head);
     const head = lineHead(state, line);
     // the far side of the run is a place to be — it is the start of the line,
@@ -594,6 +821,34 @@ function lineHead(state: EditorState, line: Line): number {
   });
   return head;
 }
+
+/**
+ * Backspace at the start of a cell, and Delete at the end of one, stop there.
+ * Past the edge is a hidden pipe, and taking it merges two cells into one —
+ * or, past the first or last, joins the row to the line beside it. The mark
+ * a line opens with comes off in one backspace because that is how a heading
+ * is unmade; a cell is not unmade that way, so here the press does nothing.
+ */
+function atCellEdge(view: EditorView, dir: -1 | 1): boolean {
+  const { state } = view;
+  const field = state.field(tables, false);
+  const sel = state.selection;
+  if (!field || sel.ranges.length > 1 || !sel.main.empty) return false;
+  const at = sel.main.head;
+  if (!rowAt(field.rows, at)) return false;
+  let edge = false;
+  field.atoms.between(at - 1, at + 1, (from, to) => {
+    if (dir < 0 ? to === at && from < at : from === at && to > at) edge = true;
+  });
+  return edge;
+}
+
+const cellEdges = Prec.high(
+  keymap.of([
+    { key: "Backspace", run: (view) => atCellEdge(view, -1) },
+    { key: "Delete", run: (view) => atCellEdge(view, 1) },
+  ]),
+);
 
 /** ⌘-click on a link opens it in the browser, and on an identifier opens the
  *  issue; a plain click puts the cursor in it, because this is still an editor
@@ -663,5 +918,5 @@ const copyWhatYouSee = EditorView.domEventHandlers({
 });
 
 export function noteLive(): Extension {
-  return [plugin, tables, cursorPastMarkup, openLinks, copyWhatYouSee];
+  return [plugin, tables, cursorPastMarkup, cellEdges, openLinks, copyWhatYouSee];
 }

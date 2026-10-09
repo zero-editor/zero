@@ -220,38 +220,88 @@
   font-size: 11.5px;
 }
 
-.note-live .nl-table {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-
 .nl-fence {
   color: var(--text-faint);
 }
 
-/* a table drawn in place of its lines — the same table the Linear panel
-   draws, at the reading margin the rest of the note keeps */
-.nl-tablewrap {
-  padding: 4px 0 6px 20px;
-  overflow-x: auto;
+/* A table is its own lines, each cell a box as wide as its column — the
+   widths are measured and written onto the cells (see noteLive.ts), and
+   they are reckoned against the scroller's width, which is what this makes
+   readable as `cqw`. Size containment on the scroller costs nothing: its
+   width comes from the pane, never from what it holds. */
+.note-view.note-live .cm-host .cm-scroller {
+  container-type: inline-size;
 }
 
-.nl-tablewrap table {
-  border-collapse: collapse;
+/* the size the cells are measured at — the same as `.nl-ruler`. The rule
+   under each row is a background rather than a border: a row is as tall as
+   its tallest cell, and a border on each cell would sit at each cell's own
+   height. Drawn in the content box, so it starts at the reading margin as
+   the text does and sits under the cells, not under the table's spacing. */
+.note-live .nl-trow {
   font-size: 12.5px;
   line-height: 1.4;
+  background-image: linear-gradient(var(--border), var(--border));
+  background-origin: content-box;
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 1px;
 }
 
-.nl-tablewrap th,
-.nl-tablewrap td {
+/* where cell text is measured before the cells are drawn (noteLive.ts): the
+   cells' face and size, off screen and out of the page's layout */
+.nl-ruler {
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout style;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 400;
+  white-space: pre;
+}
+
+.nl-ruler span {
+  display: block;
+  width: max-content;
+}
+
+.nl-ruler .nl-ruler-b {
+  font-weight: 600;
+}
+
+/* padding, not margin: CodeMirror measures a line by its box */
+.note-live .nl-tfirst {
+  padding-top: 4px;
+}
+
+.note-live .nl-tlast {
+  padding-bottom: 6px;
+}
+
+/* the right padding is CELL_PAD in noteLive.ts, less its two spare pixels */
+.note-live .nl-cell {
+  display: inline-block;
+  box-sizing: border-box;
   padding: 3px 14px 3px 0;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
   vertical-align: top;
-  white-space: nowrap;
+  white-space: pre-wrap;
 }
 
-.nl-tablewrap th {
+/* a cell is measured as plain text, so it is drawn as plain text: the code
+   theme's bold and italic would make it wider than its box */
+.note-live .nl-cell * {
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.note-live .nl-cell *:not(.nl-link) {
+  color: inherit;
+}
+
+.note-live .nl-thead .nl-cell {
   font-weight: 600;
   color: var(--text-faint);
 }
