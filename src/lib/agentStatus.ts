@@ -203,12 +203,12 @@ const samePanes = (a: Record<string, AgentPane>, b: Record<string, AgentPane>) =
   );
 };
 
-/** The panes holding an agent, by pty id: which agent, and — for Codex and
- *  pi, which have no title to read — what it is doing, read the way the
- *  strip reads them: the activity guess, held through the gaps the same
- *  way. Claude and omp panes carry no state here: they say what they are
- *  doing in their own title, which xterm hands each pane directly (see
- *  Terminals), and that is both sooner and steadier than a poll. A daemon
+/** The panes holding an agent, by pty id: which agent, and — for agents
+ *  without a directly readable idle title, such as Kimi — what it is doing,
+ *  read the way the strip reads them: the activity guess, held through the
+ *  gaps the same way. Claude and omp panes carry no state here: they say what
+ *  they are doing in their own title, which xterm hands each pane directly
+ *  (see Terminals), and that is both sooner and steadier than a poll. A daemon
  *  from before the rows carried ids reports nothing here. */
 export function useAgentPanes(): Record<string, AgentPane> {
   const [panes, setPanes] = useState<Record<string, AgentPane>>({});

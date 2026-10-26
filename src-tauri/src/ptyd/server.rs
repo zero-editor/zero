@@ -425,9 +425,9 @@ pub struct AgentStat {
     pub cwd: String,
     /// a coding agent is running under this shell — see `agent`
     pub running: bool,
-    /// which one: `claude`, `codex`, `pi` or `omp`. Claude and omp publish
-    /// their state in the terminal title; for the other two callers have
-    /// only the output-activity fallback.
+    /// which one: `claude`, `codex`, `kimi`, `pi` or `omp`. Claude and omp
+    /// publish their state in the terminal title; the others also have the
+    /// output-activity fallback.
     pub agent: Option<String>,
     /// ms since that shell last printed anything — Claude Code animates while
     /// it works, so silence means it's finished and waiting on you
@@ -493,6 +493,7 @@ fn agent_of(name: &str) -> Option<&'static str> {
     match name {
         "claude" => Some("claude"),
         n if n.starts_with("codex") => Some("codex"),
+        "kimi" => Some("kimi"),
         "pi" => Some("pi"),
         "omp" => Some("omp"),
         _ => None,
@@ -1369,6 +1370,7 @@ mod tests {
         let p = |s: &str| program(s.split_whitespace());
         assert_eq!(p("claude"), "claude");
         assert_eq!(p("/Users/v/.codex/bin/codex-aarch64-apple-darwin"), "codex-aarch64-apple-darwin");
+        assert_eq!(p("/Users/v/.kimi-code/bin/kimi"), "kimi");
         assert_eq!(p("/usr/bin/env node /opt/homebrew/bin/pi --help"), "pi");
         assert_eq!(p("node --no-warnings /opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js"), "cli.js");
         assert_eq!(p("/usr/bin/env bun /Users/v/.bun/bin/omp"), "omp");
@@ -1385,13 +1387,17 @@ mod tests {
             (3, vec![(5, "claude".to_string())]),
             (6, vec![(7, "omp".to_string())]),
             (8, vec![(9, "pi".to_string()), (10, "pip".to_string())]),
+            (11, vec![(12, "node".to_string())]),
+            (12, vec![(13, "kimi".to_string())]),
         ]);
         assert_eq!(agent(&children, 1, 0), Some("codex"));
         assert_eq!(agent(&children, 3, 0), Some("claude"));
         assert_eq!(agent(&children, 6, 0), Some("omp"));
         assert_eq!(agent(&children, 8, 0), Some("pi"));
+        assert_eq!(agent(&children, 11, 0), Some("kimi"));
         assert_eq!(agent(&children, 99, 0), None);
         assert_eq!(agent_of("pip"), None);
+        assert_eq!(agent_of("kimi-cli"), None);
     }
 
     #[test]

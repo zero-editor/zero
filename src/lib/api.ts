@@ -55,7 +55,7 @@ export interface OpenTarget {
 }
 
 /** the coding agents the daemon recognises under a shell */
-export type Agent = "claude" | "codex" | "pi" | "omp";
+export type Agent = "claude" | "codex" | "kimi" | "pi" | "omp";
 
 export interface AgentStat {
   /** the pty id the pane spawned it under. Missing from a daemon older

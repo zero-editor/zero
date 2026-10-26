@@ -121,7 +121,7 @@ waiting on you. The arc runs on every tab, the one you're on included —
 switching to a project isn't the same as its work being over. The closed circle
 is an unread mark, so that one clears once you've been there. It works by
 walking each shell's process tree once a second looking for a live `claude`,
-`codex`, `pi` or `omp`, then reading the agent's own terminal title where it
+`codex`, `kimi`, `pi` or `omp`, then reading the agent's own terminal title where it
 sets one with its state in it (Claude and omp do) and how long the pty has
 been silent where it doesn't — no integration, no cooperation from the agent.
 

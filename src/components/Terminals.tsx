@@ -189,13 +189,13 @@ export function TerminalPanes({
       return next;
     });
   }, []);
-  // Codex and pi panes come from the daemon's poll instead, since neither
-  // retitles (see useAgentPanes — the same poll says which agent every pane
-  // holds, which is what colours the lamp). While a pane is theirs the title
-  // says nothing about it — a subcommand retitling the terminal would
-  // otherwise put the lamp out mid-turn — so the title path is gated on
-  // that, and only a change of reading is written, so a pane you have read
-  // stays read through every poll that repeats "done".
+  // Panes without a directly readable idle title, Kimi included, come from
+  // the daemon's poll instead (see useAgentPanes — the same poll says which
+  // agent every pane holds, which is what colours the lamp). While a pane is
+  // theirs the title path is gated on that poll, so a subcommand retitling
+  // the terminal cannot put the lamp out mid-turn. Only a change of reading
+  // is written, so a pane you have read stays read through every poll that
+  // repeats "done".
   const agents = useAgentPanes();
   const agentsRef = useRef(agents);
   const onAgent = useCallback(

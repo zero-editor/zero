@@ -78,6 +78,8 @@ html.subzero {
      the amber is. A pane says which agent it holds by its colour before
      you have read a line of it. */
   --signal-codex: 60, 210, 160;
+  /* Kimi's lamp: Kimi Code's own #4fa8ff blue. */
+  --signal-kimi: 79, 168, 255;
   /* pi and omp share a lamp — one lineage, one colour — in the violet-blue
      of omp's own mark, far enough from the ice's cyan to read as its own. */
   --signal-pi: 122, 128, 255;
@@ -105,6 +107,7 @@ html.subzero.light {
   --ice: 47, 127, 193;
   --signal: 200, 118, 31;
   --signal-codex: 18, 145, 105;
+  --signal-kimi: 79, 168, 255;
   --signal-pi: 84, 88, 214;
 }
 
@@ -281,14 +284,18 @@ html.subzero .sidebar {
    same edge held steady and a shade brighter, until you go there. The
    glow lives on the slot rather than the card, so it reaches into the gap
    between panes and is not clipped by the card's own overflow. Amber for
-   Claude, green for Codex, violet-blue for pi and omp (Terminals says which);
-   one lamp, three colours. */
+   Claude, green for Codex, blue for Kimi, violet-blue for pi and omp
+   (Terminals says which); one lamp, four colours. */
 html.subzero .term-abs {
   --lamp: var(--signal);
 }
 
 html.subzero .term-abs.agent-codex {
   --lamp: var(--signal-codex);
+}
+
+html.subzero .term-abs.agent-kimi {
+  --lamp: var(--signal-kimi);
 }
 
 html.subzero .term-abs.agent-pi,
@@ -369,6 +376,11 @@ html.subzero .agent-ring {
 
 html.subzero .agent-ring.agent-codex {
   --lamp: var(--signal-codex);
+  --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
+}
+
+html.subzero .agent-ring.agent-kimi {
+  --lamp: var(--signal-kimi);
   --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
 }
 
