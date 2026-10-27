@@ -5,4 +5,5 @@
 //! of the wire format that only one side has.
 
 pub mod proto;
+pub mod resume;
 pub mod server;

@@ -18,6 +18,7 @@
 //! to the reaper, which is the same outcome quitting always had.
 
 use crate::ptyd::proto;
+use crate::ptyd::resume::{Binding, Observation, ResumeCache, ResumeRecipe};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -35,6 +36,8 @@ struct PtySession {
     alive: Arc<AtomicBool>,
     cwd: String,
     shell_pid: Option<u32>,
+    binding: Option<Binding>,
+    resume_hint: Option<ResumeRecipe>,
     // ms since the epoch of the last byte this shell printed that wasn't a
     // reaction to typing, and of the last keystroke sent to it
     last_output: Arc<AtomicU64>,
@@ -413,7 +416,7 @@ impl Out {
 struct Detached(AtomicU64);
 
 #[derive(Default)]
-struct Sessions(Mutex<HashMap<String, PtySession>>);
+struct Sessions(Mutex<HashMap<String, PtySession>>, Mutex<ResumeCache>);
 
 // ── what is running inside them ──────────────────────────────────────────────
 
@@ -429,6 +432,9 @@ pub struct AgentStat {
     /// publish their state in the terminal title; the others also have the
     /// output-activity fallback.
     pub agent: Option<String>,
+    /// the native conversation this process owns, when the on-disk metadata
+    /// identifies it unambiguously. This is what a cold start resumes.
+    pub resume: Option<ResumeRecipe>,
     /// ms since that shell last printed anything — Claude Code animates while
     /// it works, so silence means it's finished and waiting on you
     pub quiet_ms: u64,
@@ -441,38 +447,59 @@ pub struct AgentStat {
     pub title_working: Option<bool>,
 }
 
+#[derive(Clone)]
+struct AgentProcess {
+    kind: &'static str,
+    pid: u32,
+    started_ms: u64,
+}
+
+/// macOS `etime`: [[days-]hours:]minutes:seconds.
+fn elapsed_seconds(text: &str) -> Option<u64> {
+    let (days, clock) = text.split_once('-').map_or((0, text), |(d, rest)| {
+        (d.parse::<u64>().unwrap_or(0), rest)
+    });
+    let fields: Vec<&str> = clock.split(':').collect();
+    if !(2..=3).contains(&fields.len()) || fields.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    let numbers: Option<Vec<u64>> = fields.iter().map(|part| part.parse::<u64>().ok()).collect();
+    let numbers = numbers?;
+    let seconds = *numbers.last()?;
+    let minutes = numbers[numbers.len() - 2];
+    let hours = if numbers.len() == 3 { numbers[0] } else { 0 };
+    if seconds >= 60 || minutes >= 60 {
+        return None;
+    }
+    Some(days * 86_400 + hours * 3_600 + minutes * 60 + seconds)
+}
+
 /// One `ps` sweep of the whole machine, as a map from parent to children.
-///
-/// In the app this had to be async and go through the blocking pool: a
-/// once-a-second `ps` on the main thread was a visible hitch, a tab drag
-/// twitching in time with the poll. Out here there is no main thread to
-/// protect and no command slot to park, so it is an ordinary blocking call —
-/// one of the things that got simpler purely by leaving the UI process.
-///
-/// Each child carries the name of the program it is running, read from its
-/// argv rather than its executable: `pi` is a node script and `omp` a bun
-/// one, so their executables are `node` and `bun`, and the name that means
-/// anything is the script's — `/usr/bin/env node /opt/homebrew/bin/pi`.
-fn ps_children() -> HashMap<u32, Vec<(u32, String)>> {
-        let out = std::process::Command::new("/bin/ps")
-            .args(["-ww", "-axo", "pid=,ppid=,command="])
-            .output();
-        let mut children: HashMap<u32, Vec<(u32, String)>> = HashMap::new();
-        if let Ok(out) = out {
-            for line in String::from_utf8_lossy(&out.stdout).lines() {
-                // ps pads its columns ("  1609  1257 claude"), so split on
-                // runs of whitespace — splitn on single chars yields empty
-                // fields here
-                let mut it = line.split_whitespace();
-                let (Some(pid), Some(ppid)) = (it.next(), it.next()) else {
-                    continue;
-                };
-                if let (Ok(pid), Ok(ppid)) = (pid.parse::<u32>(), ppid.parse::<u32>()) {
-                    children.entry(ppid).or_default().push((pid, program(it)));
-                }
+/// Elapsed time gives native-session matching a process start to compare
+/// with, without another process-table walk for every pane.
+fn ps_children() -> HashMap<u32, Vec<(u32, String, u64)>> {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-ww", "-axo", "pid=,ppid=,etime=,command="])
+        .output();
+    let now = now_ms();
+    let mut children: HashMap<u32, Vec<(u32, String, u64)>> = HashMap::new();
+    if let Ok(out) = out {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let mut it = line.split_whitespace();
+            let (Some(pid), Some(ppid), Some(elapsed)) = (it.next(), it.next(), it.next()) else {
+                continue;
+            };
+            if let (Ok(pid), Ok(ppid), Some(elapsed)) = (
+                pid.parse::<u32>(),
+                ppid.parse::<u32>(),
+                elapsed_seconds(elapsed),
+            ) {
+                let started_ms = now.saturating_sub(elapsed.saturating_mul(1000));
+                children.entry(ppid).or_default().push((pid, program(it), started_ms));
             }
         }
-        children
+    }
+    children
 }
 
 /// The name of the program an argv is running: the basename of the first
@@ -488,12 +515,13 @@ fn program<'a>(argv: impl Iterator<Item = &'a str>) -> String {
 }
 
 /// The coding agent a program name is, if it is one. Codex's binary is
-/// named for its target (`codex-aarch64-apple-darwin`), the others exactly.
+/// named for its target (`codex-aarch64-apple-darwin`), Kimi's launcher can
+/// re-exec as `kimi-code`, and the others use their own names exactly.
 fn agent_of(name: &str) -> Option<&'static str> {
     match name {
         "claude" => Some("claude"),
         n if n.starts_with("codex") => Some("codex"),
-        "kimi" => Some("kimi"),
+        "kimi" | "kimi-code" => Some("kimi"),
         "pi" => Some("pi"),
         "omp" => Some("omp"),
         _ => None,
@@ -502,13 +530,16 @@ fn agent_of(name: &str) -> Option<&'static str> {
 
 /// The first coding agent found anywhere below a shell, walking the
 /// process tree depth-first.
-fn agent(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> Option<&'static str> {
+fn agent(children: &HashMap<u32, Vec<(u32, String, u64)>>, pid: u32, depth: u8) -> Option<AgentProcess> {
     if depth > 6 {
         return None;
     }
-    for (cpid, name) in children.get(&pid).into_iter().flatten() {
-        if let Some(a) = agent_of(name).or_else(|| agent(children, *cpid, depth + 1)) {
-            return Some(a);
+    for (cpid, name, started_ms) in children.get(&pid).into_iter().flatten() {
+        if let Some(kind) = agent_of(name) {
+            return Some(AgentProcess { kind, pid: *cpid, started_ms: *started_ms });
+        }
+        if let Some(found) = agent(children, *cpid, depth + 1) {
+            return Some(found);
         }
     }
     None
@@ -517,36 +548,74 @@ fn agent(children: &HashMap<u32, Vec<(u32, String)>>, pid: u32, depth: u8) -> Op
 fn status(sessions: &Sessions) -> Vec<AgentStat> {
     let children = ps_children();
     let now = now_ms();
-    let stats = sessions
-        .0
-        .lock()
-        .unwrap()
+    let mut observations = Vec::new();
+    let mut cwds = HashMap::new();
+    let mut stats = {
+        let mut map = lock(&sessions.0);
+        map.iter_mut()
+            .map(|(id, s)| {
+                let last = s.last_output.load(Ordering::Relaxed);
+                let process = s.shell_pid.and_then(|p| agent(&children, p, 0));
+                let running = process.is_some();
+                if !running {
+                    s.agent_title.store(TITLE_UNKNOWN, Ordering::Relaxed);
+                    s.binding = None;
+                }
+                cwds.insert(id.clone(), s.cwd.clone());
+                if let Some(p) = process.as_ref().filter(|p| matches!(p.kind, "claude" | "codex" | "kimi")) {
+                    observations.push(Observation {
+                        pane: id.clone(),
+                        agent: p.kind.to_string(),
+                        pid: p.pid,
+                        started_ms: p.started_ms,
+                        last_output_ms: last,
+                        previous: s.binding.clone(),
+                        hint: s.resume_hint.clone(),
+                    });
+                }
+                AgentStat {
+                    id: id.clone(),
+                    cwd: s.cwd.clone(),
+                    running,
+                    agent: process.as_ref().map(|p| p.kind.to_string()),
+                    resume: None,
+                    quiet_ms: now.saturating_sub(last),
+                    burst_ms: last.saturating_sub(s.burst_start.load(Ordering::Relaxed)),
+                    title_working: match s.agent_title.load(Ordering::Relaxed) {
+                        TITLE_WORKING => Some(true),
+                        TITLE_IDLE => Some(false),
+                        _ => None,
+                    },
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let mut native = Vec::new();
+    {
+        let mut cache = lock(&sessions.1);
+        for kind in ["claude", "codex", "kimi"] {
+            if observations.iter().any(|o| o.agent == kind) {
+                native.extend(cache.scan(kind));
+            }
+        }
+    }
+    crate::ptyd::resume::resolve(&mut observations, &cwds, &native);
+    let recipes: HashMap<String, ResumeRecipe> = observations
         .iter()
-        .map(|(id, s)| {
-            let last = s.last_output.load(Ordering::Relaxed);
-            let agent = s.shell_pid.and_then(|p| agent(&children, p, 0));
-            let running = agent.is_some();
-            if !running {
-                // don't let a dead session's last title speak for the next
-                // one: a claude that exits mid-work leaves ◐ behind, and a
-                // later launch would wear it until its own first retitle
-                s.agent_title.store(TITLE_UNKNOWN, Ordering::Relaxed);
-            }
-            AgentStat {
-                id: id.clone(),
-                cwd: s.cwd.clone(),
-                running,
-                agent: agent.map(str::to_string),
-                quiet_ms: now.saturating_sub(last),
-                burst_ms: last.saturating_sub(s.burst_start.load(Ordering::Relaxed)),
-                title_working: match s.agent_title.load(Ordering::Relaxed) {
-                    TITLE_WORKING => Some(true),
-                    TITLE_IDLE => Some(false),
-                    _ => None,
-                },
-            }
-        })
+        .filter_map(|o| o.recipe().map(|r| (o.pane.clone(), r)))
         .collect();
+    {
+        let mut map = lock(&sessions.0);
+        for observation in observations {
+            if let Some(session) = map.get_mut(&observation.pane) {
+                session.binding = observation.previous;
+            }
+        }
+    }
+    for stat in &mut stats {
+        stat.resume = recipes.get(&stat.id).cloned();
+    }
     stats
 }
 
@@ -732,6 +801,7 @@ fn spawn_or_attach(
     cwd: String,
     cols: u16,
     rows: u16,
+    resume_hint: Option<ResumeRecipe>,
 ) -> Result<bool, String> {
     // Is there a session under this id, is it still alive, and what is its
     // screen? Everything that needs the session map happens here, and the
@@ -912,6 +982,8 @@ fn spawn_or_attach(
             alive,
             cwd,
             shell_pid,
+            binding: None,
+            resume_hint,
             last_output,
             last_input,
             burst_start,
@@ -1103,6 +1175,7 @@ fn serve(stream: UnixStream, sessions: Arc<Sessions>, out: Out, detached: Arc<De
                     text(&v, "cwd"),
                     num(&v, "cols") as u16,
                     num(&v, "rows") as u16,
+                    serde_json::from_value(v["resume"].clone()).unwrap_or(None),
                 );
                 if let Ok(true) = res {
                     log(&format!("reattached {id}"));
@@ -1366,6 +1439,15 @@ mod tests {
     }
 
     #[test]
+    fn macos_process_elapsed_time_parses() {
+        assert_eq!(elapsed_seconds("12:34"), Some(754));
+        assert_eq!(elapsed_seconds("01:02:03"), Some(3_723));
+        assert_eq!(elapsed_seconds("2-03:04:05"), Some(183_845));
+        assert_eq!(elapsed_seconds("bogus"), None);
+        assert_eq!(elapsed_seconds("12:99"), None);
+    }
+
+    #[test]
     fn program_is_the_script_not_the_interpreter() {
         let p = |s: &str| program(s.split_whitespace());
         assert_eq!(p("claude"), "claude");
@@ -1382,21 +1464,22 @@ mod tests {
     #[test]
     fn coding_agents_are_found_anywhere_below_the_shell() {
         let children = HashMap::from([
-            (1, vec![(2, "zsh".to_string()), (3, "other".to_string())]),
-            (2, vec![(4, "codex-aarch64-apple-darwin".to_string())]),
-            (3, vec![(5, "claude".to_string())]),
-            (6, vec![(7, "omp".to_string())]),
-            (8, vec![(9, "pi".to_string()), (10, "pip".to_string())]),
-            (11, vec![(12, "node".to_string())]),
-            (12, vec![(13, "kimi".to_string())]),
+            (1, vec![(2, "zsh".to_string(), 10), (3, "other".to_string(), 10)]),
+            (2, vec![(4, "codex-aarch64-apple-darwin".to_string(), 10)]),
+            (3, vec![(5, "claude".to_string(), 10)]),
+            (6, vec![(7, "omp".to_string(), 10)]),
+            (8, vec![(9, "pi".to_string(), 10), (10, "pip".to_string(), 10)]),
+            (11, vec![(12, "node".to_string(), 10)]),
+            (12, vec![(13, "kimi".to_string(), 10)]),
         ]);
-        assert_eq!(agent(&children, 1, 0), Some("codex"));
-        assert_eq!(agent(&children, 3, 0), Some("claude"));
-        assert_eq!(agent(&children, 6, 0), Some("omp"));
-        assert_eq!(agent(&children, 8, 0), Some("pi"));
-        assert_eq!(agent(&children, 11, 0), Some("kimi"));
-        assert_eq!(agent(&children, 99, 0), None);
+        assert_eq!(agent(&children, 1, 0).map(|a| a.kind), Some("codex"));
+        assert_eq!(agent(&children, 3, 0).map(|a| a.kind), Some("claude"));
+        assert_eq!(agent(&children, 6, 0).map(|a| a.kind), Some("omp"));
+        assert_eq!(agent(&children, 8, 0).map(|a| a.kind), Some("pi"));
+        assert_eq!(agent(&children, 11, 0).map(|a| a.kind), Some("kimi"));
+        assert!(agent(&children, 99, 0).is_none());
         assert_eq!(agent_of("pip"), None);
+        assert_eq!(agent_of("kimi-code"), Some("kimi"));
         assert_eq!(agent_of("kimi-cli"), None);
     }
 

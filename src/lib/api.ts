@@ -57,6 +57,12 @@ export interface OpenTarget {
 /** the coding agents the daemon recognises under a shell */
 export type Agent = "claude" | "codex" | "kimi" | "pi" | "omp";
 
+export interface AgentResume {
+  agent: "claude" | "codex" | "kimi";
+  id: string;
+  cwd: string;
+}
+
 export interface AgentStat {
   /** the pty id the pane spawned it under. Missing from a daemon older
       than the field, which the app goes on joining across an update. */
@@ -74,6 +80,9 @@ export interface AgentStat {
       null when no title with a state in it has been seen and only the
       timing fields are left to guess from */
   title_working: boolean | null;
+  /** exact native conversation to reopen after a cold start. Missing from an
+      older daemon; null means this pane currently has no resumable agent. */
+  resume?: AgentResume | null;
 }
 
 export interface SearchQuery {
@@ -428,8 +437,8 @@ export const api = {
   ptyKillAll: () => invoke<void>("pty_kill_all"),
   /** end every session no restored layout claims — the boot sweep */
   ptyReap: (keep: string[]) => invoke<void>("pty_reap", { keep }),
-  ptySpawn: (id: string, cwd: string, cols: number, rows: number) =>
-    invoke<void>("pty_spawn", { id, cwd, cols, rows }),
+  ptySpawn: (id: string, cwd: string, cols: number, rows: number, resume?: AgentResume) =>
+    invoke<boolean>("pty_spawn", { id, cwd, cols, rows, resume }),
   ptyWrite: (id: string, data: string) => invoke<void>("pty_write", { id, data }),
   ptyResize: (id: string, cols: number, rows: number) => invoke<void>("pty_resize", { id, cols, rows }),
   ptyKill: (id: string) => invoke<void>("pty_kill", { id }),

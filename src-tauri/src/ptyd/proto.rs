@@ -35,11 +35,12 @@ use std::io::{self, Read, Write};
 /// with a dozen shells open is forever. Whether the two ends can still talk is
 /// not the question; whether the old one is still the right one to be holding
 /// the shells is. When it isn't, this is the only lever that moves them.
-pub const VERSION: u32 = 7;
+pub const VERSION: u32 = 8;
 
 // ── app → daemon ─────────────────────────────────────────────────────────────
 
-/// JSON `{req, id, cwd, cols, rows}`. Answered with `D_REPLY`.
+/// JSON `{req, id, cwd, cols, rows, resume}`. `resume` optionally carries the
+/// saved native-session binding for a cold start. Answered with `D_REPLY`.
 pub const C_SPAWN: u8 = 1;
 /// `u16` id length, the id, then the bytes to write. Not answered: a keystroke
 /// that had to wait for a round trip would be a keystroke you could feel.

@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
-import { api } from "../lib/api";
+import { api, type AgentResume } from "../lib/api";
 import { getSettings, onSettingsChange, resolvedAppearance, useSettings } from "../lib/settings";
 import { ptyBus } from "../lib/ptyBus";
 import { forgetTerm, setFocusedTerm } from "../lib/termFocus";
@@ -136,6 +136,7 @@ export function TerminalPanes({
   draggingId,
   onPaneDragStart,
   onOpenFile,
+  agentSessions,
 }: {
   tree: LayoutTree;
   /** every terminal leaf, in an order that never changes with the layout; a
@@ -154,6 +155,7 @@ export function TerminalPanes({
   onPaneDragStart: (e: ReactMouseEvent, id: string) => void;
   /** a ⌘-clicked path that belongs to this project */
   onOpenFile: (abs: string, line?: number) => void;
+  agentSessions: Record<string, AgentResume>;
 }) {
   // whether the panes wear the shared card or go plain — a live setting,
   // so flipping it in ⌘, restyles every open terminal on the spot
@@ -346,6 +348,7 @@ export function TerminalPanes({
           <TerminalPane
             id={id}
             cwd={tree.cwd}
+            resume={agentSessions[id]}
             focused={tree.focusedId === id}
             active={active && rect !== null}
             onFocus={tree.setFocused}
@@ -501,6 +504,7 @@ function termTheme() {
 function TerminalPane({
   id,
   cwd,
+  resume,
   focused,
   active,
   onFocus,
@@ -510,6 +514,7 @@ function TerminalPane({
 }: {
   id: string;
   cwd: string;
+  resume?: AgentResume;
   focused: boolean;
   active: boolean;
   onFocus: (id: string) => void;
@@ -933,8 +938,10 @@ function TerminalPane({
      * for a shell that prints no prompt at all — rare, and never writing the
      * command would be the worse way to be wrong about it.
      */
-    let boot: string | null = takeBoot(id) ?? null;
+    const requestedBoot = takeBoot(id) ?? null;
+    let boot: string | null = requestedBoot;
     let bootTimer: number | null = null;
+    let sawOutput = false;
     const sendBoot = () => {
       bootTimer = null;
       const cmd = boot;
@@ -976,6 +983,7 @@ function TerminalPane({
     // price. 1fps there; the switch back flushes instantly (below), so the
     // pane is current by the time it can be seen.
     ptyBus.onOutput(id, (bytes) => {
+      sawOutput = true;
       holdBoot(BOOT_SETTLE_MS);
       pending.push(bytes);
       if (flushTimer !== null) return;
@@ -994,11 +1002,23 @@ function TerminalPane({
     // the same reading the daemon makes of a title (see titleState)
     const titles = term.onTitleChange((title) => onAgentRef.current(id, titleState(title)));
 
-    api.ptySpawn(id, cwd, term.cols || 80, term.rows || 24).then(
-      () => {
-        // Only if nothing has been heard yet: output already arriving means
-        // the shell is up and its own settle window is the better clock.
-        if (bootTimer === null) holdBoot(BOOT_SILENT_MS);
+    api.ptySpawn(id, resume?.cwd ?? cwd, term.cols || 80, term.rows || 24, resume).then(
+      (cold) => {
+        // Only a shell created against a fresh daemon gets its conversation
+        // reopened. An explicit run command still wins; reattached shells and
+        // webview reloads are never typed into. The id is validated on both
+        // sides of persistence and quoted here as defence in depth.
+        if (cold && requestedBoot === null && resume) {
+          const idArg = `'${resume.id}'`;
+          boot = resume.agent === "claude"
+            ? `claude --resume ${idArg}`
+            : resume.agent === "codex"
+              ? `codex resume ${idArg}`
+              : `kimi --session ${idArg}`;
+        }
+        // Output may have arrived before the spawn reply. If it did, resume
+        // after its settle window rather than waiting out the silent fallback.
+        if (bootTimer === null) holdBoot(sawOutput ? BOOT_SETTLE_MS : BOOT_SILENT_MS);
       },
       (e) => {
         boot = null;

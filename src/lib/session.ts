@@ -3,6 +3,7 @@ import type { Project } from "../App";
 import type { LayoutNode } from "./layout";
 import type { SidebarTab } from "../components/Sidebar";
 import type { View } from "../components/Workspace";
+import type { AgentResume } from "./api";
 
 /**
  * What the window looked like last time, so reopening zero puts it back.
@@ -56,6 +57,9 @@ export interface ProjectSession {
    *  when it unfolds */
   sidebarShare: number | null;
   terminalVisible: boolean;
+  /** exact native conversations to reopen if the machine or pty daemon was
+   *  restarted. Ordinary app restarts reattach instead of using these. */
+  agentSessions: Record<string, AgentResume>;
   /** the era of the single document pane — read once by the migration into
    *  `docPanes`, never written again */
   views: View[];
@@ -234,6 +238,21 @@ function validFilter(v: unknown): Record<string, string[]> | undefined {
   return out;
 }
 
+function validAgentSessions(v: unknown): Record<string, AgentResume> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, AgentResume> = {};
+  for (const [pane, value] of Object.entries(v)) {
+    if (!pane || !value || typeof value !== "object") continue;
+    const r = value as AgentResume;
+    if (
+      (r.agent === "claude" || r.agent === "codex" || r.agent === "kimi") &&
+      typeof r.id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(r.id) &&
+      typeof r.cwd === "string" && r.cwd.startsWith("/") && !r.cwd.includes("\0")
+    ) out[pane] = { agent: r.agent, id: r.id, cwd: r.cwd };
+  }
+  return out;
+}
+
 function validProjectSession(v: unknown): Partial<ProjectSession> {
   if (!v || typeof v !== "object") return {};
   const p = v as Partial<ProjectSession>;
@@ -254,6 +273,7 @@ function validProjectSession(v: unknown): Partial<ProjectSession> {
     sidebarCollapsed: typeof p.sidebarCollapsed === "boolean" ? p.sidebarCollapsed : undefined,
     sidebarShare: typeof p.sidebarShare === "number" ? p.sidebarShare : undefined,
     terminalVisible: typeof p.terminalVisible === "boolean" ? p.terminalVisible : undefined,
+    agentSessions: validAgentSessions(p.agentSessions),
     views,
     // dropped untitled tabs can leave the index past the end — and can empty
     // the list altogether, where the clamp's own ceiling would be -1

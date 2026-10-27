@@ -4,10 +4,9 @@
 //! a frame on a socket, and the shells live in a process of their own — see
 //! `ptyd::server` for why that process is this same binary re-executed.
 //!
-//! The frontend cannot tell. Command names, arguments, return shapes and the
-//! `pty-output` / `pty-exit` events are all exactly what they were, which is
-//! the point of doing the move before doing anything with it: whatever breaks
-//! in this step broke in the transport.
+//! The `pty-output` / `pty-exit` events still look as they did when the shell
+//! lived here. `pty_spawn` additionally tells the frontend whether this pane
+//! may restore a conversation: only on its first spawn against a fresh daemon.
 
 use crate::ptyd::proto;
 use serde::Deserialize;
@@ -84,13 +83,29 @@ impl Client {
     }
 }
 
-/// `None` until the daemon is up, and again if it dies. Commands that arrive
-/// meanwhile fail the way a command against a dead shell always did.
+/// `client` is `None` until the daemon is up, and again if it dies. `cold`
+/// remembers which panes have already been offered a resume on a daemon this
+/// process started, so reattaching and reloading never type into a live shell.
 #[derive(Default)]
-pub struct PtyManager(Mutex<Option<Arc<Client>>>);
+pub struct PtyManager {
+    client: Mutex<Option<Arc<Client>>>,
+    cold: Mutex<ColdSpawns>,
+}
+
+#[derive(Default)]
+struct ColdSpawns {
+    fresh: bool,
+    offered: std::collections::HashSet<String>,
+}
+
+impl ColdSpawns {
+    fn claim(&mut self, id: &str) -> bool {
+        self.fresh && self.offered.insert(id.to_string())
+    }
+}
 
 fn client(state: &tauri::State<'_, PtyManager>) -> Result<Arc<Client>, String> {
-    state.0.lock().unwrap().clone().ok_or_else(|| "pty daemon not running".into())
+    state.client.lock().unwrap().clone().ok_or_else(|| "pty daemon not running".into())
 }
 
 // ── bringing the daemon up ───────────────────────────────────────────────────
@@ -158,7 +173,7 @@ pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let mut failure = String::new();
     for insist_on_fresh in [false, true] {
         match connect_verified(&sock, insist_on_fresh) {
-            Ok(stream) => return install(app, stream),
+            Ok((stream, fresh)) => return install(app, stream, fresh),
             Err(e) => failure = e,
         }
     }
@@ -166,19 +181,19 @@ pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Reach a daemon and refuse to believe in it until it answers.
-fn connect_verified(sock: &std::path::Path, insist_on_fresh: bool) -> Result<UnixStream, String> {
-    let mut stream = if insist_on_fresh {
+fn connect_verified(sock: &std::path::Path, insist_on_fresh: bool) -> Result<(UnixStream, bool), String> {
+    let (mut stream, fresh) = if insist_on_fresh {
         // whatever was there did not answer; it is either wedged or leaving,
         // and either way this socket is not worth joining
         let _ = std::fs::remove_file(sock);
         spawn_daemon(sock)?;
-        connect_retry(sock)?
+        (connect_retry(sock)?, true)
     } else {
         match UnixStream::connect(sock) {
-            Ok(existing) => existing,
+            Ok(existing) => (existing, false),
             Err(_) => {
                 spawn_daemon(sock)?;
-                connect_retry(sock)?
+                (connect_retry(sock)?, true)
             }
         }
     };
@@ -198,18 +213,19 @@ fn connect_verified(sock: &std::path::Path, insist_on_fresh: bool) -> Result<Uni
         }
     }
     stream.set_read_timeout(None).ok();
-    Ok(stream)
+    Ok((stream, fresh))
 }
 
 /// Hand the verified connection to the rest of the app.
-fn install(app: &tauri::AppHandle, stream: UnixStream) -> Result<(), String> {
+fn install(app: &tauri::AppHandle, stream: UnixStream, fresh: bool) -> Result<(), String> {
     let read_half = stream.try_clone().map_err(|e| e.to_string())?;
     let client = Arc::new(Client {
         out: Mutex::new(stream),
         next_req: AtomicU64::new(1),
         waiters: Mutex::new(HashMap::new()),
     });
-    *app.state::<PtyManager>().0.lock().unwrap() = Some(client.clone());
+    *app.state::<PtyManager>().client.lock().unwrap() = Some(client.clone());
+    *app.state::<PtyManager>().cold.lock().unwrap() = ColdSpawns { fresh, offered: Default::default() };
 
     let app = app.clone();
     std::thread::spawn(move || pump(app, client, read_half));
@@ -320,7 +336,7 @@ fn pump(app: tauri::AppHandle, client: Arc<Client>, mut r: UnixStream) {
 
     // The daemon is gone. Dropping the client is what makes every later
     // command say so instead of writing into a socket nobody is reading.
-    *app.state::<PtyManager>().0.lock().unwrap() = None;
+    *app.state::<PtyManager>().client.lock().unwrap() = None;
 }
 
 // ── the escape hatch ─────────────────────────────────────────────────────────
@@ -745,14 +761,17 @@ pub async fn pty_spawn(
     cwd: String,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+    resume: Option<crate::ptyd::resume::ResumeRecipe>,
+) -> Result<bool, String> {
     let client = client(&state)?;
-    let body = serde_json::json!({ "id": id, "cwd": cwd, "cols": cols, "rows": rows });
+    let resume_id = id.clone();
+    let body = serde_json::json!({ "id": id, "cwd": cwd, "cols": cols, "rows": rows, "resume": resume });
     crate::git::blocking(move || match client.request(proto::C_SPAWN, body) {
         Ok(reply) => reply.error.map_or(Ok(()), Err),
         Err(e) => Err(e),
     })
     .await
+    .map(|()| state.cold.lock().unwrap().claim(&resume_id))
 }
 
 /// Not answered, and that is on purpose: a keystroke that waited for a round
@@ -827,4 +846,20 @@ pub async fn agent_status(state: tauri::State<'_, PtyManager>) -> Result<serde_j
             .and_then(|reply| reply.status)
             .unwrap_or_else(|| serde_json::Value::Array(vec![])),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ColdSpawns;
+
+    #[test]
+    fn only_a_fresh_daemon_offers_each_pane_one_resume() {
+        let mut attached = ColdSpawns::default();
+        assert!(!attached.claim("pane"));
+
+        let mut cold = ColdSpawns { fresh: true, offered: Default::default() };
+        assert!(cold.claim("pane"));
+        assert!(!cold.claim("pane"));
+        assert!(cold.claim("other"));
+    }
 }

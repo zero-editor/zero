@@ -36,6 +36,7 @@ import { onProjectOpen } from "../lib/openBus";
 import { getSettings, useSettings } from "../lib/settings";
 import { projectSession, saveProject, type DocPane } from "../lib/session";
 import { decorations, useGitStatus, type GitMark } from "../lib/gitStatus";
+import { useAgentSessions } from "../lib/agentStatus";
 import { useSearch } from "../lib/search";
 import { folders } from "../lib/folders";
 import { useMemos } from "../lib/memos";
@@ -191,6 +192,11 @@ export const Workspace = memo(function Workspace({
   const revealCount = useRef(0);
   const untitledRef = useRef(0);
   const tree = useLayoutTree(project.root, saved);
+  const agentSessions = useAgentSessions(
+    project.root,
+    saved.agentSessions ?? {},
+    leafIds(tree.root).filter(isTerm)
+  );
   /**
    * Every document pane's tabs, keyed the way the tree keys its leaves. The
    * tree says where the panes stand; this says what each one is holding —
@@ -282,8 +288,8 @@ export const Workspace = memo(function Workspace({
     [tree.newTerminal]
   );
 
-  // everything this project should look like next launch. The store debounces,
-  // so a divider drag firing this per mousemove costs one write at the end.
+  // everything this project should look like next launch, including the exact
+  // conversations a cold daemon should reopen. The store writes immediately.
   useEffect(() => {
     saveProject(project.root, {
       layout: tree.root,
@@ -293,6 +299,7 @@ export const Workspace = memo(function Workspace({
       sidebarCollapsed,
       sidebarShare: sidebarShare.current,
       terminalVisible,
+      agentSessions,
       docPanes,
       activePane: currentPane,
     });
@@ -304,6 +311,7 @@ export const Workspace = memo(function Workspace({
     sidebarVisible,
     sidebarCollapsed,
     terminalVisible,
+    agentSessions,
     docPanes,
     currentPane,
   ]);
@@ -1800,6 +1808,7 @@ export const Workspace = memo(function Workspace({
         draggingId={draggingId}
         onPaneDragStart={startPaneDrag}
         onOpenFile={openFile}
+        agentSessions={agentSessions}
       />
       {/* one divider per visible seam of the tree */}
       {dividers.map((d) => (

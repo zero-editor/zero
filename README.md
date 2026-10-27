@@ -272,9 +272,11 @@ disk before they light up, because any pattern loose enough to catch
 
 **It opens how you left it.** Which projects were open and in what order, the
 whole pane layout — every split and its share — the sidebar, the open tabs.
-Not the shells — they're children of this process and die with it, so a
-restored pane is a *new* shell in the same directory. `claude --continue`
-picks the conversation back up, which is usually the part you actually wanted.
+Quitting and reopening zero reattaches to the same live shells, screens and
+scrollback included. After a computer reboot (or a fresh terminal daemon), each
+pane reopens its exact Claude Code, Codex or Kimi conversation in its original
+directory; no prompt is sent and interrupted work is never continued on its
+own. As with the rest of the layout, the last saved state is what comes back.
 
 **Panels move.** Every panel is the same card — hairline, soft shadow, rounded
 corners — and every card is a leaf of one split tree: each terminal, the

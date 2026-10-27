@@ -235,7 +235,22 @@ share a daemon — the two-zeros hazard above, in a form that bites silently. An
 it carries `proto::VERSION`, because the failure to survive is an *older*
 daemon still holding shells across an update, and an old daemon cannot be asked
 what it speaks. Bumping that constant is how you say "old daemons must not be
-joined"; the cost is that sessions do not survive that one update.
+joined"; the cost is that sessions do not survive that one update. 0.59.0 moves
+to v8 for native-session discovery, so the upgrade loses live terminals once;
+the saved conversations below are what come back.
+
+**Cold starts reopen the exact agent conversation, not the latest in a
+project.** `ptyd/resume.rs` reads Claude Code, Codex and Kimi's own metadata
+(read-only), binds each native session id to the agent process in one pane, and
+refuses ambiguous matches. `agent_status` publishes the binding; the frontend
+saves it per pane and hands it back at spawn as a hint, so reopening an old
+conversation need not touch its metadata before it can be identified again.
+A newly spawned daemon makes `pty_spawn` return true once for that pane, which
+types `claude --resume <id>`, `codex resume <id>` or `kimi
+--session <id>` after the shell's prompt settles. Joining an existing daemon
+returns false, so an ordinary app restart or webview reload never reruns the
+command. The shell starts in the conversation's own cwd. Nothing submits a
+prompt or continues interrupted work.
 
 **Reattaching replays a screen, not bytes.** A `vt100::Parser` per session is
 fed everything the shell prints, and an attach sends `state_formatted()` —

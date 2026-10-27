@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { Agent, AgentStat } from "./api";
+import type { Agent, AgentResume, AgentStat } from "./api";
 
 export interface ProjectAgents {
   /** agent sessions that are still printing, i.e. mid-task */
@@ -234,4 +234,35 @@ export function useAgentPanes(): Record<string, AgentPane> {
     });
   }, []);
   return panes;
+}
+
+const sameRecipes = (a: Record<string, AgentResume>, b: Record<string, AgentResume>) => {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((id) => {
+    const x = a[id];
+    const y = b[id];
+    return y && x.agent === y.agent && x.id === y.id && x.cwd === y.cwd;
+  });
+};
+
+/** Native conversation ids for this project's live terminal panes. Saved
+ *  recipes seed the cold-start path; daemon polls then keep them current. */
+export function useAgentSessions(root: string, saved: Record<string, AgentResume>, paneIds: string[]) {
+  const [recipes, setRecipes] = useState(saved);
+  const live = paneIds.join("\0");
+  useEffect(() => {
+    const panes = new Set(live ? live.split("\0") : []);
+    return subscribe((stats) => {
+      setRecipes((prev) => {
+        const next = Object.fromEntries(Object.entries(prev).filter(([id]) => panes.has(id)));
+        for (const s of stats) {
+          if (!s.id || s.cwd !== root || !panes.has(s.id) || s.resume === undefined) continue;
+          if (!s.running || s.resume === null) delete next[s.id];
+          else next[s.id] = s.resume;
+        }
+        return sameRecipes(prev, next) ? prev : next;
+      });
+    });
+  }, [root, live]);
+  return recipes;
 }
