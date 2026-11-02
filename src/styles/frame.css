@@ -55,8 +55,8 @@
   scrollbar-width: none;
 }
 
-/* symmetric: a fixed square at each end (status left, close right) with the
-   name between them, so the tab is one width in every state */
+/* fixed-width status on the left and close target on the right, so changing
+   activity never changes the tab's width */
 /* Pills on the field rather than cells in a strip. The hairlines they used to
    carry were what made the bar read as a surface, and there is no surface up
    here any more — a divider between two tabs that sit on the window would be
@@ -79,8 +79,8 @@
   cursor: grab;
 }
 
-/* The same 16px box the status dot and the ✕ get, so the three of them are
-   centred by the same arithmetic. At `line-height: 1` the box is the font
+/* The name and fraction share a 16px line box; the ring and ✕ are flex-centred
+   in their 18px boxes. At `line-height: 1` the name's box would be the font
    size — 12.5 — and centring that in a 28px pill puts its top on 7.75 while
    the icons' boxes land on 6: a half-pixel of disagreement, which is a whole
    device pixel on this screen and reads as the name sitting a touch high.
@@ -134,26 +134,68 @@ body.dragging-tab .editor-tab * {
   cursor: grabbing;
 }
 
-/* per-project coding-agent indicator, built on zero's own mark: a hairline
-   ring with one arc of light travelling round it while a session works,
-   closing into a complete circle once it's finished and waiting on you. White throughout, like
-   everything else in this theme — the two states are told apart by whether the
-   light is moving and whether the ring is closed, which reads at 10px better
-   than a hue does. Cleared once you've been there. */
-/* the reserved square — same 18px as the close button on the other end */
+/* per-project coding-agent indicator: a hairline ring on the logo's square,
+   with the finished / total fraction reserved to the right of the project
+   name. Both reservations are fixed, so neither the mark nor the name moves. */
 .titlebar-tab-status {
   position: relative;
   flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 18px;
   height: 18px;
 }
 
+/* Absolute geometry keeps WebKit from re-centering the mark as the fraction's
+   content changes. Both marks sit at (9, 9), the original status square's
+   centre. */
+.titlebar-tab-status > .titlebar-tab-icon,
+.titlebar-tab-status > .titlebar-tab-mark {
+  position: absolute;
+  left: 2.5px;
+  top: 2.5px;
+}
+
+.titlebar-tab-fraction {
+  position: absolute;
+  inset: 0;
+  white-space: nowrap;
+}
+
+.titlebar-tab-fraction-count {
+  position: absolute;
+  right: 11px;
+  top: 6px;
+  width: 28px;
+  height: 16px;
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  letter-spacing: -0.15px;
+  text-align: right;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+/* The fraction borrows the hidden ✕'s space rather than widening the tab.
+   Hovering trades it for the close button in the same place. */
+.titlebar-tab:hover .titlebar-tab-fraction-count {
+  opacity: 0;
+}
+
+.titlebar-tab-fraction-total {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
 .agent-ring {
-  position: relative;
-  flex: none;
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -219,7 +261,14 @@ body.dragging-tab .editor-tab * {
 
 .agent-ring.done {
   border: 1.4px solid #ffffff;
+  color: #ffffff;
   box-shadow: 0 0 4px 0 rgba(255, 255, 255, 0.4);
+}
+
+.agent-ring-check {
+  display: block;
+  width: 7px;
+  height: 7px;
 }
 
 @keyframes agent-spin {
@@ -236,11 +285,10 @@ body.dragging-tab .editor-tab * {
   }
 }
 
-/* fixed square, flex-centred — same vertical axis as the status dot */
+/* fixed square, flex-centred — same vertical axis as the status */
 /* 18px around a 9px mark, and the mark is all of it — no square behind it,
    the same as the file tabs' ✕. The room is still worth having: it is the
-   target, not the paint. Grown at both ends — the status square matches it —
-   because the two squares are what keep the name centred in its own tab. */
+   target, not the paint. */
 .titlebar-tab-close {
   flex: none;
   display: flex;

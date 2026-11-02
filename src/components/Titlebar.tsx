@@ -170,25 +170,16 @@ export function Titlebar({
             }
             title={p.root}
           >
-            {/* always rendered, even empty: the slot is the same fixed square
-                as the close button, so a tab never changes width when a
-                session starts and the row never shuffles under the cursor */}
+            {/* always rendered, even empty: the fixed-width slot holds either
+                the project icon or the activity ring without resizing the tab */}
             <span className="titlebar-tab-status">
               {(() => {
                 const c = agents[p.root];
                 const working = c?.working ?? 0;
-                // Working shows on every tab, the one you're on included:
-                // switching to a project isn't the same as its work being
-                // over, and a spinner that vanished when you looked at it made
-                // the tab strip disagree with the terminal underneath it.
-                // Finished is the one that's genuinely about you — it clears
-                // by being read, which is what `seen` tracks.
-                const done = seen.has(p.root) ? 0 : (c?.done ?? 0);
-                // Nothing to say is the project's own icon, the way a browser
-                // tab reads. The ring takes the square while there is
-                // something to say and hands it back when there isn't —
-                // never both at once, since a spinner drawn over a logo is
-                // two marks fighting over 10px.
+                // While work continues the fraction reports the real counts,
+                // even in the active project. Once everything is finished the
+                // badge keeps its unread semantics and clears on being seen.
+                const done = working === 0 && seen.has(p.root) ? 0 : (c?.done ?? 0);
                 if (!working && !done)
                   return icons[p.root] ? (
                     <img className="titlebar-tab-icon" src={icons[p.root]} alt="" />
@@ -210,21 +201,49 @@ export function Titlebar({
                       )}
                     </svg>
                   );
+                const label = `${done} agent${done === 1 ? "" : "s"} finished · ${working} working`;
                 return (
-                  <span
-                    // the agent's own colour, where the theme gives it one
-                    // (subzero.css) and where there is one agent to name
-                    className={`agent-ring ${working ? "working" : "done"} ${c?.agent ? `agent-${c.agent}` : ""}`}
-                    title={
-                      working
-                        ? `${working} agent${working === 1 ? "" : "s"} working`
-                        : `${done} agent${done === 1 ? "" : "s"} finished — waiting for you`
-                    }
-                  />
+                  <span className="titlebar-tab-fraction" role="img" aria-label={label} title={label}>
+                    <span
+                      // the agent's own colour, where the theme gives it one
+                      // (subzero.css) and where there is one agent to name
+                      className={`agent-ring ${working ? "working" : "done"} ${c?.agent ? `agent-${c.agent}` : ""}`}
+                    >
+                      {!working && (
+                        <svg className="agent-ring-check" viewBox="0 0 10 10" aria-hidden="true">
+                          <path
+                            d="M2 5.2 4.1 7.2 8 3"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.35"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </span>
+                  </span>
                 );
               })()}
             </span>
             <span className="titlebar-tab-name">{p.name}</span>
+            {/* overlays the hidden close button, leaving the tab's original
+                width and the logo/name spacing untouched */}
+            <span className="titlebar-tab-fraction-count" aria-hidden="true">
+              {(() => {
+                const c = agents[p.root];
+                const working = c?.working ?? 0;
+                if (!working && seen.has(p.root)) return null;
+                const done = c?.done ?? 0;
+                const total = working + done;
+                if (!total) return null;
+                return (
+                  <>
+                    {done}<span className="titlebar-tab-fraction-total">/{total}</span>
+                  </>
+                );
+              })()}
+            </span>
             <button
               className="titlebar-tab-close"
               onMouseDown={(e) => e.stopPropagation()}

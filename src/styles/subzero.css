@@ -407,6 +407,7 @@ html.subzero .agent-ring.working::before {
 
 html.subzero .agent-ring.done {
   border-color: rgb(var(--lamp));
+  color: rgb(var(--lamp));
   box-shadow: 0 0 6px 0 rgba(var(--lamp), 0.6);
 }
 
