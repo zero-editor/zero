@@ -236,7 +236,8 @@ export function Titlebar({
                 if (!working && seen.has(p.root)) return null;
                 const done = c?.done ?? 0;
                 const total = working + done;
-                if (!total) return null;
+                // one agent: the ring alone says it — a 0/1 or 1/1 adds nothing
+                if (total < 2) return null;
                 return (
                   <>
                     {done}<span className="titlebar-tab-fraction-total">/{total}</span>
