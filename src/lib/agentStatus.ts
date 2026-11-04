@@ -5,7 +5,10 @@ import type { Agent, AgentResume, AgentStat } from "./api";
 export interface ProjectAgents {
   /** agent sessions that are still printing, i.e. mid-task */
   working: number;
-  /** agent sessions that have gone quiet — done, waiting on you */
+  /** sessions of the current round that have gone quiet — done, waiting on
+   *  you. A round is the sessions that have worked since the project last
+   *  had nothing working; an agent that sat idle through it isn't in it, so
+   *  two agents finishing beside two idle ones reads 2/2, not 4/4. */
   done: number;
   /** whose the ring is: the one agent behind the count that shows — the
    *  working ones while any is, the finished ones otherwise. Null when
@@ -43,7 +46,7 @@ const MIN_BURST_MS = 600;
 //
 // Untreated that puts several working→done→working round trips in a single
 // task, and the tab strip strobes for the length of it. So working latches: a
-// project that reads as working keeps that reading until it has read otherwise
+// session that reads as working keeps that reading until it has read otherwise
 // for this long. Only one of the two transitions is ever waited on — finishing
 // — and being three seconds late on that is cheaper than a flicker throughout.
 const WORKING_HOLD_MS = 3000;
@@ -138,42 +141,58 @@ export function useAgentStatus(roots: string[]): Record<string, ProjectAgents> {
   const key = roots.join("\0");
 
   useEffect(() => {
-    // the latch: per project, the last reading that said working and when it
-    // landed. Local to the effect, so a change to the project list starts
-    // everyone clean rather than holding a reading on behalf of a project that
+    // Both local to the effect, so a change to the project list starts
+    // everyone clean rather than holding state on behalf of a project that
     // has moved.
-    const held: Record<string, { at: number; stat: ProjectAgents }> = {};
+    // The latch, per session: when each last read as working. A quiet agent
+    // is held; a closed one isn't — it leaves the stats, and with them this.
+    const held: Record<string, number> = {};
+    // The round, per project: the sessions that have worked since the project
+    // last had nothing working. The first to start after a quiet spell opens
+    // a new one.
+    const round: Record<string, Set<string>> = {};
     return subscribe((stats) => {
+      const now = Date.now();
       const next: Record<string, ProjectAgents> = {};
       // which agents are behind each count, to name the one when it is one
       const by: Record<string, { working: Set<Agent>; done: Set<Agent> }> = {};
+      const rows: Record<string, { key: string; agent: Agent; working: boolean }[]> = {};
       for (const root of key ? key.split("\0") : []) {
         next[root] = { working: 0, done: 0, agent: null };
         by[root] = { working: new Set(), done: new Set() };
+        rows[root] = [];
       }
+      const live = new Set<string>();
       for (const s of stats) {
-        const slot = next[s.cwd];
         const agent = agentOf(s);
-        if (!slot || !agent || !s.running) continue;
-        if (isWorking(s)) {
-          slot.working++;
-          by[s.cwd].working.add(agent);
-        } else {
-          slot.done++;
-          by[s.cwd].done.add(agent);
-        }
+        if (!rows[s.cwd] || !agent || !s.running) continue;
+        // a daemon from before rows carried ids: position is all there is
+        const k = s.id ?? `${s.cwd}\0${rows[s.cwd].length}`;
+        live.add(k);
+        if (isWorking(s)) held[k] = now;
+        else if (held[k] !== undefined && now - held[k] >= WORKING_HOLD_MS) delete held[k];
+        rows[s.cwd].push({ key: k, agent, working: held[k] !== undefined });
       }
-      const now = Date.now();
-      for (const [root, slot] of Object.entries(next)) {
+      for (const k of Object.keys(held)) if (!live.has(k)) delete held[k];
+      for (const [root, list] of Object.entries(rows)) {
+        const members = round[root] ?? new Set<string>();
+        for (const k of members) if (!live.has(k)) members.delete(k);
+        const busy = list.some((r) => r.working && members.has(r.key));
+        if (!busy && list.some((r) => r.working)) members.clear();
+        const slot = next[root];
+        for (const r of list) {
+          if (r.working) {
+            members.add(r.key);
+            slot.working++;
+            by[root].working.add(r.agent);
+          } else if (members.has(r.key)) {
+            slot.done++;
+            by[root].done.add(r.agent);
+          }
+        }
+        round[root] = members;
         const who = slot.working > 0 ? by[root].working : by[root].done;
         if (who.size === 1) slot.agent = who.values().next().value ?? null;
-        if (slot.working > 0) held[root] = { at: now, stat: slot };
-        // A quiet agent is held; a closed one isn't. The hold covers the gap
-        // between two bursts, and a session that has gone away has no next
-        // burst — so it drops the moment the count does.
-        else if (slot.done > 0 && held[root] && now - held[root].at < WORKING_HOLD_MS)
-          next[root] = held[root].stat;
-        else delete held[root];
       }
       // Same counts, same object. This polls once a second, and every fresh
       // object was a re-render of the whole tab strip — plus the seen-badge
