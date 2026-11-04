@@ -12,8 +12,9 @@ import { api } from "./api";
  * matching is only a first pass — existing is what makes it a link.
  */
 
-/** trailing punctuation belongs to the sentence, not the URL */
-const TRAILING = /[.,;:!?)\]}'"]+$/;
+/** trailing punctuation belongs to the sentence, not the URL — and a run that
+ *  ends on a row break never ends with the break */
+const TRAILING = /[\n.,;:!?)\]}'"]+$/;
 
 const URL_RE = /\bhttps?:\/\/[^\s"'`<>]+/g;
 
@@ -24,22 +25,84 @@ const URL_RE = /\bhttps?:\/\/[^\s"'`<>]+/g;
  */
 const PATH_RE = /(?:~|\.{1,2})?[\w@.\-+/]*[/\\][\w@.\-+]+(?::\d+(?::\d+)?)?|\b[\w@\-+]+\.[A-Za-z][\w]{0,9}(?::\d+(?::\d+)?)?/g;
 
+/**
+ * What may carry a link on from the row above. Narrower than the patterns
+ * themselves — ASCII only for URLs — because whatever opens the next row is
+ * glued on, and a TUI's gutter glyph (`⏺`, `│`) must not be.
+ */
+const URL_CONT = /[\w\-.~:/?#[\]@!$&()*+,;=%]+/y;
+const PATH_CONT = /[\w@.\-+/\\]+(?::\d+(?::\d+)?)?/y;
+
 interface Span {
+  /** the link's text, with any row break taken out */
   text: string;
   start: number;
   end: number;
+  /** a span joined across a row break: the part above it on its own, for
+   *  when the join turns out to be wrong (a path that doesn't exist joined) */
+  head?: Span;
 }
 
 /** a line of the buffer flattened to a string, with each character's column */
 interface Flat {
   text: string;
-  /** xs[i] / ys[i] are the 0-based cell coordinates of text[i] */
+  /** xs[i] / ys[i] are the 0-based cell coordinates of text[i]; -1 for the
+   *  `\n` standing in for a row break */
   xs: number[];
   ys: number[];
 }
 
 /**
- * Read the whole wrapped run containing `y`, cell by cell.
+ * Rows a link may have been broken across that the terminal doesn't know are
+ * one line.
+ *
+ * TUIs wrap their own text. Claude Code (measured) fills a row to its last
+ * column, ends it with an explicit newline, and indents the rest under its
+ * gutter — so the row is never marked `isWrapped`, and a URL longer than the
+ * pane used to stop at the edge. A row whose last character sits in the final
+ * `EDGE` columns may have been broken like that, and the next row is read in
+ * behind a `\n`: matching never crosses one by itself, only a URL or path
+ * running right up to it is carried on (see `findAll`). Claude's own dialogs
+ * leave two columns of padding, hence three.
+ */
+const EDGE = 3;
+/** how many such breaks to follow each way from the hovered row */
+const HARD_ROWS = 8;
+
+type Buffer = Terminal["buffer"]["active"];
+type Line = NonNullable<ReturnType<Buffer["getLine"]>>;
+
+/** the last column with a character in it, or -1 for a blank row */
+function lastInk(line: Line): number {
+  for (let x = line.length - 1; x >= 0; x--) {
+    const cell = line.getCell(x);
+    const ch = cell?.getChars();
+    if (ch && ch !== " ") return x + Math.max(cell!.getWidth(), 1) - 1;
+  }
+  return -1;
+}
+
+/** the soft-wrapped run containing `y`, as the terminal itself sees it */
+function softRun(buf: Buffer, y: number): [number, number] {
+  let start = y;
+  while (start > 0 && buf.getLine(start)?.isWrapped) start--;
+  let end = y;
+  while (end + 1 < buf.length && buf.getLine(end + 1)?.isWrapped) end++;
+  return [start, end];
+}
+
+/** whether `row` (the last of a soft run) may continue on the next one */
+function hardBreak(term: Terminal, row: number): boolean {
+  const buf = term.buffer.active;
+  const line = buf.getLine(row);
+  const next = buf.getLine(row + 1);
+  if (!line || !next || next.isWrapped) return false;
+  return lastInk(line) >= term.cols - EDGE && lastInk(next) >= 0;
+}
+
+/**
+ * Read the run containing `y` — soft wraps joined, possible hard breaks
+ * marked with `\n` — cell by cell.
  *
  * Deliberately not `translateToString`: a double-width character occupies two
  * columns but contributes one character to that string, so string offsets stop
@@ -48,18 +111,32 @@ interface Flat {
  */
 function flatten(term: Terminal, y: number): Flat {
   const buf = term.buffer.active;
-  let start = y;
-  while (start > 0 && buf.getLine(start)?.isWrapped) start--;
-  let end = y;
-  while (end + 1 < buf.length && buf.getLine(end + 1)?.isWrapped) end++;
+  let [start, end] = softRun(buf, y);
+  for (let i = 0; i < HARD_ROWS && start > 0 && hardBreak(term, start - 1); i++) {
+    start = softRun(buf, start - 1)[0];
+  }
+  for (let i = 0; i < HARD_ROWS && end + 1 < buf.length && hardBreak(term, end); i++) {
+    end = softRun(buf, end + 1)[1];
+  }
 
   const text: string[] = [];
   const xs: number[] = [];
   const ys: number[] = [];
+  let afterBreak = false;
   for (let row = start; row <= end; row++) {
     const line = buf.getLine(row);
     if (!line) continue;
-    for (let x = 0; x < line.length; x++) {
+    const next = buf.getLine(row + 1);
+    // the row is cut at its last character when a break follows it, so a
+    // link ending there is directly followed by the `\n`
+    const breaks = row < end && !next?.isWrapped;
+    const stop = breaks ? lastInk(line) : line.length - 1;
+    let x = 0;
+    if (afterBreak) {
+      // the continuation's indent is the TUI's, not the text's
+      while (x < line.length && !(line.getCell(x)?.getChars() ?? "").trim()) x++;
+    }
+    for (; x <= stop; x++) {
       const cell = line.getCell(x);
       if (!cell) continue;
       // the second half of a double-width character: no character of its own
@@ -71,20 +148,45 @@ function flatten(term: Terminal, y: number): Flat {
         ys.push(row);
       }
     }
+    if (breaks) {
+      text.push("\n");
+      xs.push(-1);
+      ys.push(-1);
+    }
+    afterBreak = breaks;
   }
   return { text: text.join(""), xs, ys };
 }
 
-function findAll(text: string, re: RegExp): Span[] {
+/**
+ * Every match of `re`. With `cont`, a match running right up to a row break
+ * carries on into the next row for as long as `cont` matches there — never
+ * into what reads as a URL of its own.
+ */
+function findAll(text: string, re: RegExp, cont?: RegExp): Span[] {
   const out: Span[] = [];
+  const span = (start: number, end: number): Span | null => {
+    const value = text.slice(start, end).replace(TRAILING, "");
+    // a run of pure punctuation isn't a candidate
+    if (!value) return null;
+    return { text: value.replace(/\n/g, ""), start, end: start + value.length };
+  };
   re.lastIndex = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
-    let value = m[0];
-    const trimmed = value.replace(TRAILING, "");
-    // a run of pure punctuation isn't a candidate
-    if (!trimmed) continue;
-    value = trimmed;
-    out.push({ text: value, start: m.index, end: m.index + value.length });
+    const headEnd = m.index + m[0].length;
+    let end = headEnd;
+    // `…/abc.` at the edge ends a sentence; the next row starts another
+    while (cont && text[end] === "\n" && !/[.,;:!?)\]}'"]$/.test(text.slice(0, end))) {
+      cont.lastIndex = end + 1;
+      const c = cont.exec(text);
+      if (!c || /^https?:\/\//.test(c[0])) break;
+      end = cont.lastIndex;
+    }
+    if (end > headEnd) re.lastIndex = end;
+    const s = span(m.index, end);
+    if (!s) continue;
+    if (end > headEnd) s.head = span(m.index, headEnd) ?? undefined;
+    out.push(s);
   }
   return out;
 }
@@ -342,6 +444,9 @@ function linkChrome(term: Terminal, url: string): Pick<ILink, "decorations" | "h
  * @param cwd    the project root — where relative paths are resolved from
  * @param onFile a file inside the project: open it here rather than leaving
  */
+/** for the test only */
+export const _test = { flatten, findAll, URL_RE, URL_CONT, PATH_RE, PATH_CONT };
+
 export function pathLinkProvider(
   term: Terminal,
   cwd: string,
@@ -352,7 +457,7 @@ export function pathLinkProvider(
       const flat = flatten(term, bufferLineNumber - 1);
       if (!flat.text.trim()) return callback(undefined);
 
-      const urls = findAll(flat.text, URL_RE);
+      const urls = findAll(flat.text, URL_RE, URL_CONT);
       const open = (url: string) => api.openUrl(url).catch((err) => console.warn(`link: ${err}`));
       const links: ILink[] = urls.map((span) => ({
         range: rangeOf(flat, span),
@@ -365,25 +470,37 @@ export function pathLinkProvider(
 
       // a path candidate inside a URL is part of the URL
       const covered = (s: Span) => urls.some((u) => s.start < u.end && u.start < s.end);
-      const candidates = findAll(flat.text, PATH_RE).filter((s) => !covered(s));
+      const candidates = findAll(flat.text, PATH_RE, PATH_CONT).filter((s) => !covered(s));
 
-      const byRaw = new Map(candidates.map((s) => [splitLineNumber(s.text).path, s]));
-      const paths = byRaw.size ? resolve(cwd, [...byRaw.keys()]) : Promise.resolve(new Map());
+      // a path joined across a row break is asked about both ways — the disk
+      // says whether the join was right
+      const raws = new Set<string>();
+      for (const s of candidates) {
+        raws.add(splitLineNumber(s.text).path);
+        if (s.head) raws.add(splitLineNumber(s.head.text).path);
+      }
+      const paths = raws.size ? resolve(cwd, [...raws]) : Promise.resolve(new Map<string, ResolvedPath>());
       Promise.all([paths, linksFor(cwd)])
         .then(([hits, project]) => {
-          for (const [raw, span] of byRaw) {
-            const hit = hits.get(raw);
+          for (const whole of candidates) {
+            let span: Span = whole;
+            let hit = hits.get(splitLineNumber(span.text).path);
+            if (!hit && whole.head) {
+              span = whole.head;
+              hit = hits.get(splitLineNumber(span.text).path);
+            }
             if (!hit) continue;
+            const found = hit;
             const { line } = splitLineNumber(span.text);
             links.push({
               range: rangeOf(flat, span),
               text: span.text,
-              ...linkChrome(term, hit.abs),
+              ...linkChrome(term, found.abs),
               activate: (e) => {
                 if (!e.metaKey) return;
-                if (hit.dir) api.openFolder(hit.abs).catch((err) => console.warn(`open: ${err}`));
-                else if (hit.inside) onFile(hit.abs, line);
-                else api.revealPath(hit.abs).catch((err) => console.warn(`reveal: ${err}`));
+                if (found.dir) api.openFolder(found.abs).catch((err) => console.warn(`open: ${err}`));
+                else if (found.inside) onFile(found.abs, line);
+                else api.revealPath(found.abs).catch((err) => console.warn(`reveal: ${err}`));
               },
             });
           }
