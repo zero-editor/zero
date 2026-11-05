@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" class="subzero field-drift">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subzero · drift</title>
+  <style>
+    #root { display: grid; place-items: center; }
+    .intro { text-align: center; pointer-events: none; }
+    .eyebrow { font: 10px Menlo, monospace; letter-spacing: .35em; color: var(--accent); }
+    h1 { font: italic 84px Georgia, serif; letter-spacing: -.06em; margin: 24px 0 18px; font-weight: 400; }
+    .caption { color: var(--text-dim); font: 12px Menlo, monospace; line-height: 1.9; }
+    footer { position: fixed; bottom: 32px; left: 32px; right: 32px; display: flex; align-items: center; justify-content: space-between; font: 10px Menlo, monospace; color: var(--text-faint); letter-spacing: .08em; }
+    button { color: var(--text-dim); background: transparent; border: 1px solid var(--panel-border); padding: 10px 16px; cursor: pointer; font: inherit; }
+    button:hover { color: var(--accent); border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+    import React from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { DriftField } from '/src/components/DriftField.tsx';
+    import '/src/App.css';
+    const h = React.createElement;
+    function Preview() {
+      const [light, setLight] = React.useState(false);
+      React.useEffect(() => { document.documentElement.classList.toggle('light', light); }, [light]);
+      return h(React.Fragment, null,
+        h(DriftField, { light }),
+        h('main', { className: 'intro' },
+          h('p', { className: 'eyebrow' }, 'S U B Z E R O  /  0 1'),
+          h('h1', null, 'drift'),
+          h('p', { className: 'caption' }, 'A current written in almost nothing.', h('br'), 'Cold light. Slow motion. Room to think.')),
+        h('footer', null, h('span', null, '. : - ~  /  ASCII FLOW FIELD'),
+          h('button', { onClick: () => setLight(!light) }, light ? 'dark ice ↗' : 'snow ↗')));
+    }
+    createRoot(document.getElementById('root')).render(h(Preview));
+  </script>
+</body>
+</html>

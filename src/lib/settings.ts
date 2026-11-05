@@ -24,7 +24,7 @@ export type Theme = (typeof THEMES)[number];
 /** What subzero draws on the field between the panes — see the field
  *  section of styles/subzero.css. Only that theme reads it; zero's field
  *  is a colour. */
-export const FIELDS = ["aurora", "contour", "bare"] as const;
+export const FIELDS = ["aurora", "contour", "drift", "bare"] as const;
 export type Field = (typeof FIELDS)[number];
 
 export const APPEARANCES = ["light", "dark", "system"] as const;

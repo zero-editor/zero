@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/api";
+import { DriftField } from "./components/DriftField";
 import { Launcher } from "./components/Launcher";
 import { Prompt } from "./components/Prompt";
 import { LanguagePick } from "./components/LanguagePick";
@@ -510,6 +511,7 @@ export default function App() {
   // until a menu item asks for a name — it costs a null render otherwise.
   const overlays = (
     <>
+      {theme === "subzero" && field === "drift" ? <DriftField light={resolved === "light"} /> : null}
       {showSettings ? <Settings onClose={() => setShowSettings(false)} /> : null}
       <Prompt />
       <LanguagePick />
