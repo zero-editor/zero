@@ -15,7 +15,20 @@ export interface ProjectAgents {
    *  there is none, or when they are of different kinds, which has no one
    *  colour and falls back to the default. */
   agent: Agent | null;
+  /** the round itself, one entry per session in it: its key, its agent
+   *  and whether it is still working — what a tab draws a piece for */
+  members: RoundMember[];
 }
+
+export interface RoundMember {
+  key: string;
+  agent: Agent;
+  working: boolean;
+}
+
+const sameMembers = (a: RoundMember[], b: RoundMember[]) =>
+  a.length === b.length &&
+  a.every((m, i) => m.key === b[i].key && m.agent === b[i].agent && m.working === b[i].working);
 
 // The agents say which state they're in themselves: each retitles the
 // terminal (OSC 0) with a spinner glyph while working and, once it's waiting
@@ -56,7 +69,12 @@ const sameStatus = (a: Record<string, ProjectAgents>, b: Record<string, ProjectA
   return (
     keys.length === Object.keys(b).length &&
     keys.every(
-      (k) => b[k] && a[k].working === b[k].working && a[k].done === b[k].done && a[k].agent === b[k].agent
+      (k) =>
+        b[k] &&
+        a[k].working === b[k].working &&
+        a[k].done === b[k].done &&
+        a[k].agent === b[k].agent &&
+        sameMembers(a[k].members, b[k].members)
     )
   );
 };
@@ -158,7 +176,7 @@ export function useAgentStatus(roots: string[]): Record<string, ProjectAgents> {
       const by: Record<string, { working: Set<Agent>; done: Set<Agent> }> = {};
       const rows: Record<string, { key: string; agent: Agent; working: boolean }[]> = {};
       for (const root of key ? key.split("\0") : []) {
-        next[root] = { working: 0, done: 0, agent: null };
+        next[root] = { working: 0, done: 0, agent: null, members: [] };
         by[root] = { working: new Set(), done: new Set() };
         rows[root] = [];
       }
@@ -181,6 +199,7 @@ export function useAgentStatus(roots: string[]): Record<string, ProjectAgents> {
         if (!busy && list.some((r) => r.working)) members.clear();
         const slot = next[root];
         for (const r of list) {
+          if (r.working || members.has(r.key)) slot.members.push(r);
           if (r.working) {
             members.add(r.key);
             slot.working++;

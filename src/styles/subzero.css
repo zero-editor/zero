@@ -370,23 +370,28 @@ html.subzero .split-hint::after {
    lamps for the others (Titlebar names the agent when there is one to name;
    a project with two kinds at work keeps the amber). The arc's bright tip
    is a tint of the lamp; Claude's is the hand-picked one it always had. */
-html.subzero .agent-ring {
+html.subzero .agent-ring,
+html.subzero .agent-lamp {
   --lamp: var(--signal);
   --lamp-tip: #ffc98f;
 }
 
-html.subzero .agent-ring.agent-codex {
+html.subzero .agent-ring.agent-codex,
+html.subzero .agent-lamp.agent-codex {
   --lamp: var(--signal-codex);
   --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
 }
 
-html.subzero .agent-ring.agent-kimi {
+html.subzero .agent-ring.agent-kimi,
+html.subzero .agent-lamp.agent-kimi {
   --lamp: var(--signal-kimi);
   --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
 }
 
 html.subzero .agent-ring.agent-pi,
-html.subzero .agent-ring.agent-omp {
+html.subzero .agent-ring.agent-omp,
+html.subzero .agent-lamp.agent-pi,
+html.subzero .agent-lamp.agent-omp {
   --lamp: var(--signal-pi);
   --lamp-tip: color-mix(in srgb, rgb(var(--lamp)) 65%, white);
 }

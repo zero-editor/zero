@@ -33,6 +33,11 @@ export type Appearance = (typeof APPEARANCES)[number];
 export const TERM_STYLES = ["panel", "plain"] as const;
 export type TermStyle = (typeof TERM_STYLES)[number];
 
+/** How a project tab shows its agents: a 2px line along the tab's foot, or
+ *  the ring in the icon's slot — both cut one piece per agent. */
+export const AGENT_MARKS = ["line", "ring"] as const;
+export type AgentMark = (typeof AGENT_MARKS)[number];
+
 export interface Settings {
   theme: Theme;
   field: Field;
@@ -50,6 +55,7 @@ export interface Settings {
    *  controls and fills that need a surface under them, and "plain" for those
    *  would be a panel that kept every part of the card except the card. */
   termStyle: TermStyle;
+  agentMark: AgentMark;
   /** the user's language choices: extension (or whole filename when there is
    *  no extension) → registry language name. lang.ts owns what the keys and
    *  values mean; this is only where they sleep. */
@@ -104,6 +110,7 @@ const DEFAULTS: Settings = {
   glass: true,
   appearance: "system",
   termStyle: "panel",
+  agentMark: "line",
   langOverrides: {},
   developer: false,
   // off, because it is somebody else's product: a new install shouldn't carry
@@ -138,6 +145,9 @@ function parse(raw: string | null): Settings {
     termStyle: TERM_STYLES.includes(blob.termStyle as TermStyle)
       ? (blob.termStyle as TermStyle)
       : DEFAULTS.termStyle,
+    agentMark: AGENT_MARKS.includes(blob.agentMark as AgentMark)
+      ? (blob.agentMark as AgentMark)
+      : DEFAULTS.agentMark,
     langOverrides: sanitizeOverrides(blob.langOverrides),
     developer: typeof blob.developer === "boolean" ? blob.developer : DEFAULTS.developer,
     // The one field that doesn't fall back to its default. A stored blob with

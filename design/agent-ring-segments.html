@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Segmented agent ring</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --field: #111213;
+    --tab: rgba(255,255,255,.06);
+    --text: #f2f2f0;
+    --dim: #a3a4a6;
+    --faint: #67696c;
+    --line: rgba(255,255,255,.075);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--field);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 980px; margin: 0 auto; padding: 48px 24px 72px; }
+  h1 { margin: 0 0 8px; font-size: 26px; font-weight: 560; letter-spacing: -.03em; }
+  p.intro { margin: 0 0 36px; color: var(--dim); font-size: 14px; line-height: 1.6; max-width: 640px; }
+  h2 { margin: 44px 0 14px; color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+
+  /* titlebar mock, real size */
+  .titlebar {
+    display: flex; justify-content: center; gap: 4px;
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px;
+    background: rgba(255,255,255,.015);
+  }
+  .tab {
+    position: relative; display: flex; align-items: center; gap: 5px;
+    height: 28px; padding: 0 30px 0 7px; border-radius: 8px;
+    color: rgba(242,242,240,.55); font-size: 12.5px; line-height: 16px;
+  }
+  .tab.active { color: var(--text); background: var(--tab); }
+  .slot { position: relative; width: 18px; height: 18px; flex: none; }
+  .slot svg { position: absolute; left: 4px; top: 4px; width: 10px; height: 10px; overflow: visible; }
+  .slot .icon { position: absolute; left: 2.5px; top: 2.5px; width: 13px; height: 13px; border-radius: 3px; background: #3a3c40; }
+
+  /* zoomed grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .cell {
+    border: 1px solid var(--line); border-radius: 10px; padding: 18px 12px 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  .cell svg.big { width: 80px; height: 80px; overflow: visible; }
+  .cell .real { display: flex; align-items: center; gap: 10px; }
+  .cell .real svg { width: 10px; height: 10px; overflow: visible; }
+  .cell .cap { color: var(--dim); font-size: 12px; text-align: center; }
+  .cell .cap b { color: var(--text); font-weight: 500; }
+
+  .controls { display: flex; gap: 28px; align-items: center; margin-bottom: 16px; color: var(--dim); font-size: 13px; }
+  .controls input { vertical-align: middle; }
+  .play { display: flex; gap: 40px; align-items: center; justify-content: center; padding: 28px; border: 1px solid var(--line); border-radius: 12px; }
+  .play svg.big { width: 120px; height: 120px; overflow: visible; }
+  .play .real svg { width: 10px; height: 10px; overflow: visible; }
+
+  .seg-done { stroke: #fff; filter: drop-shadow(0 0 .35px rgba(255,255,255,.6)); }
+  .seg-work { stroke: rgba(255,255,255,.14); }
+  .seg-seen { stroke: rgba(255,255,255,.42); }
+  .seg-sweep { stroke: #fff; stroke-dasharray: 22 78; animation: sweep 1.2s steps(18, end) infinite; filter: drop-shadow(0 0 .4px rgba(255,255,255,.7)); }
+  @keyframes sweep { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+  .full { stroke: #fff; }
+  .check { stroke: #fff; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .spin { transform-origin: 5px 5px; animation: spin 1.5s steps(24, end) infinite; }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  @media (max-width: 600px) { .play { flex-direction: column; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Segmented agent ring</h1>
+  <p class="intro">The number goes. The ring gets one arc per agent in the round: a lit arc
+    means that agent has finished, and a dim arc with a light running along it means it's still
+    working. When every arc is lit, the ring closes and shows the check, the same as today. With one agent,
+    nothing changes. Finished arcs you've already looked at (by visiting the tab) dim to a solid
+    grey, so bright always means new, and the ring never re-cuts. The ring keeps its 10px size inside the 18px slot, and the ✕ gets its space back.</p>
+
+  <h2>In the titlebar, real size</h2>
+  <div class="titlebar" id="strip"></div>
+
+  <h2>Every state, 8× and real size</h2>
+  <div class="grid" id="grid"></div>
+
+  <h2>Try it</h2>
+  <div class="controls">
+    <label>agents <input type="range" id="n" min="1" max="6" value="4"> <span id="nv">4</span></label>
+    <label>finished <input type="range" id="d" min="0" max="4" value="2"> <span id="dv">2</span></label>
+    <label>seen <input type="range" id="s" min="0" max="2" value="1"> <span id="sv">1</span></label>
+  </div>
+  <div class="play" id="play"></div>
+</div>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const C = 5, R = 4.3, SW = 1.4;
+
+function arc(a0, a1) {
+  const p = a => [C + R * Math.cos(a), C + R * Math.sin(a)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M${x0.toFixed(3)} ${y0.toFixed(3)}A${R} ${R} 0 ${large} 1 ${x1.toFixed(3)} ${y1.toFixed(3)}`;
+}
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent && parent.appendChild(e);
+  return e;
+}
+
+/* total agents n, finished d, of which the first `seen` you've already looked at */
+function ring(n, d, cls, seen = 0) {
+  const svg = el("svg", { viewBox: "0 0 10 10", class: cls || "" });
+  if (n === 1 && d === 0) {
+    // today's single-agent spinner
+    el("circle", { cx: C, cy: C, r: R, fill: "none", "stroke-width": SW, class: "seg-work" }, svg);
+    const g = el("g", { class: "spin" }, svg);
+    el("path", { d: arc(-Math.PI / 2 - 1.4, -Math.PI / 2), fill: "none", "stroke-width": SW, stroke: "#fff", "stroke-linecap": "round" }, g);
+    return svg;
+  }
+  if (d >= n) {
+    el("circle", { cx: C, cy: C, r: R, fill: "none", "stroke-width": SW, class: "full" }, svg);
+    el("path", { d: "M3 5.1 4.4 6.5 7 3.8", "stroke-width": 1.1, class: "check" }, svg);
+    return svg;
+  }
+  const gap = 0.55;            // radians of empty between arcs
+  const step = (2 * Math.PI) / n;
+  for (let i = 0; i < n; i++) {
+    const a0 = -Math.PI / 2 + i * step + gap / 2;
+    const a1 = a0 + step - gap;
+    const d_ = arc(a0, a1);
+    if (i < seen) {
+      el("path", { d: d_, fill: "none", "stroke-width": SW, class: "seg-seen" }, svg);
+    } else if (i < d) {
+      el("path", { d: d_, fill: "none", "stroke-width": SW, class: "seg-done", "stroke-linecap": "butt" }, svg);
+    } else {
+      el("path", { d: d_, fill: "none", "stroke-width": SW, class: "seg-work" }, svg);
+      const s = el("path", { d: d_, fill: "none", "stroke-width": SW, class: "seg-sweep", pathLength: 100 }, svg);
+      s.style.animationDelay = `${-(i * 0.2)}s`;
+    }
+  }
+  return svg;
+}
+
+// titlebar
+const strip = document.getElementById("strip");
+[["zero", 3, 1, true, 1], ["website", 1, 0], ["strata-bot", 2, 2], ["trmnl", 4, 3, false, 2], ["notes", 0, 0]].forEach(([name, n, d, active, seen = 0]) => {
+  const t = document.createElement("div");
+  t.className = "tab" + (active ? " active" : "");
+  const slot = document.createElement("span");
+  slot.className = "slot";
+  if (n) slot.appendChild(ring(n, d, "", seen)); else { const i = document.createElement("span"); i.className = "icon"; slot.appendChild(i); }
+  t.appendChild(slot);
+  t.appendChild(document.createTextNode(name));
+  strip.appendChild(t);
+});
+
+// grid
+const grid = document.getElementById("grid");
+const states = [[1,0,"one agent, working"],[1,1,"one agent, done"],[2,0,"2 working"],[2,1,"1 of 2 done"],
+  [3,1,"1 of 3 done"],[3,2,"2 of 3 done"],[4,2,"2 of 4 done"],[4,3,"3 of 4 done"],[6,4,"4 of 6 done"],[3,3,"all done"],
+  [3,1,"1 of 3 done, <b>seen</b>",1],[4,3,"3 of 4 done, 2 seen + <b>1 new</b>",2],[6,4,"4 of 6 done, 3 seen + <b>1 new</b>",3]];
+for (const [n, d, cap, seen = 0] of states) {
+  const c = document.createElement("div"); c.className = "cell";
+  c.appendChild(ring(n, d, "big", seen));
+  const r = document.createElement("div"); r.className = "real"; r.appendChild(ring(n, d, "", seen)); c.appendChild(r);
+  const p = document.createElement("div"); p.className = "cap"; p.innerHTML = cap; c.appendChild(p);
+  grid.appendChild(c);
+}
+
+// playground
+const n = document.getElementById("n"), d = document.getElementById("d"), sn = document.getElementById("s"), play = document.getElementById("play");
+function draw() {
+  d.max = n.value; if (+d.value > +n.value) d.value = n.value;
+  document.getElementById("nv").textContent = n.value;
+  sn.max = d.value; if (+sn.value > +d.value) sn.value = d.value;
+  document.getElementById("dv").textContent = d.value;
+  document.getElementById("sv").textContent = sn.value;
+  play.replaceChildren(ring(+n.value, +d.value, "big", +sn.value));
+  const r = document.createElement("div"); r.className = "real"; r.appendChild(ring(+n.value, +d.value, "", +sn.value)); play.appendChild(r);
+}
+n.oninput = d.oninput = sn.oninput = draw; draw();
+</script>
+</body>
+</html>

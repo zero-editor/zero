@@ -134,9 +134,9 @@ body.dragging-tab .editor-tab * {
   cursor: grabbing;
 }
 
-/* per-project coding-agent indicator: a hairline ring on the logo's square,
-   with the finished / total fraction reserved to the right of the project
-   name. Both reservations are fixed, so neither the mark nor the name moves. */
+/* per-project coding-agent indicator: either a ring on the logo's square or a
+   line along the tab's foot (settings.agentMark). Both are fixed or
+   absolute, so neither the mark nor the name moves. */
 .titlebar-tab-status {
   position: relative;
   flex: none;
@@ -160,33 +160,118 @@ body.dragging-tab .editor-tab * {
   white-space: nowrap;
 }
 
-.titlebar-tab-fraction-count {
+/* An agent's piece, in either mark: dim and travelled by a light while it
+   works, lit once it finishes, dimmed again once you've been in the project
+   since. `--lamp` is white here; subzero gives each agent its own. */
+.agent-lamp {
+  --lamp: 255, 255, 255;
+}
+
+/* the ring cut one arc per agent, in the ring's own box */
+.agent-segs {
   position: absolute;
-  right: 11px;
-  top: 6px;
-  width: 28px;
-  height: 16px;
-  color: currentColor;
-  font-size: 10px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 16px;
-  letter-spacing: -0.15px;
-  text-align: right;
-  white-space: nowrap;
+  left: 4px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  overflow: visible;
+}
+
+.agent-seg {
+  fill: none;
+  stroke-width: 1.4px;
+}
+
+.agent-seg.working {
+  stroke: rgba(var(--lamp), 0.14);
+}
+
+.agent-seg.seen {
+  stroke: rgba(var(--lamp), 0.42);
+}
+
+.agent-seg.fresh {
+  stroke: rgb(var(--lamp));
+  filter: drop-shadow(0 0 0.6px rgba(var(--lamp), 0.7));
+}
+
+/* steps, not linear — the WindowServer bill, see .agent-ring::after */
+.agent-seg.sweep {
+  stroke: rgb(var(--lamp));
+  stroke-dasharray: 22 78;
+  animation: agent-seg-sweep 1.2s steps(18, end) infinite;
+}
+
+@keyframes agent-seg-sweep {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* the same pieces as a hairline along the tab's foot, spanning its width so
+   each piece is long enough to read at any zoom. Absolute, so it takes no
+   room and moves nothing. */
+.agent-line {
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 1px;
+  height: 2px;
+  display: flex;
+  gap: 2px;
   pointer-events: none;
-  transition: opacity 0.12s ease;
 }
 
-/* The fraction borrows the hidden ✕'s space rather than widening the tab.
-   Hovering trades it for the close button in the same place. */
-.titlebar-tab:hover .titlebar-tab-fraction-count {
-  opacity: 0;
+.agent-line-seg {
+  position: relative;
+  flex: 1;
+  border-radius: 1px;
+  overflow: hidden;
 }
 
-.titlebar-tab-fraction-total {
-  opacity: 0.55;
-  font-weight: 400;
+.agent-line-seg.working {
+  background: rgba(var(--lamp), 0.14);
+}
+
+.agent-line-seg.seen {
+  background: rgba(var(--lamp), 0.38);
+}
+
+.agent-line-seg.fresh {
+  background: rgb(var(--lamp));
+  box-shadow: 0 0 4px rgba(var(--lamp), 0.45);
+}
+
+.agent-line-seg.working::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgb(var(--lamp)) 70%, transparent);
+  will-change: transform;
+  animation: agent-line-run 1.4s steps(20, end) infinite;
+  animation-delay: inherit;
+}
+
+@keyframes agent-line-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(223%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-seg.sweep,
+  .agent-line-seg.working::after {
+    animation: none;
+  }
 }
 
 .agent-ring {

@@ -245,6 +245,29 @@ export function Settings({ onClose }: { onClose: () => void }) {
           })}
         </div>
         <div className="settings-group">
+          <div className="settings-label">agents in tabs</div>
+          {/* how a project tab says which of its agents are done — see
+              Titlebar's AgentMark */}
+          {(
+            [
+              { id: "line", label: "line" },
+              { id: "ring", label: "ring" },
+            ] as const
+          ).map((c) => {
+            const on = settings.agentMark === c.id;
+            return (
+              <button
+                key={c.id}
+                className={`settings-choice ${on ? "on" : ""}`}
+                onClick={() => updateSettings({ agentMark: c.id })}
+              >
+                <span className="settings-dot" aria-hidden />
+                <span className="settings-choice-name">{c.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="settings-group">
           <div className="settings-label">developer</div>
           {/* what `on` shows today is one button — `claude call`, under every
               turn of a memo thread — and the word for the group is deliberately

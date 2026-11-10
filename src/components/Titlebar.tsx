@@ -8,9 +8,70 @@ import { useTabReorder } from "../lib/tabReorder";
 import { useUpdate } from "../lib/update";
 import { WhatsNew } from "./WhatsNew";
 import { arrivalNotesFrom } from "../lib/releaseNotes";
+import { useSettings } from "../lib/settings";
+import type { Agent } from "../lib/api";
 
 const sameSet = (a: Set<string>, b: Set<string>) =>
   a.size === b.size && [...a].every((v) => b.has(v));
+
+/** One agent of a project's round, as drawn: finished and already seen,
+ *  finished since you last looked, or still working — and whose it is, so
+ *  each piece wears its own agent's colour. */
+type Piece = { kind: "seen" | "fresh" | "working"; agent: Agent };
+const ORDER = { seen: 0, fresh: 1, working: 2 } as const;
+
+const agentLabel = (pieces: Piece[]) => {
+  const done = pieces.filter((p) => p.kind !== "working").length;
+  const fresh = pieces.filter((p) => p.kind === "fresh").length;
+  return (
+    `${done} of ${pieces.length} agent${pieces.length === 1 ? "" : "s"} finished` +
+    (fresh ? ` · ${fresh} new` : "")
+  );
+};
+
+/** the ring, cut one arc per agent — for a project with more than one agent
+ *  and not all of them finished. 10px across, the same box as the ring. */
+function AgentSegments({ pieces }: { pieces: Piece[] }) {
+  const list = pieces;
+  const C = 5;
+  const R = 4.3;
+  const gap = 0.55;
+  const step = (2 * Math.PI) / list.length;
+  const at = (a: number) => `${(C + R * Math.cos(a)).toFixed(3)} ${(C + R * Math.sin(a)).toFixed(3)}`;
+  return (
+    <svg className="agent-segs" viewBox="0 0 10 10" aria-hidden="true">
+      {list.map(({ kind, agent }, i) => {
+        const a0 = -Math.PI / 2 + i * step + gap / 2;
+        const a1 = a0 + step - gap;
+        const d = `M${at(a0)}A${R} ${R} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${at(a1)}`;
+        return kind === "working" ? (
+          <g key={i} className={`agent-lamp agent-${agent}`}>
+            <path d={d} className="agent-seg working" />
+            <path
+              d={d}
+              className="agent-seg sweep"
+              pathLength={100}
+              style={{ animationDelay: `${-i * 0.2}s` }}
+            />
+          </g>
+        ) : (
+          <path key={i} d={d} className={`agent-seg agent-lamp agent-${agent} ${kind}`} />
+        );
+      })}
+    </svg>
+  );
+}
+
+/** the same pieces as a 2px line along the foot of the tab */
+function AgentLine({ pieces }: { pieces: Piece[] }) {
+  return (
+    <span className="agent-line" aria-hidden="true">
+      {pieces.map(({ kind, agent }, i) => (
+        <span key={i} className={`agent-line-seg agent-lamp agent-${agent} ${kind}`} style={{ animationDelay: `${-i * 0.35}s` }} />
+      ))}
+    </span>
+  );
+}
 
 
 export function Titlebar({
@@ -48,28 +109,45 @@ export function Titlebar({
   const agents = useAgentStatus(projects.map((p) => p.root));
   const icons = useProjectIcons(projects.map((p) => p.root));
   const activeRoot = projects[activeIdx]?.root;
+  const { agentMark } = useSettings();
 
-  // "finished" is an unread badge: being in the project reads it, and only a
-  // session starting work again makes it unread once more. A project the strip
-  // is meeting for the first time starts read — after a restart the daemon
-  // hands back sessions that finished long ago, and a badge for those would
-  // announce news that isn't; only a finish this instance watched happen is.
+  // "finished" is unread, per agent: the sessions whose finish you have
+  // seen, by being in the project. Those draw dim; any finished since draw
+  // lit. A finish you were there for is seen as it happens, and a session
+  // that starts working again stops being seen, so its next finish is news.
+  // A project the strip is meeting for the first time starts read — after a
+  // restart the daemon hands back sessions that finished long ago, and a
+  // badge for those would announce news that isn't; only a finish this
+  // instance watched happen is. "Meeting" is the first poll that names it,
+  // not the first render, which comes before any counts at all.
   const [seen, setSeen] = useState<Set<string>>(new Set());
   const known = useRef<Set<string>>(new Set());
   useEffect(() => {
     setSeen((prev) => {
-      const next = new Set(prev);
+      const next = new Set<string>();
       for (const p of projects) {
-        if (!known.current.has(p.root)) {
-          known.current.add(p.root);
-          next.add(p.root);
-        }
-        if (p.root === activeRoot) next.add(p.root);
-        else if ((agents[p.root]?.working ?? 0) > 0) next.delete(p.root);
+        const c = agents[p.root];
+        if (!c) continue;
+        const all = !known.current.has(p.root) || p.root === activeRoot;
+        known.current.add(p.root);
+        for (const m of c.members) if (!m.working && (all || prev.has(m.key))) next.add(m.key);
       }
       return sameSet(prev, next) ? prev : next;
     });
   }, [agents, projects, activeRoot]);
+
+  /** what a project's tab has to show, or null for nothing — no agents, or
+   *  every one finished and seen */
+  const piecesOf = (root: string): Piece[] | null => {
+    const c = agents[root];
+    if (!c) return null;
+    const pieces: Piece[] = c.members.map((m) => ({
+      kind: m.working ? "working" : seen.has(m.key) ? "seen" : "fresh",
+      agent: m.agent,
+    }));
+    if (!pieces.some((p) => p.kind !== "seen")) return null;
+    return pieces.sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+  };
 
   const { stripRef, drag, start: startDrag, shift } = useTabReorder(".titlebar-tab", onReorder);
 
@@ -175,76 +253,69 @@ export function Titlebar({
             <span className="titlebar-tab-status">
               {(() => {
                 const c = agents[p.root];
-                const working = c?.working ?? 0;
-                // While work continues the fraction reports the real counts,
-                // even in the active project. Once everything is finished the
-                // badge keeps its unread semantics and clears on being seen.
-                const done = working === 0 && seen.has(p.root) ? 0 : (c?.done ?? 0);
-                if (!working && !done)
-                  return icons[p.root] ? (
-                    <img className="titlebar-tab-icon" src={icons[p.root]} alt="" />
-                  ) : (
-                    // no icon in the repository: one drawn from its path, so
-                    // the square is never the odd empty one out
-                    <svg className="titlebar-tab-mark" width="13" height="13" viewBox="0 0 5 5">
-                      {identicon(p.root).map(
-                        (on, n) =>
-                          on && (
-                            <rect
-                              key={n}
-                              x={(n % 5) + 0.06}
-                              y={Math.floor(n / 5) + 0.06}
-                              width="0.88"
-                              height="0.88"
+                const pieces = piecesOf(p.root);
+                const icon = icons[p.root] ? (
+                  <img className="titlebar-tab-icon" src={icons[p.root]} alt="" />
+                ) : (
+                  // no icon in the repository: one drawn from its path, so
+                  // the square is never the odd empty one out
+                  <svg className="titlebar-tab-mark" width="13" height="13" viewBox="0 0 5 5">
+                    {identicon(p.root).map(
+                      (on, n) =>
+                        on && (
+                          <rect
+                            key={n}
+                            x={(n % 5) + 0.06}
+                            y={Math.floor(n / 5) + 0.06}
+                            width="0.88"
+                            height="0.88"
+                          />
+                        ),
+                    )}
+                  </svg>
+                );
+                if (!pieces || agentMark === "line") return icon;
+                const working = pieces.filter((x) => x.kind === "working").length;
+                const total = pieces.length;
+                const label = agentLabel(pieces);
+                // one agent, or none left working: the whole ring says it —
+                // spinning, or closed with the check
+                if (total === 1 || working === 0)
+                  return (
+                    <span className="titlebar-tab-fraction" role="img" aria-label={label} title={label}>
+                      <span
+                        // the agent's own colour, where the theme gives it one
+                        // (subzero.css) and where there is one agent to name
+                        className={`agent-ring ${working ? "working" : "done"} ${c?.agent ? `agent-${c.agent}` : ""}`}
+                      >
+                        {!working && (
+                          <svg className="agent-ring-check" viewBox="0 0 10 10" aria-hidden="true">
+                            <path
+                              d="M2 5.2 4.1 7.2 8 3"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.35"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             />
-                          ),
-                      )}
-                    </svg>
+                          </svg>
+                        )}
+                      </span>
+                    </span>
                   );
-                const label = `${done} agent${done === 1 ? "" : "s"} finished · ${working} working`;
                 return (
                   <span className="titlebar-tab-fraction" role="img" aria-label={label} title={label}>
-                    <span
-                      // the agent's own colour, where the theme gives it one
-                      // (subzero.css) and where there is one agent to name
-                      className={`agent-ring ${working ? "working" : "done"} ${c?.agent ? `agent-${c.agent}` : ""}`}
-                    >
-                      {!working && (
-                        <svg className="agent-ring-check" viewBox="0 0 10 10" aria-hidden="true">
-                          <path
-                            d="M2 5.2 4.1 7.2 8 3"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.35"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      )}
-                    </span>
+                    <AgentSegments pieces={pieces} />
                   </span>
                 );
               })()}
             </span>
             <span className="titlebar-tab-name">{p.name}</span>
-            {/* overlays the hidden close button, leaving the tab's original
-                width and the logo/name spacing untouched */}
-            <span className="titlebar-tab-fraction-count" aria-hidden="true">
-              {(() => {
-                const c = agents[p.root];
-                const working = c?.working ?? 0;
-                if (!working && seen.has(p.root)) return null;
-                const done = c?.done ?? 0;
-                const total = working + done;
-                // one agent: the ring alone says it — a 0/1 or 1/1 adds nothing
-                if (total < 2) return null;
-                return (
-                  <>
-                    {done}<span className="titlebar-tab-fraction-total">/{total}</span>
-                  </>
-                );
+            {agentMark === "line" &&
+              (() => {
+                const pieces = piecesOf(p.root);
+                return pieces && <AgentLine pieces={pieces} />;
               })()}
-            </span>
             <button
               className="titlebar-tab-close"
               onMouseDown={(e) => e.stopPropagation()}

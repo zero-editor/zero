@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent tab underline</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --field: #111213;
+    --tab: rgba(255,255,255,.06);
+    --text: #f2f2f0;
+    --dim: #a3a4a6;
+    --faint: #67696c;
+    --line: rgba(255,255,255,.075);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--field);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1040px; margin: 0 auto; padding: 48px 24px 72px; }
+  h1 { margin: 0 0 8px; font-size: 26px; font-weight: 560; letter-spacing: -.03em; }
+  p.intro { margin: 0 0 32px; color: var(--dim); font-size: 14px; line-height: 1.6; max-width: 680px; }
+  h2 { margin: 40px 0 14px; color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+  .legend { display: flex; gap: 22px; flex-wrap: wrap; color: var(--dim); font-size: 13px; margin-bottom: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend i { display: inline-block; width: 22px; height: 2px; border-radius: 1px; position: relative; overflow: hidden; }
+
+  .titlebar {
+    display: flex; justify-content: center; gap: 4px; flex-wrap: wrap;
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px;
+    background: rgba(255,255,255,.015);
+    transform-origin: top center;
+  }
+  .zoomwrap { overflow-x: auto; padding-bottom: 4px; }
+  .z2 { zoom: 2; }
+  .tab {
+    position: relative; display: flex; align-items: center; gap: 5px;
+    height: 28px; padding: 0 30px 0 7px; border-radius: 8px;
+    color: rgba(242,242,240,.55); font-size: 12.5px; line-height: 16px;
+  }
+  .tab.active { color: var(--text); background: var(--tab); }
+  .icon { width: 13px; height: 13px; margin: 2.5px; border-radius: 3px; background: #3a3c40; flex: none; }
+
+  /* the line: inset to the tab's content, sits on the bottom edge */
+  .bar {
+    position: absolute; left: 8px; right: 8px; bottom: 2px; height: 2px;
+    display: flex; gap: 2px;
+  }
+  .seg { flex: 1; height: 100%; border-radius: 1px; position: relative; overflow: hidden; }
+  .seg.new  { background: #fff; box-shadow: 0 0 4px rgba(255,255,255,.45); }
+  .seg.seen { background: rgba(255,255,255,.32); }
+  .seg.work { background: rgba(255,255,255,.12); }
+  .seg.work::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 45%;
+    background: linear-gradient(90deg, transparent, #fff 70%, transparent);
+    animation: run 1.4s steps(20, end) infinite;
+    animation-delay: var(--d, 0s);
+  }
+  @keyframes run { from { left: -45%; } to { left: 100%; } }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .cell { border: 1px solid var(--line); border-radius: 10px; padding: 16px 12px 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .cell .cap { color: var(--dim); font-size: 12px; text-align: center; }
+  .cell .cap b { color: var(--text); font-weight: 500; }
+
+  .controls { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; color: var(--dim); font-size: 13px; }
+  .controls input[type=range] { vertical-align: middle; }
+  .play { display: flex; justify-content: center; padding: 28px; border: 1px solid var(--line); border-radius: 12px; }
+  @media (prefers-reduced-motion: reduce) { .seg.work::after { animation: none; left: 30%; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Agent tab underline</h1>
+  <p class="intro">The icon slot goes back to the project icon. Agent state moves to a 2px line along the
+    bottom of the tab, with one segment per agent in the round. The segments split the tab's whole width, so even six agents
+    each get a readable length. Nothing changes the tab's width or moves the name. When everything is done and you've seen it, the line goes away.</p>
+
+  <div class="legend">
+    <span><i class="seg work" style="--d:0s"></i> working</span>
+    <span><i class="seg new"></i> finished, new to you</span>
+    <span><i class="seg seen"></i> finished, seen</span>
+  </div>
+
+  <h2>Titlebar, real size</h2>
+  <div class="zoomwrap"><div class="titlebar" id="strip1"></div></div>
+
+  <h2>Titlebar, 2× (closer to your zoom)</h2>
+  <div class="zoomwrap"><div class="titlebar z2" id="strip2"></div></div>
+
+  <h2>Every state, 2×</h2>
+  <div class="grid" id="grid"></div>
+
+  <h2>Try it</h2>
+  <div class="controls">
+    <label>agents <input type="range" id="n" min="1" max="8" value="4"> <span id="nv"></span></label>
+    <label>finished <input type="range" id="d" min="0" max="4" value="2"> <span id="dv"></span></label>
+    <label>seen <input type="range" id="s" min="0" max="2" value="1"> <span id="sv"></span></label>
+    <label>name <input id="name" value="zero" size="12"></label>
+  </div>
+  <div class="play"><div class="titlebar z2" id="play" style="border:0;background:none"></div></div>
+</div>
+
+<script>
+/* n agents, d finished, of which the first `seen` you've looked at */
+function tab(name, n, d, seen = 0, active = false) {
+  const t = document.createElement("div");
+  t.className = "tab" + (active ? " active" : "");
+  t.innerHTML = `<span class="icon"></span>${name}`;
+  if (n && !(d >= n && seen >= n)) {
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    for (let i = 0; i < n; i++) {
+      const s = document.createElement("div");
+      s.className = "seg " + (i < seen ? "seen" : i < d ? "new" : "work");
+      s.style.setProperty("--d", `${-(i * 0.35)}s`);
+      bar.appendChild(s);
+    }
+    t.appendChild(bar);
+  }
+  const label = n ? `${d} of ${n} finished` : "";
+  t.title = label;
+  return t;
+}
+
+const strip = [["zero", 3, 1, 1, true], ["website", 1, 0], ["strata-bot", 2, 2, 0], ["trmnl", 4, 3, 2], ["ramble", 6, 2, 0], ["notes", 0, 0]];
+for (const id of ["strip1", "strip2"]) {
+  const el = document.getElementById(id);
+  for (const [name, n, d, seen, active] of strip) el.appendChild(tab(name, n, d, seen, active));
+}
+
+const states = [
+  [1, 0, 0, "one agent, working"], [1, 1, 0, "one agent, <b>done</b>"],
+  [2, 1, 0, "1 of 2 done"], [3, 2, 0, "2 of 3 done"],
+  [4, 3, 2, "3 of 4 done, 2 seen + <b>1 new</b>"], [3, 1, 1, "1 of 3 done, seen"],
+  [6, 4, 3, "4 of 6 done, 3 seen + <b>1 new</b>"], [8, 5, 0, "5 of 8 done"],
+  [3, 3, 0, "all done, <b>new</b>"], [3, 3, 3, "all done and seen: no line"],
+];
+const grid = document.getElementById("grid");
+for (const [n, d, seen, cap] of states) {
+  const c = document.createElement("div"); c.className = "cell";
+  const w = document.createElement("div"); w.className = "z2"; w.appendChild(tab("project", n, d, seen, true));
+  c.appendChild(w);
+  const p = document.createElement("div"); p.className = "cap"; p.innerHTML = cap; c.appendChild(p);
+  grid.appendChild(c);
+}
+
+const n = document.getElementById("n"), d = document.getElementById("d"), s = document.getElementById("s"), nm = document.getElementById("name");
+function draw() {
+  d.max = n.value; if (+d.value > +n.value) d.value = n.value;
+  s.max = d.value; if (+s.value > +d.value) s.value = d.value;
+  nv.textContent = n.value; dv.textContent = d.value; sv.textContent = s.value;
+  document.getElementById("play").replaceChildren(tab(nm.value || " ", +n.value, +d.value, +s.value, true));
+}
+n.oninput = d.oninput = s.oninput = nm.oninput = draw; draw();
+</script>
+</body>
+</html>
