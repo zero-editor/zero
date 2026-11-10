@@ -35,7 +35,7 @@ function AgentSegments({ pieces }: { pieces: Piece[] }) {
   const list = pieces;
   const C = 5;
   const R = 4.3;
-  const gap = 0.55;
+  const gap = 0;
   const step = (2 * Math.PI) / list.length;
   const at = (a: number) => `${(C + R * Math.cos(a)).toFixed(3)} ${(C + R * Math.sin(a)).toFixed(3)}`;
   return (
