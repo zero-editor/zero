@@ -11,9 +11,12 @@ import { imageType } from "./imageFile";
  * file the repository already ships, so it works offline, costs one read, and
  * is the icon the project's own authors chose rather than one we invented.
  *
- * Only source directories are looked in. `dist`, `out`, `.next` and `.vercel`
- * hold copies of the same icons, and a build output is a place a name can be
- * hashed or a file left behind by a build from a month ago.
+ * Source directories are looked in first. `out`, `.next` and `.vercel` hold
+ * copies of the same icons and are never looked in. `dist` is the one
+ * exception, as a last resort: a site with no build step often commits its
+ * pages there by hand, and then it is the only place the icon lives. Hashed
+ * build names never match `NAMES` anyway, so the risk is a stale copy, and
+ * any source directory outranks it.
  */
 const DIRS = [
   "public",
@@ -58,7 +61,8 @@ const cache = new Map<string, Promise<string | null>>();
  * would otherwise lose its icon overnight. Those come after the root's own
  * source directories and before the bare root; `packages/*` are libraries,
  * whose icons are rarely the project's. An app called `web` goes first,
- * being the usual home of the favicon when there are several.
+ * being the usual home of the favicon when there are several. `dist` comes
+ * after all of them.
  */
 async function searchDirs(root: string): Promise<string[]> {
   const apps = (await api.listDir(`${root}/apps`).catch(() => []))
@@ -69,6 +73,7 @@ async function searchDirs(root: string): Promise<string[]> {
   return [
     ...own.map((d) => `${root}/${d}`),
     ...apps.flatMap((app) => own.map((d) => `${root}/apps/${app}/${d}`)),
+    `${root}/dist`,
     root,
   ];
 }
